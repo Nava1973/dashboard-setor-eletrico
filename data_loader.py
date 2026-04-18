@@ -24,8 +24,28 @@ from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
-import requests
 import streamlit as st
+
+# curl_cffi imita o fingerprint TLS do Chrome — muito mais difícil de bloquear
+# que o requests padrão. Akamai e Cloudflare costumam cair nessa.
+try:
+    from curl_cffi import requests as http
+    _CURL_CFFI_AVAILABLE = True
+except ImportError:
+    # Fallback para requests padrão se curl_cffi não estiver instalado
+    import requests as http
+    _CURL_CFFI_AVAILABLE = False
+
+
+def _http_get(url: str, **kwargs):
+    """
+    Faz uma requisição GET usando curl_cffi (com impersonate=chrome) se disponível,
+    ou requests normal como fallback.
+    """
+    if _CURL_CFFI_AVAILABLE:
+        # impersonate="chrome" faz a requisição parecer exatamente um Chrome real
+        return http.get(url, impersonate="chrome", **kwargs)
+    return http.get(url, **kwargs)
 
 # =============================================================================
 # CONFIGURAÇÃO
@@ -100,7 +120,7 @@ def _try_ckan_api(resource_id: str) -> pd.DataFrame | None:
     while True:
         params = {"resource_id": resource_id, "limit": limit, "offset": offset}
         try:
-            r = requests.get(base, params=params, headers=BROWSER_HEADERS, timeout=60)
+            r = _http_get(base, params=params, headers=BROWSER_HEADERS, timeout=60)
             r.raise_for_status()
             payload = r.json()
         except Exception as e:
@@ -138,7 +158,7 @@ def _try_dump(resource_id: str) -> pd.DataFrame | None:
     """Dump CSV completo via /datastore/dump/{id}?bom=True."""
     url = _dump_url(resource_id)
     try:
-        r = requests.get(url, headers=BROWSER_HEADERS, timeout=60)
+        r = _http_get(url, headers=BROWSER_HEADERS, timeout=60)
         r.raise_for_status()
     except Exception as e:
         errs = st.session_state.setdefault("_debug_erros", [])
@@ -158,7 +178,7 @@ def _try_dump(resource_id: str) -> pd.DataFrame | None:
 def _try_pda_download(url: str) -> pd.DataFrame | None:
     """Último recurso — URL pda-download."""
     try:
-        r = requests.get(url, headers=BROWSER_HEADERS, timeout=60, allow_redirects=True)
+        r = _http_get(url, headers=BROWSER_HEADERS, timeout=60, allow_redirects=True)
         r.raise_for_status()
     except Exception as e:
         errs = st.session_state.setdefault("_debug_erros", [])
