@@ -283,7 +283,7 @@ st.markdown(
         font-weight: 500 !important;
     }}
 
-    /* ===== CHECKBOX — versão mínima e estável ===== */
+    /* ===== CHECKBOX — dessaturar o rosa via filter grayscale ===== */
     /* Labels com fundo transparente */
     [data-testid="stAppViewContainer"] .stCheckbox label,
     [data-testid="stAppViewContainer"] .stCheckbox label p,
@@ -302,13 +302,10 @@ st.markdown(
         border: 2px solid {BAUHAUS_BLACK} !important;
         border-radius: 0 !important;
     }}
-    /* Quadradinho MARCADO (via input:checked com selector ~ para sibling):
-       Fundo cinza escuro em vez de rosa. Abordagem simples sem :has(). */
-    [data-testid="stAppViewContainer"] .stCheckbox input[type="checkbox"]:checked ~ span,
-    [data-testid="stAppViewContainer"] .stCheckbox input[type="checkbox"]:checked + span {{
-        background: #4A4A4A !important;
-        background-color: #4A4A4A !important;
-        border-color: #4A4A4A !important;
+    /* TRUQUE: aplicamos filter grayscale APENAS no quadradinho (primeiro span do label)
+       Isso dessatura qualquer cor rosa/vermelha pra cinza, sem precisar detectar estado */
+    [data-testid="stAppViewContainer"] .stCheckbox label > span:first-child {{
+        filter: grayscale(1) contrast(1.3) !important;
     }}
 
     /* Divisor */
@@ -459,7 +456,7 @@ components.html(
 # =============================================================================
 with st.sidebar:
     st.markdown("### Dashboard Setor Elétrico")
-    st.caption(f"Usuário: **{user}**")
+    st.caption(f"**{user}**")
 
     # Botões Sair e Atualizar — mesmo estilo: borda amarela fina, fundo transparente,
     # texto amarelo. JS marca cada um com data-sair/data-atualizar pra CSS atingir.
