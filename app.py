@@ -397,6 +397,10 @@ components.html(
 # SIDEBAR
 # =============================================================================
 with st.sidebar:
+    st.markdown("### Dashboard Setor Elétrico")
+    st.caption(f"Usuário: **{user}**")
+    st.divider()
+
     aba = st.radio(
         "NAVEGAÇÃO",
         ["PLD Diário"],
@@ -413,70 +417,62 @@ with st.sidebar:
     )
 
 # =============================================================================
-# BARRA SUPERIOR: Título + usuário + logout
-# Layout horizontal no topo da área principal, acima de qualquer aba.
+# BARRA SUPERIOR: usuário + logout (à direita, fundo preto)
 # =============================================================================
-# CSS específico da topbar: logout discreto, texto do título em Bebas Neue
 st.markdown(
     """
     <style>
-    /* Container da topbar */
-    .topbar-title {
-        font-family: 'Bebas Neue', sans-serif;
-        font-size: 1.3rem;
-        letter-spacing: 0.08em;
-        color: #1A1A1A;
-        line-height: 2.2rem;
-        margin: 0;
-        padding: 0;
+    /* Barra preta no topo */
+    .topbar-black {
+        background: #1A1A1A;
+        margin: -1rem -1rem 1rem -1rem;
+        padding: 0.4rem 1.2rem;
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 1.5rem;
+        border-bottom: 3px solid #F6BD16;
     }
     .topbar-user {
         font-family: 'Inter', sans-serif;
         font-size: 0.85rem;
-        color: #4A4A4A;
-        text-align: right;
-        line-height: 2.2rem;
-        margin: 0;
-        padding: 0 0.5rem 0 0;
+        color: #F5F1E8;
+        font-weight: 500;
     }
-    /* Logout botão — discreto, só texto sublinhado */
+    .topbar-user strong {
+        color: #F6BD16;
+        font-weight: 600;
+    }
+    /* Logout botão — no fundo preto, texto creme sublinhado */
     .topbar-logout-wrapper .stButton > button {
         background: transparent !important;
         border: none !important;
-        color: #4A4A4A !important;
+        color: #F5F1E8 !important;
         font-family: 'Inter', sans-serif !important;
         font-size: 0.85rem !important;
         font-weight: 500 !important;
         text-decoration: underline !important;
         padding: 0 !important;
         box-shadow: none !important;
-        min-height: 2.2rem !important;
-        height: 2.2rem !important;
+        min-height: 1.8rem !important;
+        height: 1.8rem !important;
     }
     .topbar-logout-wrapper .stButton > button:hover {
-        color: #D62828 !important;
+        color: #F6BD16 !important;
         background: transparent !important;
         border: none !important;
-    }
-    /* Linha separadora abaixo da topbar */
-    .topbar-separator {
-        border-bottom: 2px solid #1A1A1A;
-        margin: 0.3rem 0 1rem 0;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-tb_col1, tb_col2, tb_col3 = st.columns([5, 2, 1])
-with tb_col1:
-    st.markdown(
-        '<div class="topbar-title">DASHBOARD SETOR ELÉTRICO</div>',
-        unsafe_allow_html=True,
-    )
+# Layout horizontal: espaço vazio à esquerda, usuário+logout à direita
+tb_col1, tb_col2, tb_col3 = st.columns([8, 2, 1])
 with tb_col2:
     st.markdown(
-        f'<div class="topbar-user">Usuário: <strong>{user}</strong></div>',
+        f'<div class="topbar-user" style="text-align:right; line-height:1.8rem;">'
+        f'Usuário: <strong>{user}</strong></div>',
         unsafe_allow_html=True,
     )
 with tb_col3:
@@ -484,12 +480,17 @@ with tb_col3:
     logout_button(location="main", key="logout_topbar")
     st.markdown('</div>', unsafe_allow_html=True)
 
-st.markdown('<div class="topbar-separator"></div>', unsafe_allow_html=True)
-
 # =============================================================================
 # ABA: PLD MÉDIO DIÁRIO POR SUBMERCADO
 # =============================================================================
 if aba == "PLD Diário":
+    # Título principal da aba, em destaque Bauhaus (barra vermelha lateral)
+    st.markdown("# PLD DIÁRIO")
+    st.caption(
+        "Preço de Liquidação das Diferenças por submercado · "
+        "Fonte: CCEE Dados Abertos"
+    )
+
     # --- Carregar dados ---
     with st.spinner("Carregando dados da CCEE…"):
         try:
