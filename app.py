@@ -106,11 +106,8 @@ st.markdown(
     /* Botão nativo do Streamlit para sidebar — customizar visual mantendo click.
        Múltiplos seletores porque o Streamlit usa nomes diferentes dependendo
        da versão e do estado (aberto vs fechado). */
-    [data-testid="stSidebarCollapseButton"],
-    [data-testid="stSidebarCollapsedControl"],
-    [data-testid="collapsedControl"],
-    button[kind="header"],
-    button[kind="headerNoPadding"] {{
+    /* Botão NATIVO de FECHAR (quando sidebar está aberta) — estilizado em amarelo */
+    [data-testid="stSidebarCollapseButton"] {{
         background: {BAUHAUS_YELLOW} !important;
         border: 2px solid {BAUHAUS_BLACK} !important;
         border-radius: 0 !important;
@@ -121,25 +118,15 @@ st.markdown(
         overflow: hidden !important;
         cursor: pointer !important;
     }}
-
-    /* Esconder conteúdo interno visualmente, mas mantendo o clique funcionando. */
+    /* Esconder conteúdo interno do botão de FECHAR (texto "keyboard_double_arrow_left" etc.) */
     [data-testid="stSidebarCollapseButton"] > *,
-    [data-testid="stSidebarCollapsedControl"] > *,
-    [data-testid="collapsedControl"] > *,
     [data-testid="stSidebarCollapseButton"] svg,
-    [data-testid="stSidebarCollapsedControl"] svg,
-    [data-testid="collapsedControl"] svg,
-    [data-testid="stSidebarCollapseButton"] span,
-    [data-testid="stSidebarCollapsedControl"] span,
-    [data-testid="collapsedControl"] span,
-    button[kind="header"] span,
-    button[kind="headerNoPadding"] span {{
+    [data-testid="stSidebarCollapseButton"] span {{
         color: transparent !important;
         font-size: 0 !important;
         opacity: 0 !important;
     }}
-
-    /* Seta para FECHAR (sidebar aberta) */
+    /* Seta ‹ desenhada via pseudo-elemento */
     [data-testid="stSidebarCollapseButton"]::before {{
         content: "‹" !important;
         position: absolute !important;
@@ -154,20 +141,17 @@ st.markdown(
         z-index: 10 !important;
         pointer-events: none !important;
     }}
-    /* Seta para ABRIR (sidebar fechada) — múltiplos seletores */
-    [data-testid="stSidebarCollapsedControl"]::before,
-    [data-testid="collapsedControl"]::before {{
-        content: "›" !important;
-        position: absolute !important;
-        top: 50% !important;
-        left: 50% !important;
-        transform: translate(-50%, -50%) !important;
-        font-family: 'Inter', -apple-system, sans-serif !important;
-        font-size: 1.8rem !important;
-        font-weight: 700 !important;
-        color: {BAUHAUS_BLACK} !important;
-        line-height: 1 !important;
-        z-index: 10 !important;
+
+    /* Botão NATIVO de ABRIR (quando sidebar está fechada) — ESCONDER COMPLETAMENTE.
+       Ele é substituído pelo nosso botão flutuante #bauhaus-open-sidebar criado via JS. */
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="collapsedControl"],
+    button[kind="headerNoPadding"]:not([data-testid="stSidebarCollapseButton"]) {{
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        width: 0 !important;
+        height: 0 !important;
         pointer-events: none !important;
     }}
     [data-testid="stSidebar"] {{
@@ -638,12 +622,44 @@ if aba == "PLD Diário":
         '<h3 style="margin-bottom:0.6rem;">Período</h3>',
         unsafe_allow_html=True,
     )
+
+    # Detectar qual preset está ativo comparando data_ini/data_fim com cada atalho
+    def _preset_ativo(di, df_fim):
+        """Retorna o nome do preset ativo, ou None se for custom."""
+        if df_fim != max_d:
+            return None  # data final não é o máximo → custom
+        delta = (max_d - di).days
+        if delta == 7: return "7d"
+        if delta == 30: return "30d"
+        if delta == 90: return "90d"
+        if delta == 365: return "1A"
+        if di == min_d: return "Máx"
+        return None
+
+    preset_atual = _preset_ativo(
+        st.session_state["data_ini"], st.session_state["data_fim"]
+    )
+
+    # CSS para estado "ativo" dos botões de atalho (injetado aqui porque é contextual)
+    st.markdown(
+        f"""
+        <style>
+        /* Botão de atalho ATIVO — fundo amarelo Bauhaus */
+        .atalho-ativo .stButton > button {{
+            background: {BAUHAUS_YELLOW} !important;
+            color: {BAUHAUS_BLACK} !important;
+            border-color: {BAUHAUS_BLACK} !important;
+            font-weight: 700 !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     # Atalhos + date inputs na mesma linha
     p1, p2, p3, p4, p5, psp, pd1, pd2 = st.columns(
         [1, 1, 1, 1, 1, 0.3, 1.4, 1.4]
     )
-    # Label invisível nas colunas dos botões pra alinhar verticalmente
-    # com os date_inputs (que têm label "Data inicial"/"Data final")
     label_spacer = (
         '<div style="font-size:0.75rem; line-height:1.2; margin-bottom:2px; '
         'color:transparent; user-select:none;">·</div>'
@@ -651,31 +667,31 @@ if aba == "PLD Diário":
     for col in [p1, p2, p3, p4, p5]:
         with col:
             st.markdown(label_spacer, unsafe_allow_html=True)
-    with p1:
-        if st.button("7d", use_container_width=True):
-            st.session_state["data_ini"] = max_d - timedelta(days=7)
-            st.session_state["data_fim"] = max_d
-            st.rerun()
-    with p2:
-        if st.button("30d", use_container_width=True):
-            st.session_state["data_ini"] = max_d - timedelta(days=30)
-            st.session_state["data_fim"] = max_d
-            st.rerun()
-    with p3:
-        if st.button("90d", use_container_width=True):
-            st.session_state["data_ini"] = max_d - timedelta(days=90)
-            st.session_state["data_fim"] = max_d
-            st.rerun()
-    with p4:
-        if st.button("1A", use_container_width=True):
-            st.session_state["data_ini"] = max_d - timedelta(days=365)
-            st.session_state["data_fim"] = max_d
-            st.rerun()
-    with p5:
-        if st.button("Máx", use_container_width=True):
-            st.session_state["data_ini"] = min_d
-            st.session_state["data_fim"] = max_d
-            st.rerun()
+
+    # Função auxiliar para renderizar botão com destaque se ativo
+    def _btn_atalho(col, label, delta_days=None, is_max=False):
+        with col:
+            # Envolver em div com classe condicional
+            if label == preset_atual:
+                st.markdown(
+                    '<div class="atalho-ativo">', unsafe_allow_html=True
+                )
+            if st.button(label, use_container_width=True, key=f"btn_{label}"):
+                if is_max:
+                    st.session_state["data_ini"] = min_d
+                else:
+                    st.session_state["data_ini"] = max_d - timedelta(days=delta_days)
+                st.session_state["data_fim"] = max_d
+                st.rerun()
+            if label == preset_atual:
+                st.markdown('</div>', unsafe_allow_html=True)
+
+    _btn_atalho(p1, "7d", delta_days=7)
+    _btn_atalho(p2, "30d", delta_days=30)
+    _btn_atalho(p3, "90d", delta_days=90)
+    _btn_atalho(p4, "1A", delta_days=365)
+    _btn_atalho(p5, "Máx", is_max=True)
+
     with pd1:
         st.date_input(
             "Data inicial",
@@ -865,7 +881,6 @@ if aba == "PLD Diário":
             font-family: 'Inter', sans-serif;
             margin: 0.5rem 0 1.5rem 0;
             border: 2px solid {BAUHAUS_BLACK};
-            border-left: 8px solid {BAUHAUS_RED};
         }}
         .bauhaus-table thead tr {{
             background: {BAUHAUS_BLACK};
