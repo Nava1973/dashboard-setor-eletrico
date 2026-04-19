@@ -399,29 +399,13 @@ components.html(
 with st.sidebar:
     st.markdown("### Dashboard Setor Elétrico")
     st.caption(f"Usuário: **{user}**")
-    st.divider()
 
-    aba = st.radio(
-        "NAVEGAÇÃO",
-        ["PLD Diário"],
-        label_visibility="collapsed",
-    )
-
-    st.divider()
-    if st.button("Atualizar", use_container_width=True):
-        clear_cache()
-        st.rerun()
-
-    st.caption(
-        "Dados atualizados automaticamente 1x ao dia."
-    )
-
-    # Botão Sair — no final da sidebar, estilo discreto (só borda amarela fina,
-    # texto amarelo, fundo do sidebar preto). CSS dedicado abaixo.
+    # Botão Sair logo abaixo do usuário — retângulo transparente, borda amarela fina.
+    # CSS dedicado pra ficar suave, mesma altura do botão Atualizar.
     st.markdown(
         """
         <style>
-        /* Wrapper do Sair sobrepõe o estilo geral dos botões da sidebar */
+        /* Sair: transparente, borda amarela fina, texto amarelo */
         .sidebar-logout-wrapper .stButton > button {
             background: transparent !important;
             border: 1px solid #F6BD16 !important;
@@ -429,9 +413,11 @@ with st.sidebar:
             font-family: 'Inter', sans-serif !important;
             font-size: 0.85rem !important;
             font-weight: 500 !important;
-            padding: 0.35rem 0.75rem !important;
-            min-height: unset !important;
+            padding: 0 !important;
+            min-height: 2.4rem !important;
+            height: 2.4rem !important;
             box-shadow: none !important;
+            width: 100% !important;
         }
         .sidebar-logout-wrapper .stButton > button * {
             color: #F6BD16 !important;
@@ -444,13 +430,38 @@ with st.sidebar:
         .sidebar-logout-wrapper .stButton > button:hover * {
             color: #1A1A1A !important;
         }
+        /* Atualizar: também 2.4rem de altura pra combinar com o Sair */
+        .sidebar-update-wrapper .stButton > button {
+            min-height: 2.4rem !important;
+            height: 2.4rem !important;
+            padding: 0 !important;
+        }
         </style>
-        <div class="sidebar-logout-wrapper" style="margin-top: 1.2rem;">
+        <div class="sidebar-logout-wrapper" style="margin-top: 0.5rem;">
         """,
         unsafe_allow_html=True,
     )
     logout_button(location="sidebar", key="logout_sidebar")
     st.markdown('</div>', unsafe_allow_html=True)
+
+    st.divider()
+
+    aba = st.radio(
+        "NAVEGAÇÃO",
+        ["PLD Diário"],
+        label_visibility="collapsed",
+    )
+
+    st.divider()
+    st.markdown('<div class="sidebar-update-wrapper">', unsafe_allow_html=True)
+    if st.button("Atualizar", use_container_width=True):
+        clear_cache()
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.caption(
+        "Dados atualizados automaticamente 1x ao dia."
+    )
 
 # Sem barra superior — Sair fica no final da sidebar (vide bloco SIDEBAR abaixo).
 # Assim a página ganha espaço vertical e a topbar nativa do Streamlit (3 pontos)
@@ -515,11 +526,8 @@ if aba == "PLD Diário":
         st.warning("Sem dados no intervalo selecionado.")
         st.stop()
 
-    # --- Período (controles de data) — vem primeiro, logo antes do gráfico ---
-    st.markdown(
-        '<h3 style="margin-top:0.5rem; margin-bottom:0.6rem;">Período</h3>',
-        unsafe_allow_html=True,
-    )
+    # --- Período (controles de data) — sem título, direto os botões e caixas,
+    # para ficar próximo do título PLD e ganhar espaço vertical ---
 
     # Detectar qual preset está ativo comparando data_ini/data_fim com cada atalho
     def _preset_ativo(di, df_fim):
