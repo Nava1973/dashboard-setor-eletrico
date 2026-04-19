@@ -415,7 +415,6 @@ components.html(
                               'chevron_right', 'chevron_left', 'arrow_forward', 'arrow_back',
                               'menu_open', 'menu', 'first_page', 'last_page'];
 
-        // Acessar o documento pai (app Streamlit principal)
         const doc = window.parent.document;
 
         function criarOuAtualizarBotao() {
@@ -425,41 +424,44 @@ components.html(
                 btn.id = 'bauhaus-open-sidebar';
                 btn.type = 'button';
                 btn.setAttribute('aria-label', 'Abrir menu lateral');
+                btn.textContent = SETA_ABRIR;
+                btn.style.cssText =
+                    'position:fixed !important; top:12px !important; left:12px !important; ' +
+                    'z-index:9999999 !important; ' +
+                    'width:40px !important; height:40px !important; ' +
+                    'background:#F6BD16 !important; border:2px solid #1A1A1A !important; ' +
+                    'border-radius:0 !important; ' +
+                    'cursor:pointer !important; padding:0 !important; margin:0 !important; ' +
+                    'font-family:Inter,Arial,sans-serif !important; ' +
+                    'font-size:22px !important; font-weight:700 !important; ' +
+                    'color:#1A1A1A !important; line-height:1 !important; ' +
+                    'display:none; align-items:center !important; justify-content:center !important; ' +
+                    'box-sizing:border-box !important;';
+                btn.onclick = function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const alvos = [
+                        doc.querySelector('[data-testid="stSidebarCollapsedControl"]'),
+                        doc.querySelector('[data-testid="collapsedControl"]'),
+                        doc.querySelector('[data-testid="baseButton-headerNoPadding"]'),
+                        doc.querySelector('button[kind="headerNoPadding"]')
+                    ];
+                    for (const alvo of alvos) {
+                        if (alvo) { alvo.click(); return; }
+                    }
+                    doc.querySelectorAll('button').forEach(b => {
+                        if (b.id === 'bauhaus-open-sidebar') return;
+                        if (TEXTOS_ICONES.includes(b.textContent.trim())) {
+                            b.click();
+                        }
+                    });
+                };
                 doc.body.appendChild(btn);
             }
-            // SEMPRE redefine conteúdo e estilo (caso Streamlit tenha mexido)
-            btn.textContent = SETA_ABRIR;
-            btn.style.cssText =
-                'position:fixed !important; top:12px !important; left:12px !important; ' +
-                'z-index:9999999 !important; ' +
-                'width:40px !important; height:40px !important; ' +
-                'background:#F6BD16 !important; border:2px solid #1A1A1A !important; ' +
-                'border-radius:0 !important; ' +
-                'cursor:pointer !important; padding:0 !important; margin:0 !important; ' +
-                'font-family:Inter,Arial,sans-serif !important; ' +
-                'font-size:22px !important; font-weight:700 !important; ' +
-                'color:#1A1A1A !important; line-height:1 !important; ' +
-                'display:none; align-items:center !important; justify-content:center !important; ' +
-                'box-sizing:border-box !important;';
-            btn.onclick = function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                const alvos = [
-                    doc.querySelector('[data-testid="stSidebarCollapsedControl"]'),
-                    doc.querySelector('[data-testid="collapsedControl"]'),
-                    doc.querySelector('[data-testid="baseButton-headerNoPadding"]'),
-                    doc.querySelector('button[kind="headerNoPadding"]')
-                ];
-                for (const alvo of alvos) {
-                    if (alvo) { alvo.click(); return; }
-                }
-                doc.querySelectorAll('button').forEach(b => {
-                    if (b.id === 'bauhaus-open-sidebar') return;
-                    if (TEXTOS_ICONES.includes(b.textContent.trim())) {
-                        b.click();
-                    }
-                });
-            };
+            // Garante que conteúdo não sumiu
+            if (!btn.textContent.trim()) {
+                btn.textContent = SETA_ABRIR;
+            }
         }
 
         function toggleVisibilidade() {
@@ -472,32 +474,14 @@ components.html(
             btn.style.display = estaFechada ? 'flex' : 'none';
         }
 
-        function forceBauhausSeta(btn, seta) {
-            if (!btn) return;
-            if (btn.dataset.bauhausSeta === seta) return;
-            btn.innerHTML = '<span style="font-family:Inter,sans-serif; ' +
-                'font-size:1.8rem; font-weight:700; color:#1A1A1A; ' +
-                'line-height:1; pointer-events:none; ' +
-                'display:flex; align-items:center; justify-content:center; ' +
-                'width:100%; height:100%;">' + seta + '</span>';
-            btn.dataset.bauhausSeta = seta;
-            btn.style.position = 'relative';
-            btn.style.overflow = 'visible';
-        }
-
-        function atualizarTudo() {
+        function atualizar() {
             criarOuAtualizarBotao();
-            // Botão de fechar nativo (sidebar aberta)
-            const btnFechar = doc.querySelector('[data-testid="stSidebarCollapseButton"]');
-            if (btnFechar) forceBauhausSeta(btnFechar, SETA_FECHAR);
             toggleVisibilidade();
         }
 
-        atualizarTudo();
-        setInterval(atualizarTudo, 300);
-
-        const obs = new MutationObserver(atualizarTudo);
-        obs.observe(doc.body, { childList: true, subtree: true });
+        // Roda a cada 500ms — sem MutationObserver pra não causar loop
+        atualizar();
+        setInterval(atualizar, 500);
     })();
     </script>
     """,
