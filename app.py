@@ -57,7 +57,7 @@ SUBMERCADOS_ORD = ["SE", "S", "NE", "N"]
 st.markdown(
     f"""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap');
     @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
 
     /* Tipografia geral */
@@ -83,18 +83,18 @@ st.markdown(
         color: {BAUHAUS_BLACK} !important;
     }}
     h1 {{
-        font-size: 3rem !important;
+        font-size: 2.2rem !important;
         line-height: 1 !important;
-        border-left: 10px solid {BAUHAUS_RED};
-        padding-left: 16px;
-        margin-bottom: 0.5rem !important;
+        border-left: 8px solid {BAUHAUS_RED};
+        padding-left: 14px;
+        margin-bottom: 0.4rem !important;
     }}
     h3 {{
-        font-size: 1.4rem !important;
+        font-size: 1.1rem !important;
         letter-spacing: 0.05em !important;
         border-bottom: 2px solid {BAUHAUS_BLACK};
-        padding-bottom: 4px;
-        margin-top: 2.2rem !important;
+        padding-bottom: 3px;
+        margin-top: 1.8rem !important;
     }}
 
     /* Fundo da página */
@@ -224,18 +224,18 @@ st.markdown(
         color: rgba(245, 241, 232, 0.75) !important;
     }}
 
-    /* KPIs — cards com borda preta, reduzidos (~80%) */
+    /* KPIs — cards compactos */
     [data-testid="stMetric"] {{
         background: {BAUHAUS_CREAM};
         border: 2px solid {BAUHAUS_BLACK};
-        padding: 10px 14px;
+        padding: 8px 12px;
         border-radius: 0;
     }}
     [data-testid="stMetric"] [data-testid="stMetricValue"],
     [data-testid="stMetric"] [data-testid="stMetricValue"] *,
     [data-testid="stMetric"] [data-testid="stMetricValue"] div {{
         font-family: 'Bebas Neue', sans-serif !important;
-        font-size: 1.5rem !important;
+        font-size: 1.2rem !important;
         color: {BAUHAUS_BLACK} !important;
         letter-spacing: 0.02em !important;
     }}
@@ -247,8 +247,8 @@ st.markdown(
     [data-testid="stMetric"] label,
     [data-testid="stMetric"] label * {{
         text-transform: uppercase !important;
-        font-size: 0.68rem !important;
-        letter-spacing: 0.18em !important;
+        font-size: 0.6rem !important;
+        letter-spacing: 0.16em !important;
         font-weight: 700 !important;
         color: {BAUHAUS_BLACK} !important;
     }}
@@ -292,11 +292,11 @@ st.markdown(
         font-family: 'Inter', sans-serif !important;
     }}
 
-    /* Bloco principal */
+    /* Bloco principal — compacto */
     .block-container {{
-        padding-top: 1.5rem;
-        padding-bottom: 4rem;  /* espaço para rodapé não sobrepor */
-        max-width: 1400px;
+        padding-top: 1.2rem;
+        padding-bottom: 3rem;
+        max-width: 1100px;  /* reduzido de 1400 para ficar mais compacto em telas grandes */
     }}
 
     /* Caption — usar cinza escuro forte, legível sobre creme.
@@ -396,61 +396,46 @@ st.markdown(
     (function() {
         const SETA_ABRIR = '›';
         const SETA_FECHAR = '‹';
-        const TEXTOS_ICONES = ['keyboard_double_arrow_right', 'keyboard_double_arrow_left',
-                              'chevron_right', 'chevron_left', 'arrow_forward', 'arrow_back',
-                              'menu_open', 'menu'];
 
-        function injetarSeta(btn, seta) {
-            // Remove qualquer span de seta antigo (pra evitar duplicação)
-            const antigo = btn.querySelector('.bauhaus-seta');
-            if (antigo) antigo.remove();
+        function forceBauhausSeta(btn, seta) {
+            if (!btn) return;
+            // Marca de controle para não refazer toda vez
+            if (btn.dataset.bauhausSeta === seta) return;
 
-            // Apaga textos de ícone residuais
-            const walker = document.createTreeWalker(btn, NodeFilter.SHOW_TEXT);
-            let node;
-            const toRemove = [];
-            while ((node = walker.nextNode())) {
-                if (TEXTOS_ICONES.includes(node.nodeValue.trim())) {
-                    toRemove.push(node);
-                }
-            }
-            toRemove.forEach(n => n.nodeValue = '');
-
-            // Injeta o span com a seta
-            const span = document.createElement('span');
-            span.className = 'bauhaus-seta';
-            span.textContent = seta;
-            span.style.cssText = 'position:absolute; top:50%; left:50%; ' +
-                'transform:translate(-50%, -50%); font-family:Inter,sans-serif; ' +
-                'font-size:1.8rem; font-weight:700; color:#1A1A1A; line-height:1; ' +
-                'z-index:100; pointer-events:none; opacity:1;';
+            // Limpa TUDO e injeta a seta como innerHTML
+            btn.innerHTML = '<span style="font-family:Inter,sans-serif; ' +
+                'font-size:1.8rem; font-weight:700; color:#1A1A1A; ' +
+                'line-height:1; pointer-events:none; ' +
+                'display:flex; align-items:center; justify-content:center; ' +
+                'width:100%; height:100%;">' + seta + '</span>';
+            btn.dataset.bauhausSeta = seta;
             btn.style.position = 'relative';
-            btn.appendChild(span);
+            btn.style.overflow = 'visible';
         }
 
         function atualizarBotoes() {
-            // Botão de FECHAR (sidebar aberta)
+            // Sidebar ABERTA → botão de FECHAR
             const btnFechar = document.querySelector('[data-testid="stSidebarCollapseButton"]');
-            if (btnFechar) injetarSeta(btnFechar, SETA_FECHAR);
+            if (btnFechar) forceBauhausSeta(btnFechar, SETA_FECHAR);
 
-            // Botão de ABRIR (sidebar fechada) — múltiplos seletores possíveis
+            // Sidebar FECHADA → botão de ABRIR (pode ter vários seletores)
             const seletoresAbrir = [
                 '[data-testid="stSidebarCollapsedControl"]',
                 '[data-testid="collapsedControl"]',
-                'button[kind="headerNoPadding"]'
+                '[data-testid="baseButton-headerNoPadding"]'
             ];
             for (const sel of seletoresAbrir) {
-                const btn = document.querySelector(sel);
-                if (btn) {
-                    injetarSeta(btn, SETA_ABRIR);
-                    break;
-                }
+                const btns = document.querySelectorAll(sel);
+                btns.forEach(btn => forceBauhausSeta(btn, SETA_ABRIR));
             }
         }
 
+        // Executar agora e em loop constante (o Streamlit pode re-renderizar)
         atualizarBotoes();
+        setInterval(atualizarBotoes, 300);
+
         const obs = new MutationObserver(atualizarBotoes);
-        obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+        obs.observe(document.body, { childList: true, subtree: true });
     })();
     </script>
     """,
@@ -553,8 +538,8 @@ if aba == "PLD Diário":
         f'Último dia disponível'
         f'</h3>'
         f'<div style="font-family:\'Inter\', sans-serif; font-weight:500; '
-        f'font-size:1.25rem; letter-spacing:0.02em; color:#2E2E2E; '
-        f'margin-top:0; margin-bottom:1.2rem;">'
+        f'font-size:1rem; letter-spacing:0.02em; color:#2E2E2E; '
+        f'margin-top:0; margin-bottom:0.8rem;">'
         f'{ultima_data.strftime("%d/%m/%Y")}'
         f'</div>',
         unsafe_allow_html=True,
@@ -692,7 +677,7 @@ if aba == "PLD Diário":
 
         # Layout Bauhaus — papel creme, tipografia impactante, geometria
         fig.update_layout(
-            height=400,  # reduzido (antes 500)
+            height=320,  # reduzido para parecer tamanho ~75%
             margin=dict(l=20, r=20, t=30, b=20),
             paper_bgcolor=BAUHAUS_CREAM,
             plot_bgcolor=BAUHAUS_CREAM,
@@ -701,10 +686,10 @@ if aba == "PLD Diário":
                 bgcolor=BAUHAUS_CREAM,
                 bordercolor=BAUHAUS_BLACK,
                 font=dict(
-                    # Monoespaçada: cada caractere tem a mesma largura.
-                    # Isso GARANTE alinhamento das colunas com &nbsp; repetidos.
-                    family="'JetBrains Mono', 'Courier New', monospace",
-                    size=13,
+                    # IBM Plex Mono: monoespaçada (permite alinhamento) mas com
+                    # desenho consistente com Inter (usada no resto do dashboard).
+                    family="'IBM Plex Mono', 'Courier New', monospace",
+                    size=12,
                     color=BAUHAUS_BLACK,
                 ),
             ),
