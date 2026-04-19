@@ -268,6 +268,19 @@ st.markdown(
         font-weight: 600 !important;
         color: {BAUHAUS_BLACK} !important;
     }}
+    /* Quadradinho do checkbox — cor de fundo quando marcado (teste: vermelho) */
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"],
+    [data-testid="stAppViewContainer"] .stCheckbox input[type="checkbox"]:checked + div {{
+        background: {BAUHAUS_RED} !important;
+        background-color: {BAUHAUS_RED} !important;
+        border-color: {BAUHAUS_BLACK} !important;
+    }}
+    /* Borda do checkbox quando não marcado — preto Bauhaus */
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"] {{
+        border-color: {BAUHAUS_BLACK} !important;
+        border-width: 2px !important;
+        border-radius: 0 !important;
+    }}
 
     /* Divisor */
     hr {{
@@ -364,7 +377,6 @@ components.html(
         };
 
         function substituirTextos() {
-            // Percorre nós de texto dentro de botões do cabeçalho/sidebar
             const botoes = doc.querySelectorAll(
                 '[data-testid="stSidebarCollapseButton"], ' +
                 '[data-testid="stSidebarCollapsedControl"], ' +
@@ -384,8 +396,28 @@ components.html(
             });
         }
 
+        // Marca botões da sidebar com atributos data-* pra CSS poder estilizar
+        // especificamente o "Sair" e o "Atualizar" sem conflito.
+        function marcarBotoesSidebar() {
+            const sidebar = doc.querySelector('[data-testid="stSidebar"]');
+            if (!sidebar) return;
+            const botoes = sidebar.querySelectorAll('.stButton button');
+            botoes.forEach(btn => {
+                const texto = btn.textContent.trim();
+                if (texto === 'Sair' || texto === 'Logout') {
+                    btn.setAttribute('data-sair', 'true');
+                } else if (texto === 'Atualizar') {
+                    btn.setAttribute('data-atualizar', 'true');
+                }
+            });
+        }
+
         substituirTextos();
-        setInterval(substituirTextos, 500);
+        marcarBotoesSidebar();
+        setInterval(() => {
+            substituirTextos();
+            marcarBotoesSidebar();
+        }, 500);
     })();
     </script>
     """,
@@ -401,13 +433,23 @@ with st.sidebar:
     st.caption(f"Usuário: **{user}**")
 
     # Botão Sair logo abaixo do usuário — retângulo transparente, borda amarela fina.
-    # CSS com maior especificidade porque o global da sidebar sobrescreve wrappers simples.
+    # Usamos seletor :has() para identificar o botão pelo texto "Sair", já que
+    # o wrapper div não engloba o st.button subsequente no DOM do Streamlit.
     st.markdown(
         """
         <style>
-        /* Sair: especificidade alta pra vencer o CSS global da sidebar */
-        [data-testid="stSidebar"] .sidebar-logout-wrapper .stButton > button,
-        [data-testid="stSidebar"] div.sidebar-logout-wrapper .stButton > button {
+        /* Botão Sair na sidebar (identificado por ter texto "Sair") — borda amarela fina, transparente */
+        [data-testid="stSidebar"] .stButton > button:has(p:only-child) {
+            /* não vai aplicar a todos — seletor específico abaixo */
+        }
+        /* Pega qualquer botão da sidebar cujo label tenha exatamente "Sair" */
+        [data-testid="stSidebar"] button[kind="secondary"]:has(div p:-webkit-any(:first-child)),
+        [data-testid="stSidebar"] .stButton > button[data-sair="true"] {
+            background: transparent !important;
+            border: 1px solid #F6BD16 !important;
+        }
+        /* Override via atributo data-sair (aplicado via JS abaixo) */
+        [data-testid="stSidebar"] .stButton > button[data-sair="true"] {
             background: transparent !important;
             background-color: transparent !important;
             border: 1px solid #F6BD16 !important;
@@ -422,34 +464,31 @@ with st.sidebar:
             width: 100% !important;
             border-radius: 0 !important;
         }
-        [data-testid="stSidebar"] .sidebar-logout-wrapper .stButton > button *,
-        [data-testid="stSidebar"] .sidebar-logout-wrapper .stButton > button p {
+        [data-testid="stSidebar"] .stButton > button[data-sair="true"] * {
             color: #F6BD16 !important;
             font-weight: 500 !important;
         }
-        [data-testid="stSidebar"] .sidebar-logout-wrapper .stButton > button:hover {
+        [data-testid="stSidebar"] .stButton > button[data-sair="true"]:hover {
             background: #F6BD16 !important;
             background-color: #F6BD16 !important;
             color: #1A1A1A !important;
             border: 1px solid #F6BD16 !important;
         }
-        [data-testid="stSidebar"] .sidebar-logout-wrapper .stButton > button:hover *,
-        [data-testid="stSidebar"] .sidebar-logout-wrapper .stButton > button:hover p {
+        [data-testid="stSidebar"] .stButton > button[data-sair="true"]:hover * {
             color: #1A1A1A !important;
         }
-        /* Atualizar: mesma altura do Sair */
-        [data-testid="stSidebar"] .sidebar-update-wrapper .stButton > button {
+        /* Atualizar: mesma altura 2.4rem */
+        [data-testid="stSidebar"] .stButton > button[data-atualizar="true"] {
             min-height: 2.4rem !important;
             height: 2.4rem !important;
             padding: 0 !important;
         }
         </style>
-        <div class="sidebar-logout-wrapper" style="margin-top: 0.4rem;">
         """,
         unsafe_allow_html=True,
     )
+    # Botão Sair
     logout_button(location="sidebar", key="logout_sidebar")
-    st.markdown('</div>', unsafe_allow_html=True)
 
     st.divider()
 
@@ -460,11 +499,9 @@ with st.sidebar:
     )
 
     st.divider()
-    st.markdown('<div class="sidebar-update-wrapper">', unsafe_allow_html=True)
     if st.button("Atualizar", use_container_width=True):
         clear_cache()
         st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
 
     st.caption(
         "Dados atualizados automaticamente 1x ao dia."
@@ -483,7 +520,7 @@ if aba == "PLD Diário":
     # Linha separadora preta abaixo do título — dá respiro antes do Período
     st.markdown(
         '<div style="border-bottom: 2px solid #1A1A1A; '
-        'margin: 0.4rem 0 1rem 0;"></div>',
+        'margin: 0.4rem 0 0.2rem 0;"></div>',
         unsafe_allow_html=True,
     )
 
