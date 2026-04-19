@@ -236,7 +236,7 @@ st.markdown(
     [data-testid="stMetric"] [data-testid="stMetricValue"] *,
     [data-testid="stMetric"] [data-testid="stMetricValue"] div {{
         font-family: 'Bebas Neue', sans-serif !important;
-        font-size: 1.2rem !important;
+        font-size: 1.45rem !important;
         color: {BAUHAUS_BLACK} !important;
         letter-spacing: 0.02em !important;
     }}
@@ -401,8 +401,24 @@ if user is None:
 # JS FALLBACK — limpa texto literal "keyboard_double_arrow_right" caso
 # apareça no botão de abrir sidebar (Material Icons não carregou).
 # =============================================================================
+# =============================================================================
+# BOTÃO FLUTUANTE DE ABRIR SIDEBAR (HTML estático + JS pra controle)
+# Renderizamos o botão direto no HTML para garantir que a seta SEMPRE apareça,
+# sem depender de JS criar o elemento.
+# =============================================================================
 st.markdown(
     """
+    <button id="bauhaus-open-sidebar" aria-label="Abrir menu lateral" type="button"
+            style="position:fixed; top:12px; left:12px; z-index:9999999;
+                   width:40px; height:40px;
+                   background:#F6BD16; border:2px solid #1A1A1A; border-radius:0;
+                   cursor:pointer; padding:0; margin:0;
+                   display:none; align-items:center; justify-content:center;
+                   font-family:Inter,Arial,sans-serif; font-size:22px;
+                   font-weight:700; color:#1A1A1A; line-height:1;">
+        ›
+    </button>
+
     <script>
     (function() {
         const SETA_ABRIR = '›';
@@ -424,58 +440,48 @@ st.markdown(
             btn.style.overflow = 'visible';
         }
 
-        // Botão flutuante de backup — sempre visível quando sidebar está fechada.
-        // Fica posicionado por cima do nativo e clica nele por baixo.
-        function criarBotaoFlutuante() {
-            if (document.getElementById('bauhaus-open-sidebar')) return;
-            const btn = document.createElement('button');
-            btn.id = 'bauhaus-open-sidebar';
-            btn.setAttribute('aria-label', 'Abrir menu lateral');
-            btn.type = 'button';
-            // Usa div interno com a seta para garantir que conteúdo persista
-            btn.innerHTML = '<div style="font-family:Inter,Arial,sans-serif;' +
-                'font-size:22px;font-weight:700;color:#1A1A1A;line-height:1;' +
-                'pointer-events:none;">' + SETA_ABRIR + '</div>';
-            btn.style.cssText =
-                'position:fixed !important; top:12px !important; left:12px !important; ' +
-                'z-index:9999999 !important; ' +
-                'width:40px !important; height:40px !important; ' +
-                'background:#F6BD16 !important; border:2px solid #1A1A1A !important; ' +
-                'border-radius:0 !important; ' +
-                'cursor:pointer !important; padding:0 !important; margin:0 !important; ' +
-                'display:none; align-items:center; justify-content:center; ' +
-                'box-sizing:border-box !important;';
-            btn.onclick = function(e) {
+        function clickAbrirSidebar() {
+            const alvos = [
+                document.querySelector('[data-testid="stSidebarCollapsedControl"]'),
+                document.querySelector('[data-testid="collapsedControl"]'),
+                document.querySelector('[data-testid="baseButton-headerNoPadding"]'),
+                document.querySelector('button[kind="headerNoPadding"]')
+            ];
+            for (const alvo of alvos) {
+                if (alvo) { alvo.click(); return; }
+            }
+            document.querySelectorAll('button').forEach(b => {
+                if (b.id === 'bauhaus-open-sidebar') return;
+                if (TEXTOS_ICONES.includes(b.textContent.trim())) {
+                    b.click();
+                }
+            });
+        }
+
+        function setupBotaoFlutuante() {
+            const btnFlut = document.getElementById('bauhaus-open-sidebar');
+            if (!btnFlut) return;
+            // Garante o onclick (pode perder em re-renders)
+            btnFlut.onclick = function(e) {
                 e.preventDefault();
                 e.stopPropagation();
-                const alvos = [
-                    document.querySelector('[data-testid="stSidebarCollapsedControl"]'),
-                    document.querySelector('[data-testid="collapsedControl"]'),
-                    document.querySelector('[data-testid="baseButton-headerNoPadding"]'),
-                    document.querySelector('button[kind="headerNoPadding"]')
-                ];
-                for (const alvo of alvos) {
-                    if (alvo) { alvo.click(); return; }
-                }
-                document.querySelectorAll('button').forEach(b => {
-                    if (b.id === 'bauhaus-open-sidebar') return;
-                    if (TEXTOS_ICONES.includes(b.textContent.trim())) {
-                        b.click();
-                    }
-                });
+                clickAbrirSidebar();
             };
-            document.body.appendChild(btn);
+            // Garante que a seta está lá
+            if (btnFlut.textContent.trim() === '' || btnFlut.textContent.trim() === '›' === false) {
+                if (!btnFlut.textContent.includes(SETA_ABRIR)) {
+                    btnFlut.innerHTML = SETA_ABRIR;
+                    btnFlut.style.fontFamily = 'Inter,Arial,sans-serif';
+                    btnFlut.style.fontSize = '22px';
+                    btnFlut.style.fontWeight = '700';
+                    btnFlut.style.color = '#1A1A1A';
+                }
+            }
         }
 
         function toggleBotaoFlutuante() {
             const btnFlut = document.getElementById('bauhaus-open-sidebar');
             if (!btnFlut) return;
-            // Garante que a seta ainda está lá (CSP ou Streamlit podem remover)
-            if (!btnFlut.querySelector('div')) {
-                btnFlut.innerHTML = '<div style="font-family:Inter,Arial,sans-serif;' +
-                    'font-size:22px;font-weight:700;color:#1A1A1A;line-height:1;' +
-                    'pointer-events:none;">' + SETA_ABRIR + '</div>';
-            }
             const sidebar = document.querySelector('[data-testid="stSidebar"]');
             if (!sidebar) return;
             const rect = sidebar.getBoundingClientRect();
@@ -488,8 +494,7 @@ st.markdown(
             const btnFechar = document.querySelector('[data-testid="stSidebarCollapseButton"]');
             if (btnFechar) forceBauhausSeta(btnFechar, SETA_FECHAR);
 
-            // Botão nativo de abrir (tentamos estilizar também, mas confiamos
-            // mais no flutuante acima)
+            // Tenta estilizar o botão nativo de abrir também (redundância)
             const seletoresAbrir = [
                 '[data-testid="stSidebarCollapsedControl"]',
                 '[data-testid="collapsedControl"]',
@@ -503,21 +508,11 @@ st.markdown(
                 });
             }
 
-            // Fallback por conteúdo
-            document.querySelectorAll('button').forEach(btn => {
-                if (btn.dataset.bauhausSeta) return;
-                if (btn.id === 'bauhaus-open-sidebar') return;
-                const txt = btn.textContent.trim();
-                if (TEXTOS_ICONES.includes(txt)) {
-                    forceBauhausSeta(btn, SETA_ABRIR);
-                }
-            });
-
-            // Mostra/esconde botão flutuante baseado no estado da sidebar
+            // Configura nosso botão flutuante
+            setupBotaoFlutuante();
             toggleBotaoFlutuante();
         }
 
-        criarBotaoFlutuante();
         atualizarBotoes();
         setInterval(atualizarBotoes, 200);
         const obs = new MutationObserver(atualizarBotoes);
@@ -645,11 +640,7 @@ if aba == "PLD Diário":
 
     # --- Período (controles de data) — vem depois dos KPIs, perto do gráfico ---
     st.markdown(
-        '<h3 style="margin-bottom:0.2rem;">Período</h3>'
-        '<div style="font-family:\'Inter\', sans-serif; '
-        'text-transform:uppercase; letter-spacing:0.1em; font-size:0.72rem; '
-        'color:#2E2E2E; margin-top:0.6rem; margin-bottom:0.3rem;">'
-        'Atalhos</div>',
+        '<h3 style="margin-bottom:0.6rem;">Período</h3>',
         unsafe_allow_html=True,
     )
     cb1, cb2, cb3, cb4, cb5, _ = st.columns([1, 1, 1, 1, 1, 5])
