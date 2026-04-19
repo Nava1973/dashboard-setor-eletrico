@@ -416,76 +416,48 @@ with st.sidebar:
         "Dados atualizados automaticamente 1x ao dia."
     )
 
-# =============================================================================
-# BARRA SUPERIOR: usuário + logout (à direita, fundo preto)
-# =============================================================================
-st.markdown(
-    """
-    <style>
-    /* Barra preta no topo */
-    .topbar-black {
-        background: #1A1A1A;
-        margin: -1rem -1rem 1rem -1rem;
-        padding: 0.4rem 1.2rem;
-        display: flex;
-        justify-content: flex-end;
-        align-items: center;
-        gap: 1.5rem;
-        border-bottom: 3px solid #F6BD16;
-    }
-    .topbar-user {
-        font-family: 'Inter', sans-serif;
-        font-size: 0.85rem;
-        color: #F5F1E8;
-        font-weight: 500;
-    }
-    .topbar-user strong {
-        color: #F6BD16;
-        font-weight: 600;
-    }
-    /* Logout botão — no fundo preto, texto creme sublinhado */
-    .topbar-logout-wrapper .stButton > button {
-        background: transparent !important;
-        border: none !important;
-        color: #F5F1E8 !important;
-        font-family: 'Inter', sans-serif !important;
-        font-size: 0.85rem !important;
-        font-weight: 500 !important;
-        text-decoration: underline !important;
-        padding: 0 !important;
-        box-shadow: none !important;
-        min-height: 1.8rem !important;
-        height: 1.8rem !important;
-    }
-    .topbar-logout-wrapper .stButton > button:hover {
-        color: #F6BD16 !important;
-        background: transparent !important;
-        border: none !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# Layout horizontal: espaço vazio à esquerda, usuário+logout à direita
-tb_col1, tb_col2, tb_col3 = st.columns([8, 2, 1])
-with tb_col2:
+    # Botão Sair — no final da sidebar, estilo discreto (só borda amarela fina,
+    # texto amarelo, fundo do sidebar preto). CSS dedicado abaixo.
     st.markdown(
-        f'<div class="topbar-user" style="text-align:right; line-height:1.8rem;">'
-        f'Usuário: <strong>{user}</strong></div>',
+        """
+        <style>
+        /* Wrapper do Sair sobrepõe o estilo geral dos botões da sidebar */
+        .sidebar-logout-wrapper .stButton > button {
+            background: transparent !important;
+            border: 1px solid #F6BD16 !important;
+            color: #F6BD16 !important;
+            font-family: 'Inter', sans-serif !important;
+            font-size: 0.85rem !important;
+            font-weight: 500 !important;
+            padding: 0.35rem 0.75rem !important;
+            min-height: unset !important;
+            box-shadow: none !important;
+        }
+        .sidebar-logout-wrapper .stButton > button * {
+            color: #F6BD16 !important;
+        }
+        .sidebar-logout-wrapper .stButton > button:hover {
+            background: #F6BD16 !important;
+            color: #1A1A1A !important;
+            border-color: #F6BD16 !important;
+        }
+        .sidebar-logout-wrapper .stButton > button:hover * {
+            color: #1A1A1A !important;
+        }
+        </style>
+        <div class="sidebar-logout-wrapper" style="margin-top: 1.2rem;">
+        """,
         unsafe_allow_html=True,
     )
-with tb_col3:
-    st.markdown('<div class="topbar-logout-wrapper">', unsafe_allow_html=True)
-    logout_button(location="main", key="logout_topbar")
+    logout_button(location="sidebar", key="logout_sidebar")
     st.markdown('</div>', unsafe_allow_html=True)
 
-# =============================================================================
-# ABA: PLD MÉDIO DIÁRIO POR SUBMERCADO
-# =============================================================================
+# Sem barra superior — Sair fica no final da sidebar (vide bloco SIDEBAR abaixo).
+# Assim a página ganha espaço vertical e a topbar nativa do Streamlit (3 pontos)
+# não compete com elementos customizados.
 if aba == "PLD Diário":
     # Título principal da aba, em destaque Bauhaus (barra vermelha lateral)
-    st.markdown("# PLD DIÁRIO")
+    st.markdown("# PLD")
     st.caption(
         "Preço de Liquidação das Diferenças por submercado · "
         "Fonte: CCEE Dados Abertos"
