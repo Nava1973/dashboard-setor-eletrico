@@ -87,7 +87,8 @@ st.markdown(
         line-height: 1 !important;
         border-left: 8px solid {BAUHAUS_RED};
         padding-left: 14px;
-        margin-bottom: 0.4rem !important;
+        margin-top: 0 !important;
+        margin-bottom: 0.2rem !important;
     }}
     h3 {{
         font-size: 1.1rem !important;
@@ -236,9 +237,9 @@ st.markdown(
         line-height: 1.2 !important;
     }}
 
-    /* Bloco principal — compacto */
+    /* Bloco principal — compacto, sobe o título PLD pro topo */
     .block-container {{
-        padding-top: 0.8rem;
+        padding-top: 0.3rem;
         padding-bottom: 2rem;
         max-width: 1100px;
     }}
@@ -268,12 +269,17 @@ st.markdown(
         font-weight: 600 !important;
         color: {BAUHAUS_BLACK} !important;
     }}
-    /* Quadradinho do checkbox — seletor específico para atingir só o box interno,
-       não os labels. Usa o data-baseweb="checkbox" e o span com role=checkbox. */
+    /* Quadradinho do checkbox quando MARCADO: preto sólido com tick branco */
     [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"] {{
         background: {BAUHAUS_BLACK} !important;
         background-color: {BAUHAUS_BLACK} !important;
         border-color: {BAUHAUS_BLACK} !important;
+    }}
+    /* SVG do tick dentro do checkbox marcado — branco */
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"] svg,
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"] svg * {{
+        fill: #FFFFFF !important;
+        color: #FFFFFF !important;
     }}
     [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"] {{
         border-radius: 0 !important;
@@ -429,13 +435,14 @@ with st.sidebar:
     st.markdown("### Dashboard Setor Elétrico")
     st.caption(f"Usuário: **{user}**")
 
-    # Botão Sair logo abaixo do usuário — retângulo transparente, borda amarela fina.
-    # CSS via atributos data-* que o JS adiciona no botão (ver components.html acima).
+    # Botões Sair e Atualizar — mesmo estilo: borda amarela fina, fundo transparente,
+    # texto amarelo. JS marca cada um com data-sair/data-atualizar pra CSS atingir.
     st.markdown(
         """
         <style>
-        /* Sair: identificado pelo atributo data-sair adicionado via JS */
-        [data-testid="stSidebar"] .stButton > button[data-sair="true"] {
+        /* Estilo unificado pros dois botões da sidebar */
+        [data-testid="stSidebar"] .stButton > button[data-sair="true"],
+        [data-testid="stSidebar"] .stButton > button[data-atualizar="true"] {
             background: transparent !important;
             background-color: transparent !important;
             border: 1px solid #F6BD16 !important;
@@ -451,36 +458,30 @@ with st.sidebar:
             border-radius: 0 !important;
             margin: 0 !important;
         }
-        [data-testid="stSidebar"] .stButton > button[data-sair="true"] * {
+        [data-testid="stSidebar"] .stButton > button[data-sair="true"] *,
+        [data-testid="stSidebar"] .stButton > button[data-atualizar="true"] * {
             color: #F6BD16 !important;
             font-weight: 500 !important;
         }
-        [data-testid="stSidebar"] .stButton > button[data-sair="true"]:hover {
+        [data-testid="stSidebar"] .stButton > button[data-sair="true"]:hover,
+        [data-testid="stSidebar"] .stButton > button[data-atualizar="true"]:hover {
             background: #F6BD16 !important;
             background-color: #F6BD16 !important;
             color: #1A1A1A !important;
             border: 1px solid #F6BD16 !important;
         }
-        [data-testid="stSidebar"] .stButton > button[data-sair="true"]:hover * {
+        [data-testid="stSidebar"] .stButton > button[data-sair="true"]:hover *,
+        [data-testid="stSidebar"] .stButton > button[data-atualizar="true"]:hover * {
             color: #1A1A1A !important;
         }
-        /* Container do botão Sair — força largura e reduz margem superior
-           pra subir o botão bem perto do texto "Usuário: Nava" */
-        [data-testid="stSidebar"] .stButton:has(button[data-sair="true"]) {
+        /* FORÇA o CONTAINER do botão Sair a ocupar 100% da largura.
+           O logout_button do streamlit-authenticator não aceita use_container_width,
+           então precisamos forçar no .stButton parent. */
+        [data-testid="stSidebar"] .stButton:has(button[data-sair="true"]),
+        [data-testid="stSidebar"] div:has(> .stButton > button[data-sair="true"]) {
+            width: 100% !important;
             margin-top: -0.3rem !important;
             margin-bottom: 0 !important;
-            width: 100% !important;
-        }
-        /* Atualizar: mesma altura E texto amarelo explícito */
-        [data-testid="stSidebar"] .stButton > button[data-atualizar="true"] {
-            min-height: 2.4rem !important;
-            height: 2.4rem !important;
-            padding: 0 !important;
-            color: #F6BD16 !important;
-        }
-        [data-testid="stSidebar"] .stButton > button[data-atualizar="true"] *,
-        [data-testid="stSidebar"] .stButton > button[data-atualizar="true"] p {
-            color: #F6BD16 !important;
         }
         </style>
         """,
@@ -519,7 +520,7 @@ if aba == "PLD Diário":
     # Linha separadora preta abaixo do título — dá respiro antes do Período
     st.markdown(
         '<div style="border-bottom: 2px solid #1A1A1A; '
-        'margin: 0.4rem 0 0.2rem 0;"></div>',
+        'margin: 0.2rem 0 0 0;"></div>',
         unsafe_allow_html=True,
     )
 
