@@ -250,7 +250,13 @@ st.markdown(
     }}
     /* Também força o main container a subir */
     [data-testid="stAppViewContainer"] .main .block-container {{
-        padding-top: 0.2rem !important;
+        padding-top: 0 !important;
+    }}
+    /* Remove o header invisível do Streamlit que ocupa 2.8rem no topo */
+    [data-testid="stHeader"] {{
+        height: 0 !important;
+        min-height: 0 !important;
+        background: transparent !important;
     }}
 
     /* Caption — usar cinza escuro forte, legível sobre creme.
@@ -269,11 +275,10 @@ st.markdown(
         font-weight: 500 !important;
     }}
 
-    /* Labels dos checkboxes (SE, S, NE, N, Média BR) — texto preto, fundo transparente.
-       IMPORTANTE: seletor `:not([role="checkbox"])` exclui o quadradinho. */
+    /* Labels dos checkboxes (SE, S, NE, N, Média BR) — texto preto, fundo transparente. */
     [data-testid="stAppViewContainer"] .stCheckbox label,
     [data-testid="stAppViewContainer"] .stCheckbox label p,
-    [data-testid="stAppViewContainer"] .stCheckbox label > span:not([role="checkbox"]),
+    [data-testid="stAppViewContainer"] .stCheckbox label > span:not([data-baseweb="checkbox"]):not([role="checkbox"]),
     [data-testid="stAppViewContainer"] .stCheckbox label div:not([data-baseweb="checkbox"]) {{
         font-family: 'Inter', sans-serif !important;
         font-size: 0.92rem !important;
@@ -282,34 +287,48 @@ st.markdown(
         background: transparent !important;
         background-color: transparent !important;
     }}
-    /* Quadradinho: APENAS o span com role="checkbox". Não outros spans da label. */
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"] {{
+    /* CHECKBOX — pinta TUDO preto no container do checkbox, mais o span interno.
+       O BaseWeb usa hierarquia div > span[role=checkbox] > svg, e qualquer deles
+       pode receber a cor primary rosa. Bloqueamos todos. */
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"],
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] > div,
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] > div > div,
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"],
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"],
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="false"] {{
         background: {BAUHAUS_BLACK} !important;
         background-color: {BAUHAUS_BLACK} !important;
         border-color: {BAUHAUS_BLACK} !important;
         border-radius: 0 !important;
     }}
-    /* Tick BRANCO quando marcado — cobre SVG (fill/stroke) E pseudo-elementos
-       (usado por versões mais novas do BaseWeb via ::after) */
+    /* MAS: o container externo [data-baseweb=checkbox] também envolve o label!
+       Então precisamos ser cirúrgicos — remover a pintura onde não faz sentido.
+       O span[role=checkbox] é o elemento certo; corrigir o acima. */
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] {{
+        background: transparent !important;
+        background-color: transparent !important;
+        border: none !important;
+    }}
+    /* Quadradinho propriamente dito: o <span role="checkbox"> + seu <div> interno. */
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"],
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"] > div {{
+        background: {BAUHAUS_BLACK} !important;
+        background-color: {BAUHAUS_BLACK} !important;
+        border-color: {BAUHAUS_BLACK} !important;
+        border-radius: 0 !important;
+    }}
+    /* Tick BRANCO quando marcado — TODOS os elementos SVG possíveis */
     [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] svg,
     [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] svg *,
     [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] path,
     [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] polyline,
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] line {{
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] line,
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] polygon {{
         fill: #FFFFFF !important;
         stroke: #FFFFFF !important;
         color: #FFFFFF !important;
         opacity: 1 !important;
-    }}
-    /* Fallback: se o check for renderizado via ::after (sem SVG) */
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"]::after {{
-        color: #FFFFFF !important;
-        border-color: #FFFFFF !important;
-    }}
-    /* Override da cor primary do Streamlit para os checkboxes */
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"] {{
-        --primary: {BAUHAUS_BLACK} !important;
-        --primary-color: {BAUHAUS_BLACK} !important;
+        visibility: visible !important;
     }}
 
     /* Divisor */
@@ -544,10 +563,10 @@ if aba == "PLD Diário":
         "Preço de Liquidação das Diferenças por submercado · "
         "Fonte: CCEE Dados Abertos"
     )
-    # Linha separadora preta abaixo do título — bem colada ao Período
+    # Linha separadora preta abaixo do título — mínima margem
     st.markdown(
         '<div style="border-bottom: 2px solid #1A1A1A; '
-        'margin: 0.1rem 0 -0.3rem 0;"></div>',
+        'margin: 0 0 -0.5rem 0;"></div>',
         unsafe_allow_html=True,
     )
 
@@ -885,14 +904,14 @@ if aba == "PLD Diário":
         <style>
         .kpi-ultimo-row {{
             display: flex;
-            flex-wrap: nowrap;  /* força uma linha só, sem quebra */
+            flex-wrap: nowrap;
             align-items: center;
-            gap: 0.3rem 0.7rem;
+            justify-content: space-between;  /* distribui items uniformemente */
             margin: 0.8rem 0 0.3rem 0;
-            padding: 0.4rem 0.65rem;
+            padding: 0.4rem 0.9rem;
             border: 2px solid #1A1A1A;
             background: #F5F1E8;
-            overflow-x: auto;  /* caso ainda não caiba, scroll horizontal */
+            gap: 0.4rem;
         }}
         .kpi-ultimo-header {{
             font-family: 'Inter', sans-serif;
