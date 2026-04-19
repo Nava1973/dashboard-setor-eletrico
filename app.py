@@ -37,7 +37,7 @@ BAUHAUS_YELLOW = "#F6BD16"   # amarelo cromo — saturado, sem laranjado
 BAUHAUS_BLUE = "#1D3557"     # azul cobalto profundo
 BAUHAUS_BLACK = "#1A1A1A"    # preto tinteiro, não "puro"
 BAUHAUS_CREAM = "#F5F1E8"    # creme (papel) em vez de branco estéril
-BAUHAUS_GRAY = "#6B6B6B"
+BAUHAUS_GRAY = "#4A4A4A"     # cinza escuro legível sobre creme (antes #6B6B6B ficou fraco)
 BAUHAUS_LIGHT = "#E8E3D4"    # creme mais escuro pra elementos sutis
 
 # Atribuição por submercado
@@ -186,15 +186,20 @@ st.markdown(
         border-radius: 0;
     }}
     [data-testid="stMetric"] [data-testid="stMetricValue"],
-    [data-testid="stMetric"] [data-testid="stMetricValue"] * {{
+    [data-testid="stMetric"] [data-testid="stMetricValue"] *,
+    [data-testid="stMetric"] [data-testid="stMetricValue"] div {{
         font-family: 'Bebas Neue', sans-serif !important;
         font-size: 1.5rem !important;
         color: {BAUHAUS_BLACK} !important;
         letter-spacing: 0.02em !important;
     }}
+    /* Labels dos KPIs (SE, S, NE, N, MÉDIA BR) — PRETO forçado */
     [data-testid="stMetric"] [data-testid="stMetricLabel"],
     [data-testid="stMetric"] [data-testid="stMetricLabel"] *,
-    [data-testid="stMetric"] [data-testid="stMetricLabel"] p {{
+    [data-testid="stMetric"] [data-testid="stMetricLabel"] p,
+    [data-testid="stMetric"] [data-testid="stMetricLabel"] div,
+    [data-testid="stMetric"] label,
+    [data-testid="stMetric"] label * {{
         text-transform: uppercase !important;
         font-size: 0.68rem !important;
         letter-spacing: 0.18em !important;
@@ -228,6 +233,17 @@ st.markdown(
     .stDateInput input {{
         font-family: 'Inter', sans-serif !important;
         color: {BAUHAUS_BLACK} !important;
+    }}
+    /* Labels "Data inicial" e "Data final" — PRETO forçado */
+    .stDateInput label,
+    .stDateInput label *,
+    .stDateInput label p,
+    [data-testid="stWidgetLabel"],
+    [data-testid="stWidgetLabel"] *,
+    [data-testid="stWidgetLabel"] p {{
+        color: {BAUHAUS_BLACK} !important;
+        font-weight: 600 !important;
+        font-family: 'Inter', sans-serif !important;
     }}
 
     /* Bloco principal */
@@ -277,6 +293,42 @@ st.markdown(
     }}
     .bauhaus-stripe > div {{
         flex: 1;
+    }}
+
+    /* Expander (Baixar dados CSV) — fundo creme com texto preto legível */
+    [data-testid="stExpander"] {{
+        background: {BAUHAUS_CREAM} !important;
+        border: 2px solid {BAUHAUS_BLACK} !important;
+        border-radius: 0 !important;
+    }}
+    [data-testid="stExpander"] summary,
+    [data-testid="stExpander"] summary *,
+    [data-testid="stExpander"] summary p,
+    [data-testid="stExpander"] summary span,
+    [data-testid="stExpander"] details summary,
+    [data-testid="stExpander"] details summary * {{
+        color: {BAUHAUS_BLACK} !important;
+        font-family: 'Inter', sans-serif !important;
+        font-weight: 600 !important;
+        background: {BAUHAUS_CREAM} !important;
+    }}
+    [data-testid="stExpander"] [data-testid="stExpanderDetails"],
+    [data-testid="stExpander"] [data-testid="stExpanderDetails"] * {{
+        background: {BAUHAUS_CREAM} !important;
+        color: {BAUHAUS_BLACK} !important;
+    }}
+    /* Botão "Baixar CSV" dentro do expander */
+    [data-testid="stExpander"] .stDownloadButton > button {{
+        background: {BAUHAUS_YELLOW} !important;
+        color: {BAUHAUS_BLACK} !important;
+        border: 2px solid {BAUHAUS_BLACK} !important;
+        border-radius: 0 !important;
+        font-family: 'Bebas Neue', sans-serif !important;
+        letter-spacing: 0.08em !important;
+    }}
+    [data-testid="stExpander"] .stDownloadButton > button:hover {{
+        background: {BAUHAUS_RED} !important;
+        color: {BAUHAUS_CREAM} !important;
     }}
     </style>
 
@@ -427,9 +479,19 @@ if aba == "PLD Diário":
         st.stop()
 
     # --- KPIs (valores mais recentes) ---
-    st.markdown("### Último dia disponível")
     ultima_data = dff["data"].max()
     ultimo_pld = dff[dff["data"] == ultima_data].set_index("submercado")["pld"]
+
+    # Título com data embutida em cinza escuro
+    st.markdown(
+        f'<h3 style="display:flex; align-items:baseline; gap:14px;">'
+        f'<span>Último dia disponível</span>'
+        f'<span style="font-family:\'Inter\', sans-serif; font-weight:500; '
+        f'font-size:0.85rem; letter-spacing:0.1em; color:{BAUHAUS_GRAY}; '
+        f'text-transform:none;">{ultima_data.strftime("%d/%m/%Y")}</span>'
+        f'</h3>',
+        unsafe_allow_html=True,
+    )
 
     cols = st.columns(5)
     for i, sub in enumerate(SUBMERCADOS_ORD):
@@ -442,8 +504,6 @@ if aba == "PLD Diário":
     with cols[4]:
         media_br = ultimo_pld.mean()
         st.metric(label="MÉDIA BR", value=f"R$ {media_br:,.2f}")
-
-    st.caption(f"Referência: {ultima_data.strftime('%d/%m/%Y')}")
 
     # --- Seletor de submercados ---
     st.markdown("### Série histórica")
