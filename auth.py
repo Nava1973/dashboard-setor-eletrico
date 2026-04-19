@@ -17,7 +17,7 @@ CONFIG_PATH = Path(__file__).parent / "config.yaml"
 # Paleta — importada pro CSS de login (fica consistente com app.py)
 _RED = "#D62828"
 _YELLOW = "#F6BD16"
-_BLUE = "#3D5AFE"
+_BLUE = "#2A6F97"
 _BLACK = "#1A1A1A"
 _CREAM = "#F5F1E8"
 
