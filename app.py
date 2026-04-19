@@ -281,12 +281,7 @@ st.markdown(
         font-weight: 500 !important;
     }}
 
-    /* ===== CHECKBOX — rosa sólido padrão + tick branco quando marcado =====
-       Abandonamos a tentativa de forçar preto (o BaseWeb não deixa).
-       Aceitamos a cor primary do Streamlit (rosa), só garantimos:
-       - Labels (textos SE/S/NE/N/Média BR) com fundo transparente
-       - Quadradinho rosa SÓLIDO cheio (não só borda)
-       - Tick branco visível quando marcado */
+    /* ===== CHECKBOX — cor sólida rosa + tick branco ===== */
 
     /* LABELS: fundo transparente SEMPRE */
     [data-testid="stAppViewContainer"] .stCheckbox label,
@@ -302,22 +297,40 @@ st.markdown(
         font-size: 0.92rem !important;
         font-weight: 600 !important;
     }}
-    /* Container [data-baseweb=checkbox]: transparente (envolve o label) */
     [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] {{
         background: transparent !important;
         background-color: transparent !important;
     }}
-    /* Quadradinho sem border-radius (quadrado) — cor deixa o Streamlit decidir */
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"] {{
+
+    /* QUADRADINHO MARCADO — ROSA SÓLIDO.
+       Streamlit usa a primary color como fundo, mas só quando marcado.
+       Forçamos o fundo pra garantir que fique sólido cheio (não só contorno). */
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] {{
+        background: #FF4B4B !important;
+        background-color: #FF4B4B !important;
+        border: 2px solid #FF4B4B !important;
         border-radius: 0 !important;
     }}
-    /* Tick BRANCO visível quando marcado */
+    /* Quadradinho DESMARCADO: borda preta discreta, fundo transparente */
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="false"] {{
+        background: transparent !important;
+        background-color: transparent !important;
+        border: 2px solid {BAUHAUS_BLACK} !important;
+        border-radius: 0 !important;
+    }}
+
+    /* TICK BRANCO quando marcado — SVG e TODOS os seus filhos */
     [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] svg,
     [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] svg *,
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] path {{
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] path,
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] polyline,
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] g {{
         fill: #FFFFFF !important;
         stroke: #FFFFFF !important;
+        color: #FFFFFF !important;
         opacity: 1 !important;
+        visibility: visible !important;
+        display: inline !important;
     }}
 
     /* Divisor */
@@ -656,16 +669,25 @@ if aba == "PLD Diário":
         [1, 1, 1, 1, 1, 0.3, 1.4, 1.4]
     )
 
-    # Label invisível nas colunas dos botões pra descerem e ficarem alinhados
-    # por baixo com os date_inputs (que têm label "Data inicial"/"Data final").
-    # Ajuste fino: 0.75rem font + 1.2 line-height + 2px margin-bottom ≈ altura do label real
-    label_spacer = (
-        '<div style="font-size:0.75rem; line-height:1.2; margin: 0 0 2px 0; '
-        'color:transparent; user-select:none; height: calc(0.75rem * 1.2);">·</div>'
+    # Removido o label_spacer — agora usamos margin-top direto no botão via CSS.
+    # O CSS global dos botões secondary/primary dentro das colunas do Período
+    # está na seção "Botão de atalho com margin-top pra alinhar com date_input".
+    # Injetar CSS específico desse bloco (contextual, depois de detectar preset):
+    st.markdown(
+        """
+        <style>
+        /* Alinhamento vertical dos botões de atalho com as caixas de data.
+           As caixas de data têm label "Data inicial"/"Data final" com altura
+           aproximada 1.1rem + 2px margem. Os botões recebem essa margem no
+           topo pra descer à mesma altura. */
+        div[data-testid="column"] .stButton > button[kind="secondary"],
+        div[data-testid="column"] .stButton > button[kind="primary"] {
+            margin-top: calc(0.75rem * 1.2 + 4px) !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
     )
-    for col in [p1, p2, p3, p4, p5]:
-        with col:
-            st.markdown(label_spacer, unsafe_allow_html=True)
 
     # Função auxiliar — usa type="primary" quando o atalho está ativo
     def _btn_atalho(col, label, delta_days=None, is_max=False):
