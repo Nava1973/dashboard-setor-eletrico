@@ -281,15 +281,7 @@ st.markdown(
         font-weight: 500 !important;
     }}
 
-    /* ===== CHECKBOX — estrutura real do Streamlit atual =====
-       DOM: <label data-baseweb="checkbox">
-              <span class="st-XX">  ← ESSE é o quadradinho visual
-                <input type="checkbox">
-                <span></span>  ← e esse pode ser o tick
-              </span>
-              <div>TEXTO SE/S/NE/N</div>
-            </label>
-       Usamos input:checked para detectar estado. */
+    /* ===== CHECKBOX — PRETO sólido + tick branco ===== */
 
     /* LABELS: fundo transparente SEMPRE */
     [data-testid="stAppViewContainer"] .stCheckbox label,
@@ -306,33 +298,59 @@ st.markdown(
         font-weight: 600 !important;
     }}
 
-    /* QUADRADINHO = primeiro <span> direto filho do label, que contém o input.
-       Usamos label > span:first-child (ou :has(input)) pra pegar só ele. */
-    [data-testid="stAppViewContainer"] .stCheckbox label > span:first-child,
-    [data-testid="stAppViewContainer"] .stCheckbox label > span:has(input[type="checkbox"]) {{
+    /* QUADRADINHO DESMARCADO: borda preta, fundo transparente */
+    [data-testid="stAppViewContainer"] .stCheckbox label > span:first-child {{
         background: transparent !important;
         background-color: transparent !important;
         border: 2px solid {BAUHAUS_BLACK} !important;
         border-radius: 0 !important;
     }}
 
-    /* QUADRADINHO MARCADO: fundo ROSA sólido cheio.
-       Detecta via label que contém input:checked. */
+    /* QUADRADINHO MARCADO: PRETO sólido */
     [data-testid="stAppViewContainer"] .stCheckbox label:has(input[type="checkbox"]:checked) > span:first-child {{
-        background: #FF4B4B !important;
-        background-color: #FF4B4B !important;
-        border: 2px solid #FF4B4B !important;
+        background: {BAUHAUS_BLACK} !important;
+        background-color: {BAUHAUS_BLACK} !important;
+        border: 2px solid {BAUHAUS_BLACK} !important;
     }}
 
-    /* TICK BRANCO quando marcado — cobre qualquer SVG dentro do span quadradinho */
+    /* TICK BRANCO quando marcado — múltiplas tentativas pra garantir que algum pegue.
+       O tick pode ser: SVG, path, pseudo-elemento ::after, ou span filho. */
     [data-testid="stAppViewContainer"] .stCheckbox label:has(input[type="checkbox"]:checked) > span:first-child svg,
     [data-testid="stAppViewContainer"] .stCheckbox label:has(input[type="checkbox"]:checked) > span:first-child svg *,
     [data-testid="stAppViewContainer"] .stCheckbox label:has(input[type="checkbox"]:checked) > span:first-child path,
-    [data-testid="stAppViewContainer"] .stCheckbox label:has(input[type="checkbox"]:checked) > span:first-child span {{
+    [data-testid="stAppViewContainer"] .stCheckbox label:has(input[type="checkbox"]:checked) > span:first-child polyline,
+    [data-testid="stAppViewContainer"] .stCheckbox label:has(input[type="checkbox"]:checked) > span:first-child g {{
         fill: #FFFFFF !important;
         stroke: #FFFFFF !important;
         color: #FFFFFF !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+    }}
+    /* Se o tick for via span sibling do input (CSS puro) — forçar visível e branco */
+    [data-testid="stAppViewContainer"] .stCheckbox label:has(input[type="checkbox"]:checked) > span:first-child > span {{
+        color: #FFFFFF !important;
         background: transparent !important;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }}
+    /* Fallback: pseudo-elemento ::after que desenha um tick manual.
+       Se nenhum SVG existir, desenhamos nós mesmos com caracter unicode ✓ */
+    [data-testid="stAppViewContainer"] .stCheckbox label:has(input[type="checkbox"]:checked) > span:first-child::after {{
+        content: "✓" !important;
+        position: absolute !important;
+        top: 50% !important;
+        left: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        color: #FFFFFF !important;
+        font-size: 13px !important;
+        font-weight: 900 !important;
+        line-height: 1 !important;
+        pointer-events: none !important;
+    }}
+    /* Garantir que o span quadradinho seja position:relative pro ::after funcionar */
+    [data-testid="stAppViewContainer"] .stCheckbox label > span:first-child {{
+        position: relative !important;
     }}
 
     /* Divisor */
@@ -671,15 +689,8 @@ if aba == "PLD Diário":
         [1, 1, 1, 1, 1, 0.3, 1.4, 1.4]
     )
 
-    # Label invisível nas colunas dos botões pra descerem e ficarem alinhados
-    # por baixo com os date_inputs (que têm label "Data inicial"/"Data final").
-    label_spacer = (
-        '<div style="font-size:0.75rem; line-height:1.2; margin-bottom:2px; '
-        'color:transparent; user-select:none;">·</div>'
-    )
-    for col in [p1, p2, p3, p4, p5]:
-        with col:
-            st.markdown(label_spacer, unsafe_allow_html=True)
+    # Atalhos e date_inputs em colunas. Sem label_spacer — deixamos o Streamlit
+    # alinhar os widgets naturalmente dentro das colunas.
 
     # Função auxiliar — usa type="primary" quando o atalho está ativo
     def _btn_atalho(col, label, delta_days=None, is_max=False):
