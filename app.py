@@ -88,15 +88,15 @@ st.markdown(
         border-left: 7px solid {BAUHAUS_RED};
         padding-left: 12px;
         margin-top: 0 !important;
-        margin-bottom: 0.2rem !important;
+        margin-bottom: 0 !important;
     }}
     h3 {{
         font-size: 1rem !important;
         letter-spacing: 0.05em !important;
         border-bottom: 2px solid {BAUHAUS_BLACK};
         padding-bottom: 3px;
-        margin-top: 1.1rem !important;
-        margin-bottom: 0.5rem !important;
+        margin-top: 0.8rem !important;
+        margin-bottom: 0.4rem !important;
     }}
 
     /* Fundo da página */
@@ -193,7 +193,7 @@ st.markdown(
         color: {BAUHAUS_BLACK} !important;
     }}
 
-    /* Botões principais (fora da sidebar) */
+    /* Botões principais (fora da sidebar) — altura igual aos date inputs */
     .stButton > button {{
         border-radius: 0 !important;
         border: 2px solid {BAUHAUS_BLACK} !important;
@@ -202,7 +202,9 @@ st.markdown(
         font-family: 'Bebas Neue', sans-serif !important;
         letter-spacing: 0.08em;
         font-size: 1rem !important;
-        padding: 8px 12px !important;
+        padding: 0 10px !important;
+        min-height: 2.4rem !important;
+        height: 2.4rem !important;
         transition: all 0.15s ease !important;
     }}
     .stButton > button:hover {{
@@ -210,17 +212,21 @@ st.markdown(
         color: {BAUHAUS_BLACK} !important;
     }}
 
-    /* Inputs de data */
+    /* Inputs de data — mesma altura 2.4rem dos botões */
     .stDateInput > div > div {{
         border-radius: 0 !important;
         border: 2px solid {BAUHAUS_BLACK} !important;
         background: {BAUHAUS_CREAM};
+        height: 2.4rem !important;
+        min-height: 2.4rem !important;
     }}
     .stDateInput input {{
         font-family: 'Inter', sans-serif !important;
         color: {BAUHAUS_BLACK} !important;
-        padding: 0.4rem 0.6rem !important;  /* altura compacta pra alinhar com botões */
+        padding: 0 0.6rem !important;
         font-size: 0.9rem !important;
+        height: 2.4rem !important;
+        line-height: 2.4rem !important;
     }}
     /* Labels "Data inicial" e "Data final" — compactos pra não esticar a caixa */
     .stDateInput label,
@@ -275,54 +281,40 @@ st.markdown(
         font-weight: 500 !important;
     }}
 
-    /* ===== CHECKBOX — cobertura completa de todos os data-baseweb possíveis ===== */
-    /* 1. Labels (textos SE/S/NE/N/Média BR): preto, sem fundo */
-    [data-testid="stAppViewContainer"] .stCheckbox label {{
+    /* ===== CHECKBOX — labels sempre transparentes, quadradinho tenta preto ===== */
+    /* LABELS: fundo transparente SEMPRE (nunca pintar fundo de labels) */
+    [data-testid="stAppViewContainer"] .stCheckbox label,
+    [data-testid="stAppViewContainer"] .stCheckbox label p,
+    [data-testid="stAppViewContainer"] .stCheckbox label span:not([role="checkbox"]),
+    [data-testid="stAppViewContainer"] .stCheckbox label div:not([data-baseweb]) {{
         background: transparent !important;
+        background-color: transparent !important;
+        color: {BAUHAUS_BLACK} !important;
     }}
     [data-testid="stAppViewContainer"] .stCheckbox label p {{
         font-family: 'Inter', sans-serif !important;
         font-size: 0.92rem !important;
         font-weight: 600 !important;
-        color: {BAUHAUS_BLACK} !important;
-        background: transparent !important;
-        background-color: transparent !important;
     }}
-    /* 2. Quadradinho do checkbox: TUDO preto.
-       Streamlit 1.35+ usa <input type="checkbox"> real + <div> irmão pra renderizar.
-       Cobrimos: span[role=checkbox], input+span, input+div, etc. */
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"],
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] > div,
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] > span,
-    [data-testid="stAppViewContainer"] .stCheckbox input[type="checkbox"] + div,
-    [data-testid="stAppViewContainer"] .stCheckbox input[type="checkbox"] + span {{
-        background: {BAUHAUS_BLACK} !important;
-        background-color: {BAUHAUS_BLACK} !important;
-        border-color: {BAUHAUS_BLACK} !important;
-        border-radius: 0 !important;
-        box-shadow: none !important;
-    }}
-    /* Garantir que o container [data-baseweb=checkbox] em si fique transparente
-       (ele envolve o label inteiro, inclusive o texto) */
+    /* Container [data-baseweb=checkbox]: transparente (ele envolve o label) */
     [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] {{
         background: transparent !important;
         background-color: transparent !important;
     }}
-    /* 3. Tick branco quando marcado: cobre SVG + pseudo elemento */
+    /* QUADRADINHO: apenas o span[role=checkbox] — tentativa preto.
+       Se não funcionar, fica a cor primary padrão (rosa), que é aceitável. */
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"] {{
+        background: {BAUHAUS_BLACK} !important;
+        background-color: {BAUHAUS_BLACK} !important;
+        border-color: {BAUHAUS_BLACK} !important;
+        border-radius: 0 !important;
+    }}
+    /* Tick branco quando marcado */
     [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] svg,
     [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] svg *,
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] path,
-    [data-testid="stAppViewContainer"] .stCheckbox input[type="checkbox"]:checked + div svg,
-    [data-testid="stAppViewContainer"] .stCheckbox input[type="checkbox"]:checked + div svg * {{
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] path {{
         fill: #FFFFFF !important;
         stroke: #FFFFFF !important;
-        color: #FFFFFF !important;
-    }}
-    /* Override da cor primary do Streamlit em qualquer elemento do checkbox */
-    [data-testid="stAppViewContainer"] .stCheckbox * {{
-        --primary: {BAUHAUS_BLACK} !important;
-        --primary-color: {BAUHAUS_BLACK} !important;
-        --p0: {BAUHAUS_BLACK} !important;
     }}
 
     /* Divisor */
@@ -554,10 +546,10 @@ with st.sidebar:
 if aba == "PLD Diário":
     # Título principal da aba, em destaque Bauhaus (barra vermelha lateral)
     st.markdown("# PLD")
-    # Linha separadora preta abaixo do título — mínima margem
+    # Linha separadora preta abaixo do título — bem colada no Período
     st.markdown(
         '<div style="border-bottom: 2px solid #1A1A1A; '
-        'margin: 0 0 -0.5rem 0;"></div>',
+        'margin: 0 0 -1rem 0;"></div>',
         unsafe_allow_html=True,
     )
 
