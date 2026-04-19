@@ -239,9 +239,18 @@ st.markdown(
 
     /* Bloco principal — compacto, sobe o título PLD pro topo */
     .block-container {{
-        padding-top: 0.3rem;
+        padding-top: 0 !important;
         padding-bottom: 2rem;
         max-width: 1000px;
+    }}
+    /* Remove padding/margin do primeiro elemento da página pra subir tudo */
+    .block-container > div:first-child {{
+        padding-top: 0 !important;
+        margin-top: 0 !important;
+    }}
+    /* Também força o main container a subir */
+    [data-testid="stAppViewContainer"] .main .block-container {{
+        padding-top: 0.2rem !important;
     }}
 
     /* Caption — usar cinza escuro forte, legível sobre creme.
@@ -269,26 +278,34 @@ st.markdown(
         font-weight: 600 !important;
         color: {BAUHAUS_BLACK} !important;
     }}
-    /* Quadradinho do checkbox — SEMPRE preto sólido (marcado ou não).
-       Todas as variações de estado: hover, focus, checked, active. */
+    /* Quadradinho do checkbox — SEMPRE preto sólido. Abrange todos os seletores
+       possíveis porque o Streamlit/BaseWeb aplica cor primary (rosa/vermelho) via
+       estilos dinâmicos internos que mudam entre versões. */
     [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"],
     [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"],
     [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="false"],
     [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"]:hover span[role="checkbox"],
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"]:focus-within span[role="checkbox"] {{
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"]:focus-within span[role="checkbox"],
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] > div,
+    [data-testid="stAppViewContainer"] .stCheckbox label > span:first-child {{
         background: {BAUHAUS_BLACK} !important;
         background-color: {BAUHAUS_BLACK} !important;
         border-color: {BAUHAUS_BLACK} !important;
         border-radius: 0 !important;
     }}
-    /* SVG do tick dentro do checkbox marcado — BRANCO.
-       Quando desmarcado, o SVG some naturalmente (nada pra ver). */
+    /* SVG tick branco quando marcado */
     [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"] svg,
     [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"] svg *,
     [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"] path {{
         fill: #FFFFFF !important;
         stroke: #FFFFFF !important;
         color: #FFFFFF !important;
+    }}
+    /* Override da cor primary do Streamlit no contexto dos checkboxes.
+       O tema BaseWeb usa variáveis CSS pra aplicar cor destacada ao elemento ativo. */
+    [data-testid="stAppViewContainer"] .stCheckbox * {{
+        --primary: {BAUHAUS_BLACK} !important;
+        --primary-color: {BAUHAUS_BLACK} !important;
     }}
 
     /* Divisor */
@@ -523,10 +540,10 @@ if aba == "PLD Diário":
         "Preço de Liquidação das Diferenças por submercado · "
         "Fonte: CCEE Dados Abertos"
     )
-    # Linha separadora preta abaixo do título — dá respiro antes do Período
+    # Linha separadora preta abaixo do título — bem colada ao Período
     st.markdown(
         '<div style="border-bottom: 2px solid #1A1A1A; '
-        'margin: 0.2rem 0 0 0;"></div>',
+        'margin: 0.1rem 0 -0.3rem 0;"></div>',
         unsafe_allow_html=True,
     )
 
