@@ -243,6 +243,12 @@ st.markdown(
         padding-bottom: 2rem;
         max-width: 1000px;
     }}
+    /* Reduz altura do header nativo Streamlit (sem escondê-lo — mantém os 3 pontos).
+       De ~3rem padrão para 1.5rem */
+    [data-testid="stHeader"] {{
+        height: 1.5rem !important;
+        min-height: 1.5rem !important;
+    }}
     /* Remove padding/margin do primeiro elemento da página pra subir tudo */
     .block-container > div:first-child {{
         padding-top: 0 !important;
@@ -269,11 +275,10 @@ st.markdown(
         font-weight: 500 !important;
     }}
 
-    /* ===== CHECKBOX — abordagem minimalista ===== */
-    /* 1. Labels dos checkboxes: texto preto, fundo transparente */
+    /* ===== CHECKBOX — cobertura completa de todos os data-baseweb possíveis ===== */
+    /* 1. Labels (textos SE/S/NE/N/Média BR): preto, sem fundo */
     [data-testid="stAppViewContainer"] .stCheckbox label {{
         background: transparent !important;
-        color: {BAUHAUS_BLACK} !important;
     }}
     [data-testid="stAppViewContainer"] .stCheckbox label p {{
         font-family: 'Inter', sans-serif !important;
@@ -283,19 +288,41 @@ st.markdown(
         background: transparent !important;
         background-color: transparent !important;
     }}
-    /* 2. APENAS o span role="checkbox" (o quadradinho) fica preto */
-    [data-testid="stAppViewContainer"] .stCheckbox label span[role="checkbox"] {{
+    /* 2. Quadradinho do checkbox: TUDO preto.
+       Streamlit 1.35+ usa <input type="checkbox"> real + <div> irmão pra renderizar.
+       Cobrimos: span[role=checkbox], input+span, input+div, etc. */
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"],
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] > div,
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] > span,
+    [data-testid="stAppViewContainer"] .stCheckbox input[type="checkbox"] + div,
+    [data-testid="stAppViewContainer"] .stCheckbox input[type="checkbox"] + span {{
         background: {BAUHAUS_BLACK} !important;
         background-color: {BAUHAUS_BLACK} !important;
         border-color: {BAUHAUS_BLACK} !important;
         border-radius: 0 !important;
+        box-shadow: none !important;
     }}
-    /* 3. SVG dentro do quadradinho marcado: tick branco */
-    [data-testid="stAppViewContainer"] .stCheckbox label span[role="checkbox"][aria-checked="true"] svg,
-    [data-testid="stAppViewContainer"] .stCheckbox label span[role="checkbox"][aria-checked="true"] svg *,
-    [data-testid="stAppViewContainer"] .stCheckbox label span[role="checkbox"][aria-checked="true"] path {{
+    /* Garantir que o container [data-baseweb=checkbox] em si fique transparente
+       (ele envolve o label inteiro, inclusive o texto) */
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] {{
+        background: transparent !important;
+        background-color: transparent !important;
+    }}
+    /* 3. Tick branco quando marcado: cobre SVG + pseudo elemento */
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] svg,
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] svg *,
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] path,
+    [data-testid="stAppViewContainer"] .stCheckbox input[type="checkbox"]:checked + div svg,
+    [data-testid="stAppViewContainer"] .stCheckbox input[type="checkbox"]:checked + div svg * {{
         fill: #FFFFFF !important;
         stroke: #FFFFFF !important;
+        color: #FFFFFF !important;
+    }}
+    /* Override da cor primary do Streamlit em qualquer elemento do checkbox */
+    [data-testid="stAppViewContainer"] .stCheckbox * {{
+        --primary: {BAUHAUS_BLACK} !important;
+        --primary-color: {BAUHAUS_BLACK} !important;
+        --p0: {BAUHAUS_BLACK} !important;
     }}
 
     /* Divisor */
@@ -453,19 +480,20 @@ with st.sidebar:
     st.markdown(
         """
         <style>
-        /* Estilo unificado pros dois botões da sidebar */
+        /* Estilo unificado pros dois botões da sidebar — borda fina, texto leve */
         [data-testid="stSidebar"] .stButton > button[data-sair="true"],
         [data-testid="stSidebar"] .stButton > button[data-atualizar="true"] {
             background: transparent !important;
             background-color: transparent !important;
-            border: 1px solid #F6BD16 !important;
+            border: 1px solid rgba(246, 189, 22, 0.6) !important;  /* amarelo 60% opacidade */
             color: #F6BD16 !important;
             font-family: 'Inter', sans-serif !important;
-            font-size: 0.85rem !important;
-            font-weight: 500 !important;
+            font-size: 0.8rem !important;
+            font-weight: 400 !important;  /* mais fino (era 500) */
+            letter-spacing: 0.03em !important;
             padding: 0 !important;
-            min-height: 2.4rem !important;
-            height: 2.4rem !important;
+            min-height: 2.2rem !important;
+            height: 2.2rem !important;
             box-shadow: none !important;
             width: 100% !important;
             border-radius: 0 !important;
@@ -474,18 +502,18 @@ with st.sidebar:
         [data-testid="stSidebar"] .stButton > button[data-sair="true"] *,
         [data-testid="stSidebar"] .stButton > button[data-atualizar="true"] * {
             color: #F6BD16 !important;
-            font-weight: 500 !important;
+            font-weight: 400 !important;
         }
         [data-testid="stSidebar"] .stButton > button[data-sair="true"]:hover,
         [data-testid="stSidebar"] .stButton > button[data-atualizar="true"]:hover {
-            background: #F6BD16 !important;
-            background-color: #F6BD16 !important;
-            color: #1A1A1A !important;
+            background: rgba(246, 189, 22, 0.15) !important;  /* sutil */
+            background-color: rgba(246, 189, 22, 0.15) !important;
+            color: #F6BD16 !important;
             border: 1px solid #F6BD16 !important;
         }
         [data-testid="stSidebar"] .stButton > button[data-sair="true"]:hover *,
         [data-testid="stSidebar"] .stButton > button[data-atualizar="true"]:hover * {
-            color: #1A1A1A !important;
+            color: #F6BD16 !important;
         }
         /* FORÇA o CONTAINER do botão Sair a ocupar 100% da largura.
            O logout_button do streamlit-authenticator não aceita use_container_width,
