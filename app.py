@@ -248,7 +248,7 @@ st.markdown(
     [data-testid="stMetric"] label,
     [data-testid="stMetric"] label * {{
         text-transform: uppercase !important;
-        font-size: 0.6rem !important;
+        font-size: 0.85rem !important;
         letter-spacing: 0.16em !important;
         font-weight: 700 !important;
         color: {BAUHAUS_BLACK} !important;
@@ -397,35 +397,80 @@ user = require_login()
 if user is None:
     st.stop()
 
-# =============================================================================
-# JS FALLBACK — limpa texto literal "keyboard_double_arrow_right" caso
-# apareça no botão de abrir sidebar (Material Icons não carregou).
-# =============================================================================
-# =============================================================================
-# BOTÃO FLUTUANTE DE ABRIR SIDEBAR (HTML estático + JS pra controle)
-# Renderizamos o botão direto no HTML para garantir que a seta SEMPRE apareça,
-# sem depender de JS criar o elemento.
-# =============================================================================
-st.markdown(
-    """
-    <button id="bauhaus-open-sidebar" aria-label="Abrir menu lateral" type="button"
-            style="position:fixed; top:12px; left:12px; z-index:9999999;
-                   width:40px; height:40px;
-                   background:#F6BD16; border:2px solid #1A1A1A; border-radius:0;
-                   cursor:pointer; padding:0; margin:0;
-                   display:none; align-items:center; justify-content:center;
-                   font-family:Inter,Arial,sans-serif; font-size:22px;
-                   font-weight:700; color:#1A1A1A; line-height:1;">
-        ›
-    </button>
+import streamlit.components.v1 as components
 
+# =============================================================================
+# BOTÃO FLUTUANTE DE ABRIR SIDEBAR
+# Renderizado via iframe (components.html) que cria o botão no documento pai.
+# Essa abordagem é mais robusta que st.markdown porque o iframe roda JS
+# isolado e tem acesso controlado ao window.parent.document.
+# =============================================================================
+components.html(
+    """
     <script>
     (function() {
-        const SETA_ABRIR = '›';
-        const SETA_FECHAR = '‹';
+        const SETA_ABRIR = '\\u203A';  // ›
+        const SETA_FECHAR = '\\u2039';  // ‹
         const TEXTOS_ICONES = ['keyboard_double_arrow_right', 'keyboard_double_arrow_left',
                               'chevron_right', 'chevron_left', 'arrow_forward', 'arrow_back',
                               'menu_open', 'menu', 'first_page', 'last_page'];
+
+        // Acessar o documento pai (app Streamlit principal)
+        const doc = window.parent.document;
+
+        function criarOuAtualizarBotao() {
+            let btn = doc.getElementById('bauhaus-open-sidebar');
+            if (!btn) {
+                btn = doc.createElement('button');
+                btn.id = 'bauhaus-open-sidebar';
+                btn.type = 'button';
+                btn.setAttribute('aria-label', 'Abrir menu lateral');
+                doc.body.appendChild(btn);
+            }
+            // SEMPRE redefine conteúdo e estilo (caso Streamlit tenha mexido)
+            btn.textContent = SETA_ABRIR;
+            btn.style.cssText =
+                'position:fixed !important; top:12px !important; left:12px !important; ' +
+                'z-index:9999999 !important; ' +
+                'width:40px !important; height:40px !important; ' +
+                'background:#F6BD16 !important; border:2px solid #1A1A1A !important; ' +
+                'border-radius:0 !important; ' +
+                'cursor:pointer !important; padding:0 !important; margin:0 !important; ' +
+                'font-family:Inter,Arial,sans-serif !important; ' +
+                'font-size:22px !important; font-weight:700 !important; ' +
+                'color:#1A1A1A !important; line-height:1 !important; ' +
+                'display:none; align-items:center !important; justify-content:center !important; ' +
+                'box-sizing:border-box !important;';
+            btn.onclick = function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const alvos = [
+                    doc.querySelector('[data-testid="stSidebarCollapsedControl"]'),
+                    doc.querySelector('[data-testid="collapsedControl"]'),
+                    doc.querySelector('[data-testid="baseButton-headerNoPadding"]'),
+                    doc.querySelector('button[kind="headerNoPadding"]')
+                ];
+                for (const alvo of alvos) {
+                    if (alvo) { alvo.click(); return; }
+                }
+                doc.querySelectorAll('button').forEach(b => {
+                    if (b.id === 'bauhaus-open-sidebar') return;
+                    if (TEXTOS_ICONES.includes(b.textContent.trim())) {
+                        b.click();
+                    }
+                });
+            };
+        }
+
+        function toggleVisibilidade() {
+            const btn = doc.getElementById('bauhaus-open-sidebar');
+            if (!btn) return;
+            const sidebar = doc.querySelector('[data-testid="stSidebar"]');
+            if (!sidebar) return;
+            const rect = sidebar.getBoundingClientRect();
+            const estaFechada = rect.width < 50;
+            btn.style.display = estaFechada ? 'flex' : 'none';
+        }
 
         function forceBauhausSeta(btn, seta) {
             if (!btn) return;
@@ -440,87 +485,24 @@ st.markdown(
             btn.style.overflow = 'visible';
         }
 
-        function clickAbrirSidebar() {
-            const alvos = [
-                document.querySelector('[data-testid="stSidebarCollapsedControl"]'),
-                document.querySelector('[data-testid="collapsedControl"]'),
-                document.querySelector('[data-testid="baseButton-headerNoPadding"]'),
-                document.querySelector('button[kind="headerNoPadding"]')
-            ];
-            for (const alvo of alvos) {
-                if (alvo) { alvo.click(); return; }
-            }
-            document.querySelectorAll('button').forEach(b => {
-                if (b.id === 'bauhaus-open-sidebar') return;
-                if (TEXTOS_ICONES.includes(b.textContent.trim())) {
-                    b.click();
-                }
-            });
-        }
-
-        function setupBotaoFlutuante() {
-            const btnFlut = document.getElementById('bauhaus-open-sidebar');
-            if (!btnFlut) return;
-            // Garante o onclick (pode perder em re-renders)
-            btnFlut.onclick = function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                clickAbrirSidebar();
-            };
-            // Garante que a seta está lá
-            if (btnFlut.textContent.trim() === '' || btnFlut.textContent.trim() === '›' === false) {
-                if (!btnFlut.textContent.includes(SETA_ABRIR)) {
-                    btnFlut.innerHTML = SETA_ABRIR;
-                    btnFlut.style.fontFamily = 'Inter,Arial,sans-serif';
-                    btnFlut.style.fontSize = '22px';
-                    btnFlut.style.fontWeight = '700';
-                    btnFlut.style.color = '#1A1A1A';
-                }
-            }
-        }
-
-        function toggleBotaoFlutuante() {
-            const btnFlut = document.getElementById('bauhaus-open-sidebar');
-            if (!btnFlut) return;
-            const sidebar = document.querySelector('[data-testid="stSidebar"]');
-            if (!sidebar) return;
-            const rect = sidebar.getBoundingClientRect();
-            const estaFechada = rect.width < 50;
-            btnFlut.style.display = estaFechada ? 'flex' : 'none';
-        }
-
-        function atualizarBotoes() {
-            // Botão de fechar (sidebar aberta)
-            const btnFechar = document.querySelector('[data-testid="stSidebarCollapseButton"]');
+        function atualizarTudo() {
+            criarOuAtualizarBotao();
+            // Botão de fechar nativo (sidebar aberta)
+            const btnFechar = doc.querySelector('[data-testid="stSidebarCollapseButton"]');
             if (btnFechar) forceBauhausSeta(btnFechar, SETA_FECHAR);
-
-            // Tenta estilizar o botão nativo de abrir também (redundância)
-            const seletoresAbrir = [
-                '[data-testid="stSidebarCollapsedControl"]',
-                '[data-testid="collapsedControl"]',
-                '[data-testid="baseButton-headerNoPadding"]',
-                'button[kind="headerNoPadding"]'
-            ];
-            for (const sel of seletoresAbrir) {
-                document.querySelectorAll(sel).forEach(btn => {
-                    if (btn.getAttribute('data-testid') === 'stSidebarCollapseButton') return;
-                    forceBauhausSeta(btn, SETA_ABRIR);
-                });
-            }
-
-            // Configura nosso botão flutuante
-            setupBotaoFlutuante();
-            toggleBotaoFlutuante();
+            toggleVisibilidade();
         }
 
-        atualizarBotoes();
-        setInterval(atualizarBotoes, 200);
-        const obs = new MutationObserver(atualizarBotoes);
-        obs.observe(document.body, { childList: true, subtree: true });
+        atualizarTudo();
+        setInterval(atualizarTudo, 300);
+
+        const obs = new MutationObserver(atualizarTudo);
+        obs.observe(doc.body, { childList: true, subtree: true });
     })();
     </script>
     """,
-    unsafe_allow_html=True,
+    height=0,
+    width=0,
 )
 
 # =============================================================================
@@ -643,47 +625,51 @@ if aba == "PLD Diário":
         '<h3 style="margin-bottom:0.6rem;">Período</h3>',
         unsafe_allow_html=True,
     )
-    cb1, cb2, cb3, cb4, cb5, _ = st.columns([1, 1, 1, 1, 1, 5])
-    with cb1:
+    # Atalhos + date inputs na mesma linha: atalhos à esquerda, datas à direita
+    # Proporção: 5 botões (1 cada) + spacer (0.3) + 2 date_inputs (1.3 cada)
+    p1, p2, p3, p4, p5, psp, pd1, pd2 = st.columns(
+        [1, 1, 1, 1, 1, 0.3, 1.4, 1.4]
+    )
+    with p1:
         if st.button("7d", use_container_width=True):
             st.session_state["data_ini"] = max_d - timedelta(days=7)
             st.session_state["data_fim"] = max_d
             st.rerun()
-    with cb2:
+    with p2:
         if st.button("30d", use_container_width=True):
             st.session_state["data_ini"] = max_d - timedelta(days=30)
             st.session_state["data_fim"] = max_d
             st.rerun()
-    with cb3:
+    with p3:
         if st.button("90d", use_container_width=True):
             st.session_state["data_ini"] = max_d - timedelta(days=90)
             st.session_state["data_fim"] = max_d
             st.rerun()
-    with cb4:
+    with p4:
         if st.button("1A", use_container_width=True):
             st.session_state["data_ini"] = max_d - timedelta(days=365)
             st.session_state["data_fim"] = max_d
             st.rerun()
-    with cb5:
+    with p5:
         if st.button("Máx", use_container_width=True):
             st.session_state["data_ini"] = min_d
             st.session_state["data_fim"] = max_d
             st.rerun()
-
-    col_a, col_b = st.columns(2)
-    with col_a:
+    with pd1:
         st.date_input(
-            "Data inicial",
+            "Início",
             min_value=min_d,
             max_value=max_d,
             key="data_ini",
+            label_visibility="collapsed",
         )
-    with col_b:
+    with pd2:
         st.date_input(
-            "Data final",
+            "Fim",
             min_value=min_d,
             max_value=max_d,
             key="data_fim",
+            label_visibility="collapsed",
         )
 
     # --- Seletor de submercados (antes do gráfico) ---
