@@ -597,49 +597,86 @@ if aba == "PLD Diário":
             return "—"
         return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-    tabela = pd.DataFrame({
-        "Submercado": stats.index,
-        "Mínimo": stats["min"].map(fmt_brl),
-        "Média": stats["mean"].map(fmt_brl),
-        "Máximo": stats["max"].map(fmt_brl),
-    })
+    # Renderizar tabela HTML nativa — garante centralização e controle visual
+    # total (st.dataframe usa Glide Grid que ignora CSS externo).
+    linhas_html = ""
+    for sub in SUBMERCADOS_ORD:
+        if sub in stats.index:
+            row = stats.loc[sub]
+            linhas_html += f"""
+            <tr>
+                <td class="sub-col">{sub}</td>
+                <td>{fmt_brl(row['min'])}</td>
+                <td>{fmt_brl(row['mean'])}</td>
+                <td>{fmt_brl(row['max'])}</td>
+            </tr>
+            """
 
-    # CSS ultra-específico para centralizar st.dataframe.
-    # Streamlit usa glide-data-grid internamente, que respeita data-align.
-    st.markdown(
-        """
-        <style>
-        /* Força centralização em TODAS as células e headers do st.dataframe */
-        [data-testid="stDataFrame"] [role="gridcell"],
-        [data-testid="stDataFrame"] [role="columnheader"],
-        [data-testid="stDataFrame"] [data-testid="stDataFrameCell"],
-        [data-testid="stDataFrame"] div[data-sticky-first-element] {
-            text-align: center !important;
-            justify-content: center !important;
-            align-items: center !important;
-        }
-        [data-testid="stDataFrame"] [role="gridcell"] > *,
-        [data-testid="stDataFrame"] [role="columnheader"] > * {
-            text-align: center !important;
-            width: 100% !important;
-            margin: 0 auto !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.dataframe(
-        tabela,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Submercado": st.column_config.TextColumn("Submercado"),
-            "Mínimo": st.column_config.TextColumn("Mínimo"),
-            "Média": st.column_config.TextColumn("Média"),
-            "Máximo": st.column_config.TextColumn("Máximo"),
-        },
-    )
+    tabela_html = f"""
+    <style>
+        .bauhaus-table {{
+            width: 100%;
+            border-collapse: collapse;
+            font-family: 'Inter', sans-serif;
+            margin: 0.5rem 0 1.5rem 0;
+            border: 2px solid {BAUHAUS_BLACK};
+        }}
+        .bauhaus-table thead tr {{
+            background: {BAUHAUS_BLACK};
+            color: {BAUHAUS_CREAM};
+        }}
+        .bauhaus-table th {{
+            font-family: 'Bebas Neue', sans-serif;
+            font-weight: 400;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            font-size: 0.95rem;
+            padding: 12px 10px;
+            text-align: center;
+            border-right: 1px solid {BAUHAUS_GRAY};
+        }}
+        .bauhaus-table th:last-child {{
+            border-right: none;
+        }}
+        .bauhaus-table td {{
+            padding: 10px;
+            text-align: center;
+            font-size: 0.95rem;
+            color: {BAUHAUS_BLACK};
+            border-right: 1px solid {BAUHAUS_LIGHT};
+            border-bottom: 1px solid {BAUHAUS_LIGHT};
+        }}
+        .bauhaus-table td:last-child {{
+            border-right: none;
+        }}
+        .bauhaus-table tr:last-child td {{
+            border-bottom: none;
+        }}
+        .bauhaus-table .sub-col {{
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.1rem;
+            letter-spacing: 0.1em;
+            background: {BAUHAUS_LIGHT};
+        }}
+        .bauhaus-table tbody tr:hover {{
+            background: rgba(246, 189, 22, 0.15);
+        }}
+    </style>
+    <table class="bauhaus-table">
+        <thead>
+            <tr>
+                <th>Submercado</th>
+                <th>Mínimo</th>
+                <th>Média</th>
+                <th>Máximo</th>
+            </tr>
+        </thead>
+        <tbody>
+            {linhas_html}
+        </tbody>
+    </table>
+    """
+    st.markdown(tabela_html, unsafe_allow_html=True)
 
     # --- Download ---
     with st.expander("Baixar dados filtrados (CSV)"):
@@ -667,3 +704,4 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
