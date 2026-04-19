@@ -232,9 +232,7 @@ st.markdown(
        A caixa de data tem label "Data inicial"/"Data final" em cima (~1.5rem).
        Subimos o widget inteiro essa altura pra base coincidir com a dos botões. */
     .stDateInput,
-    [data-testid="stDateInput"],
-    div[data-testid="column"] > div > .stDateInput,
-    div[data-testid="column"] .element-container:has(.stDateInput) {{
+    [data-testid="stDateInput"] {{
         margin-top: -1.5rem !important;
     }}
     /* Labels "Data inicial" e "Data final" — compactos pra não esticar a caixa */
@@ -258,56 +256,7 @@ st.markdown(
         padding-bottom: 2rem;
         max-width: 1000px;
     }}
-    /* Header nativo Streamlit — esconder TOTALMENTE a barra decorativa colorida.
-       A versão atual do Streamlit usa <header class="stAppHeader"> e dentro dele
-       um <div class="stAppToolbar"> com os 3 pontos. A barra colorida vem do
-       background do stAppHeader ou de um ::before dele. */
-    [data-testid="stHeader"],
-    header[data-testid="stHeader"],
-    .stAppHeader,
-    header.stAppHeader {{
-        height: 0 !important;
-        min-height: 0 !important;
-        max-height: 0 !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        background: transparent !important;
-        background-color: transparent !important;
-        background-image: none !important;
-        border: none !important;
-        overflow: hidden !important;
-    }}
-    /* Pseudo-elementos do header que podem desenhar a barra colorida */
-    [data-testid="stHeader"]::before,
-    [data-testid="stHeader"]::after,
-    .stAppHeader::before,
-    .stAppHeader::after {{
-        display: none !important;
-        content: none !important;
-        background: transparent !important;
-        height: 0 !important;
-    }}
-    /* Toolbar (3 pontos) — fixo no canto superior direito, fora do fluxo */
-    [data-testid="stToolbar"],
-    .stAppToolbar,
-    [data-testid="stAppToolbar"] {{
-        position: fixed !important;
-        top: 0.3rem !important;
-        right: 0.5rem !important;
-        z-index: 9999 !important;
-        background: transparent !important;
-    }}
-    /* Esconder stDecoration (barra colorida alternativa) */
-    [data-testid="stDecoration"],
-    [data-testid="stDecorationLine"],
-    [class*="StyledDecoration"],
-    #stDecoration,
-    div.stDecoration {{
-        display: none !important;
-        height: 0 !important;
-        visibility: hidden !important;
-        opacity: 0 !important;
-    }}
+    /* Header Streamlit — deixar padrão */
     /* Remove padding/margin do primeiro elemento da página pra subir tudo */
     .block-container > div:first-child {{
         padding-top: 0 !important;
@@ -334,94 +283,24 @@ st.markdown(
         font-weight: 500 !important;
     }}
 
-    /* ===== CHECKBOX — PRETO sólido + tick branco reto ===== */
-
-    /* LABEL (contém quadradinho + texto): alinhamento flex horizontal com centro vertical */
-    [data-testid="stAppViewContainer"] .stCheckbox label {{
+    /* ===== CHECKBOX — versão mínima e estável ===== */
+    /* Labels com fundo transparente */
+    [data-testid="stAppViewContainer"] .stCheckbox label,
+    [data-testid="stAppViewContainer"] .stCheckbox label p,
+    [data-testid="stAppViewContainer"] .stCheckbox label div {{
         background: transparent !important;
         background-color: transparent !important;
-        display: flex !important;
-        align-items: center !important;
-        gap: 0.5rem !important;
-        min-height: 1.5rem !important;
-        line-height: 1 !important;
-        vertical-align: middle !important;
     }}
-    /* stWidgetLabel — o div wrapper do texto dentro do label do checkbox */
-    [data-testid="stAppViewContainer"] .stCheckbox label [data-testid="stWidgetLabel"] {{
-        display: flex !important;
-        align-items: center !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        line-height: 1 !important;
-    }}
-    /* stMarkdownContainer dentro do label */
-    [data-testid="stAppViewContainer"] .stCheckbox label [data-testid="stMarkdownContainer"] {{
-        display: flex !important;
-        align-items: center !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        line-height: 1 !important;
-    }}
-    /* O <p> com o texto (SE, S, NE, N, Média BR) */
     [data-testid="stAppViewContainer"] .stCheckbox label p {{
-        background: transparent !important;
-        background-color: transparent !important;
-        color: {BAUHAUS_BLACK} !important;
         font-family: 'Inter', sans-serif !important;
         font-size: 0.92rem !important;
         font-weight: 600 !important;
-        line-height: 1 !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        display: inline-flex !important;
-        align-items: center !important;
+        color: {BAUHAUS_BLACK} !important;
     }}
-
-    /* QUADRADINHO: tamanho fixo + centrado verticalmente */
+    /* Quadradinho desmarcado: borda preta */
     [data-testid="stAppViewContainer"] .stCheckbox label > span:first-child {{
-        background: transparent !important;
-        background-color: transparent !important;
         border: 2px solid {BAUHAUS_BLACK} !important;
         border-radius: 0 !important;
-        position: relative !important;
-        width: 1rem !important;
-        height: 1rem !important;
-        min-width: 1rem !important;
-        min-height: 1rem !important;
-        max-width: 1rem !important;
-        max-height: 1rem !important;
-        flex-shrink: 0 !important;
-        display: inline-flex !important;
-        align-self: center !important;
-        margin: 0 !important;
-        padding: 0 !important;
-    }}
-
-    /* QUADRADINHO MARCADO: preto sólido */
-    [data-testid="stAppViewContainer"] .stCheckbox label:has(input[type="checkbox"]:checked) > span:first-child {{
-        background: {BAUHAUS_BLACK} !important;
-        background-color: {BAUHAUS_BLACK} !important;
-        border: 2px solid {BAUHAUS_BLACK} !important;
-    }}
-
-    /* TICK reto (L rotacionado 45°) — branco */
-    [data-testid="stAppViewContainer"] .stCheckbox label:has(input[type="checkbox"]:checked) > span:first-child::after {{
-        content: "" !important;
-        position: absolute !important;
-        top: 1px !important;
-        left: 4px !important;
-        width: 3px !important;
-        height: 8px !important;
-        border: solid #FFFFFF !important;
-        border-width: 0 2px 2px 0 !important;
-        transform: rotate(45deg) !important;
-        pointer-events: none !important;
-    }}
-
-    /* Esconder o SVG interno do Streamlit */
-    [data-testid="stAppViewContainer"] .stCheckbox label > span:first-child svg {{
-        display: none !important;
     }}
 
     /* Divisor */
@@ -554,30 +433,11 @@ components.html(
             });
         }
 
-        function esconderDecoration() {
-            // Esconde a barra colorida decorativa do Streamlit no topo
-            const seletores = [
-                '[data-testid="stDecoration"]',
-                '[data-testid="stDecorationLine"]',
-                '[class*="StyledDecoration"]',
-                '.stDecoration'
-            ];
-            for (const sel of seletores) {
-                doc.querySelectorAll(sel).forEach(el => {
-                    el.style.display = 'none';
-                    el.style.height = '0';
-                    el.style.visibility = 'hidden';
-                });
-            }
-        }
-
         substituirTextos();
         marcarBotoesSidebar();
-        esconderDecoration();
         setInterval(() => {
             substituirTextos();
             marcarBotoesSidebar();
-            esconderDecoration();
         }, 500);
     })();
     </script>
@@ -633,14 +493,9 @@ with st.sidebar:
         [data-testid="stSidebar"] .stButton > button[data-atualizar="true"]:hover * {
             color: #F6BD16 !important;
         }
-        /* FORÇA o CONTAINER do botão Sair a ocupar 100% da largura.
-           O logout_button do streamlit-authenticator não aceita use_container_width,
-           então precisamos forçar no .stButton parent. */
-        [data-testid="stSidebar"] .stButton:has(button[data-sair="true"]),
-        [data-testid="stSidebar"] div:has(> .stButton > button[data-sair="true"]) {
+        /* Container do botão Sair — largura 100% via seletor simples */
+        [data-testid="stSidebar"] .stButton {
             width: 100% !important;
-            margin-top: -0.3rem !important;
-            margin-bottom: 0 !important;
         }
         </style>
         """,
