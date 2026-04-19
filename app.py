@@ -83,20 +83,20 @@ st.markdown(
         color: {BAUHAUS_BLACK} !important;
     }}
     h1 {{
-        font-size: 2.2rem !important;
+        font-size: 2rem !important;
         line-height: 1 !important;
-        border-left: 8px solid {BAUHAUS_RED};
-        padding-left: 14px;
+        border-left: 7px solid {BAUHAUS_RED};
+        padding-left: 12px;
         margin-top: 0 !important;
         margin-bottom: 0.2rem !important;
     }}
     h3 {{
-        font-size: 1.1rem !important;
+        font-size: 1rem !important;
         letter-spacing: 0.05em !important;
         border-bottom: 2px solid {BAUHAUS_BLACK};
         padding-bottom: 3px;
-        margin-top: 1.3rem !important;
-        margin-bottom: 0.6rem !important;
+        margin-top: 1.1rem !important;
+        margin-bottom: 0.5rem !important;
     }}
 
     /* Fundo da página */
@@ -241,7 +241,7 @@ st.markdown(
     .block-container {{
         padding-top: 0.3rem;
         padding-bottom: 2rem;
-        max-width: 1100px;
+        max-width: 1000px;
     }}
 
     /* Caption — usar cinza escuro forte, legível sobre creme.
@@ -265,24 +265,30 @@ st.markdown(
     [data-testid="stAppViewContainer"] .stCheckbox label p,
     [data-testid="stAppViewContainer"] .stCheckbox label span {{
         font-family: 'Inter', sans-serif !important;
-        font-size: 1rem !important;
+        font-size: 0.92rem !important;
         font-weight: 600 !important;
         color: {BAUHAUS_BLACK} !important;
     }}
-    /* Quadradinho do checkbox quando MARCADO: preto sólido com tick branco */
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"] {{
+    /* Quadradinho do checkbox — SEMPRE preto sólido (marcado ou não).
+       Todas as variações de estado: hover, focus, checked, active. */
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"],
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"],
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="false"],
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"]:hover span[role="checkbox"],
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"]:focus-within span[role="checkbox"] {{
         background: {BAUHAUS_BLACK} !important;
         background-color: {BAUHAUS_BLACK} !important;
         border-color: {BAUHAUS_BLACK} !important;
-    }}
-    /* SVG do tick dentro do checkbox marcado — branco */
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"] svg,
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"] svg * {{
-        fill: #FFFFFF !important;
-        color: #FFFFFF !important;
-    }}
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"] {{
         border-radius: 0 !important;
+    }}
+    /* SVG do tick dentro do checkbox marcado — BRANCO.
+       Quando desmarcado, o SVG some naturalmente (nada pra ver). */
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"] svg,
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"] svg *,
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"] path {{
+        fill: #FFFFFF !important;
+        stroke: #FFFFFF !important;
+        color: #FFFFFF !important;
     }}
 
     /* Divisor */
@@ -749,7 +755,7 @@ if aba == "PLD Diário":
 
         # Layout Bauhaus — papel creme, tipografia impactante, geometria
         fig.update_layout(
-            height=320,  # reduzido para parecer tamanho ~75%
+            height=290,  # reduzido ~10% (era 320) para caber melhor em tela 100%
             margin=dict(l=20, r=20, t=30, b=20),
             paper_bgcolor=BAUHAUS_CREAM,
             plot_bgcolor=BAUHAUS_CREAM,
@@ -860,37 +866,37 @@ if aba == "PLD Diário":
             display: flex;
             flex-wrap: wrap;
             align-items: center;
-            gap: 0.4rem 1.2rem;
-            margin: 1rem 0 0.3rem 0;
-            padding: 0.5rem 0.8rem;
+            gap: 0.4rem 1.1rem;
+            margin: 0.8rem 0 0.3rem 0;
+            padding: 0.45rem 0.7rem;
             border: 2px solid #1A1A1A;
             background: #F5F1E8;
         }}
         .kpi-ultimo-header {{
             font-family: 'Inter', sans-serif;
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.1em;
             color: #4A4A4A;
-            margin-right: 0.5rem;
+            margin-right: 0.4rem;
         }}
         .kpi-ultimo-data {{
             font-family: 'Inter', sans-serif;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             color: #1A1A1A;
             font-weight: 600;
         }}
         .kpi-item {{
             display: inline-flex;
             align-items: center;
-            gap: 0.4rem;
+            gap: 0.35rem;
         }}
         .kpi-label {{
             display: inline-block;
-            padding: 0.15rem 0.45rem;
+            padding: 0.12rem 0.4rem;
             font-family: 'Inter', sans-serif;
-            font-size: 0.7rem;
+            font-size: 0.65rem;
             font-weight: 700;
             letter-spacing: 0.1em;
             color: #FFFFFF;
@@ -898,7 +904,7 @@ if aba == "PLD Diário":
         }}
         .kpi-value {{
             font-family: 'Bebas Neue', sans-serif;
-            font-size: 1.2rem;
+            font-size: 1.1rem;
             color: #1A1A1A;
             letter-spacing: 0.02em;
         }}
