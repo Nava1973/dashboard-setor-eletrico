@@ -268,17 +268,14 @@ st.markdown(
         font-weight: 600 !important;
         color: {BAUHAUS_BLACK} !important;
     }}
-    /* Quadradinho do checkbox — cor de fundo quando marcado (teste: vermelho) */
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"],
-    [data-testid="stAppViewContainer"] .stCheckbox input[type="checkbox"]:checked + div {{
-        background: {BAUHAUS_RED} !important;
-        background-color: {BAUHAUS_RED} !important;
+    /* Quadradinho do checkbox — seletor específico para atingir só o box interno,
+       não os labels. Usa o data-baseweb="checkbox" e o span com role=checkbox. */
+    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"] {{
+        background: {BAUHAUS_BLACK} !important;
+        background-color: {BAUHAUS_BLACK} !important;
         border-color: {BAUHAUS_BLACK} !important;
     }}
-    /* Borda do checkbox quando não marcado — preto Bauhaus */
     [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"] {{
-        border-color: {BAUHAUS_BLACK} !important;
-        border-width: 2px !important;
         border-radius: 0 !important;
     }}
 
@@ -433,22 +430,11 @@ with st.sidebar:
     st.caption(f"Usuário: **{user}**")
 
     # Botão Sair logo abaixo do usuário — retângulo transparente, borda amarela fina.
-    # Usamos seletor :has() para identificar o botão pelo texto "Sair", já que
-    # o wrapper div não engloba o st.button subsequente no DOM do Streamlit.
+    # CSS via atributos data-* que o JS adiciona no botão (ver components.html acima).
     st.markdown(
         """
         <style>
-        /* Botão Sair na sidebar (identificado por ter texto "Sair") — borda amarela fina, transparente */
-        [data-testid="stSidebar"] .stButton > button:has(p:only-child) {
-            /* não vai aplicar a todos — seletor específico abaixo */
-        }
-        /* Pega qualquer botão da sidebar cujo label tenha exatamente "Sair" */
-        [data-testid="stSidebar"] button[kind="secondary"]:has(div p:-webkit-any(:first-child)),
-        [data-testid="stSidebar"] .stButton > button[data-sair="true"] {
-            background: transparent !important;
-            border: 1px solid #F6BD16 !important;
-        }
-        /* Override via atributo data-sair (aplicado via JS abaixo) */
+        /* Sair: identificado pelo atributo data-sair adicionado via JS */
         [data-testid="stSidebar"] .stButton > button[data-sair="true"] {
             background: transparent !important;
             background-color: transparent !important;
@@ -463,6 +449,7 @@ with st.sidebar:
             box-shadow: none !important;
             width: 100% !important;
             border-radius: 0 !important;
+            margin: 0 !important;
         }
         [data-testid="stSidebar"] .stButton > button[data-sair="true"] * {
             color: #F6BD16 !important;
@@ -477,11 +464,23 @@ with st.sidebar:
         [data-testid="stSidebar"] .stButton > button[data-sair="true"]:hover * {
             color: #1A1A1A !important;
         }
-        /* Atualizar: mesma altura 2.4rem */
+        /* Container do botão Sair — força largura e reduz margem superior
+           pra subir o botão bem perto do texto "Usuário: Nava" */
+        [data-testid="stSidebar"] .stButton:has(button[data-sair="true"]) {
+            margin-top: -0.3rem !important;
+            margin-bottom: 0 !important;
+            width: 100% !important;
+        }
+        /* Atualizar: mesma altura E texto amarelo explícito */
         [data-testid="stSidebar"] .stButton > button[data-atualizar="true"] {
             min-height: 2.4rem !important;
             height: 2.4rem !important;
             padding: 0 !important;
+            color: #F6BD16 !important;
+        }
+        [data-testid="stSidebar"] .stButton > button[data-atualizar="true"] *,
+        [data-testid="stSidebar"] .stButton > button[data-atualizar="true"] p {
+            color: #F6BD16 !important;
         }
         </style>
         """,
