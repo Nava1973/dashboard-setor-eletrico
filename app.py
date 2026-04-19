@@ -34,7 +34,7 @@ st.set_page_config(
 # Cores mais próximas do Bauhaus histórico (Itten, Albers, Kandinsky).
 BAUHAUS_RED = "#D62828"      # vermelho cádmio — quente, puro
 BAUHAUS_YELLOW = "#F6BD16"   # amarelo cromo — saturado, sem laranjado
-BAUHAUS_BLUE = "#3D5AFE"     # azul ultramar — mais vibrante, destaca do preto
+BAUHAUS_BLUE = "#2A6F97"     # azul petróleo — distinto do preto, suave aos olhos
 BAUHAUS_BLACK = "#1A1A1A"    # preto tinteiro, não "puro"
 BAUHAUS_CREAM = "#F5F1E8"    # creme (papel) em vez de branco estéril
 BAUHAUS_GRAY = "#4A4A4A"     # cinza escuro legível sobre creme (antes #6B6B6B ficou fraco)
@@ -102,51 +102,51 @@ st.markdown(
         background: {BAUHAUS_CREAM};
     }}
 
-    /* Botão de abrir/fechar sidebar — esconder texto "keyboard_double_arrow_right"
-       que aparece quando Material Icons não carrega, e mostrar SVG próprio */
+    /* Botão nativo do Streamlit para sidebar — ESCONDER completamente.
+       O texto "keyboard_double_arrow_right" aparece quando Material Icons
+       não carrega, e CSS+JS não conseguem sobrescrever de forma confiável.
+       Solução: escondemos e renderizamos nosso próprio botão via JS. */
     [data-testid="stSidebarCollapseButton"],
     [data-testid="stSidebarCollapsedControl"],
-    button[kind="header"] {{
+    button[kind="header"][data-testid="baseButton-headerNoPadding"] {{
+        display: none !important;
+        visibility: hidden !important;
+        width: 0 !important;
+        height: 0 !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+    }}
+
+    /* Nosso botão custom de toggle — posicionado fixo no canto superior esquerdo */
+    #bauhaus-sidebar-toggle {{
+        position: fixed !important;
+        top: 12px !important;
+        left: 12px !important;
+        z-index: 999999 !important;
+        width: 40px !important;
+        height: 40px !important;
         background: {BAUHAUS_YELLOW} !important;
         border: 2px solid {BAUHAUS_BLACK} !important;
         border-radius: 0 !important;
-        color: transparent !important;
-        width: 36px !important;
-        height: 36px !important;
-        position: relative !important;
-        overflow: hidden !important;
-    }}
-    /* Esconder qualquer texto/ícone interno */
-    [data-testid="stSidebarCollapseButton"] *,
-    [data-testid="stSidebarCollapsedControl"] *,
-    button[kind="header"] * {{
-        color: transparent !important;
-        font-size: 0 !important;
-        opacity: 0 !important;
-    }}
-    /* Desenhar nossa própria seta com pseudo-elemento */
-    [data-testid="stSidebarCollapseButton"]::after,
-    [data-testid="stSidebarCollapsedControl"]::after,
-    button[kind="header"]::after {{
-        content: "›" !important;
-        position: absolute !important;
-        top: 50% !important;
-        left: 50% !important;
-        transform: translate(-50%, -50%) !important;
+        cursor: pointer !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
         font-family: 'Inter', sans-serif !important;
         font-size: 1.6rem !important;
         font-weight: 700 !important;
         color: {BAUHAUS_BLACK} !important;
-        opacity: 1 !important;
         line-height: 1 !important;
+        padding: 0 !important;
+        user-select: none !important;
     }}
-    /* Quando sidebar aberta, a seta vira pra esquerda */
-    [data-testid="stSidebarCollapseButton"]::after {{
-        content: "‹" !important;
+    #bauhaus-sidebar-toggle:hover {{
+        background: {BAUHAUS_RED} !important;
+        color: {BAUHAUS_CREAM} !important;
     }}
     [data-testid="stSidebar"] {{
-        background: {BAUHAUS_BLUE};
-        border-right: 4px solid {BAUHAUS_BLACK};
+        background: #1A1A1A !important;
+        border-right: 4px solid {BAUHAUS_YELLOW};
     }}
     [data-testid="stSidebar"] * {{
         color: {BAUHAUS_CREAM} !important;
@@ -156,13 +156,13 @@ st.markdown(
         border-bottom: 2px solid {BAUHAUS_YELLOW};
     }}
     [data-testid="stSidebar"] hr {{
-        border-top: 1px solid rgba(255,255,255,0.3) !important;
+        border-top: 1px solid rgba(246, 189, 22, 0.3) !important;
     }}
     /* Botão na sidebar: amarelo com texto preto (contraste garantido) */
     [data-testid="stSidebar"] .stButton > button {{
         background: {BAUHAUS_YELLOW} !important;
         color: {BAUHAUS_BLACK} !important;
-        border: 2px solid {BAUHAUS_BLACK} !important;
+        border: 2px solid {BAUHAUS_YELLOW} !important;
     }}
     [data-testid="stSidebar"] .stButton > button * {{
         color: {BAUHAUS_BLACK} !important;
@@ -170,6 +170,7 @@ st.markdown(
     [data-testid="stSidebar"] .stButton > button:hover {{
         background: {BAUHAUS_RED} !important;
         color: {BAUHAUS_CREAM} !important;
+        border-color: {BAUHAUS_RED} !important;
     }}
     [data-testid="stSidebar"] .stButton > button:hover * {{
         color: {BAUHAUS_CREAM} !important;
@@ -368,31 +369,58 @@ st.markdown(
     """
     <script>
     (function() {
-        function limparBotoesSidebar() {
-            // Botão de colapsar (aparece quando sidebar está ABERTA)
-            const btnColapsar = document.querySelectorAll(
-                '[data-testid="stSidebarCollapseButton"], ' +
-                '[data-testid="stSidebarCollapsedControl"], ' +
-                'button[kind="header"]'
-            );
-            btnColapsar.forEach(btn => {
-                // Limpar texto interno e aplicar seta própria se ainda não tiver
-                if (!btn.dataset.limpo) {
-                    // Identificar se é botão de abrir ou fechar
-                    const ehFechado = btn.getAttribute('data-testid') === 'stSidebarCollapsedControl';
-                    const seta = ehFechado ? '›' : '‹';
-                    btn.innerHTML = '<span style="font-family:Inter,sans-serif; ' +
-                                    'font-size:1.6rem; font-weight:700; color:#1A1A1A; ' +
-                                    'line-height:1;">' + seta + '</span>';
-                    btn.dataset.limpo = 'true';
+        // Cria nosso próprio botão de toggle da sidebar e esconde o nativo.
+        // Motivo: o botão nativo mostra "keyboard_double_arrow_right" quando
+        // Material Icons não carrega, e CSS não consegue sobrescrever.
+        function setupBotaoCustom() {
+            // Checa se já foi criado
+            if (document.getElementById('bauhaus-sidebar-toggle')) {
+                return;
+            }
+            const btn = document.createElement('button');
+            btn.id = 'bauhaus-sidebar-toggle';
+            btn.setAttribute('aria-label', 'Abrir/fechar menu lateral');
+            btn.innerHTML = '‹';  // será atualizado baseado no estado
+            btn.onclick = function() {
+                // Tenta encontrar e clicar no botão nativo (mesmo escondido, funciona)
+                const alvos = [
+                    document.querySelector('[data-testid="stSidebarCollapseButton"]'),
+                    document.querySelector('[data-testid="stSidebarCollapsedControl"]'),
+                    document.querySelector('button[kind="header"]')
+                ];
+                for (const alvo of alvos) {
+                    if (alvo) {
+                        alvo.click();
+                        break;
+                    }
                 }
-            });
+            };
+            document.body.appendChild(btn);
         }
-        // Executar imediatamente
-        limparBotoesSidebar();
-        // Observar mudanças no DOM (o Streamlit re-renderiza frequentemente)
-        const observer = new MutationObserver(limparBotoesSidebar);
-        observer.observe(document.body, { childList: true, subtree: true });
+
+        function atualizarSeta() {
+            const btn = document.getElementById('bauhaus-sidebar-toggle');
+            if (!btn) return;
+            const sidebar = document.querySelector('[data-testid="stSidebar"]');
+            if (!sidebar) return;
+            // Se sidebar está visível (aberta), seta aponta pra esquerda (fechar)
+            // Se está escondida (aria-expanded=false ou display=none), aponta pra direita (abrir)
+            const rect = sidebar.getBoundingClientRect();
+            const estaAberta = rect.width > 50;  // heurística: aberta tem ~300px
+            btn.innerHTML = estaAberta ? '‹' : '›';
+        }
+
+        function init() {
+            setupBotaoCustom();
+            atualizarSeta();
+        }
+
+        // Executa ao carregar e observa mudanças no DOM
+        init();
+        const observer = new MutationObserver(function() {
+            init();
+        });
+        observer.observe(document.body, { childList: true, subtree: true, attributes: true });
     })();
     </script>
     """,
@@ -532,16 +560,16 @@ if aba == "PLD Diário":
     ultima_data = dff["data"].max()
     ultimo_pld = dff[dff["data"] == ultima_data].set_index("submercado")["pld"]
 
-    # Título com data embutida em cinza escuro, bem espaçada e legível
+    # Título com data embaixo, em linha separada para garantir respiro
     st.markdown(
-        f'<h3 style="display:flex; align-items:baseline; gap:40px; '
-        f'flex-wrap:wrap; margin-top:2.2rem;">'
-        f'<span>Último dia disponível</span>'
-        f'<span style="font-family:\'Inter\', sans-serif; font-weight:600; '
-        f'font-size:1.3rem; letter-spacing:0.02em; color:#2E2E2E; '
-        f'text-transform:none; border-bottom:none; padding-bottom:0;">'
-        f'{ultima_data.strftime("%d/%m/%Y")}</span>'
-        f'</h3>',
+        f'<h3 style="margin-top:2.2rem; margin-bottom:0.3rem;">'
+        f'Último dia disponível'
+        f'</h3>'
+        f'<div style="font-family:\'Inter\', sans-serif; font-weight:500; '
+        f'font-size:1.25rem; letter-spacing:0.02em; color:#2E2E2E; '
+        f'margin-top:0; margin-bottom:1.2rem;">'
+        f'{ultima_data.strftime("%d/%m/%Y")}'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -612,14 +640,16 @@ if aba == "PLD Diário":
                         width=4 if is_media else 2.5,
                         dash="dot" if is_media else "solid",
                     ),
-                    # Hover unified: quadrado colorido + sigla + valor
-                    # (a data aparece uma vez só, no topo do balão, via x unified)
+                    # Hover: sigla colorida à esquerda, valor alinhado à direita.
+                    # Usamos padding com espaços unicode pra forçar alinhamento
+                    # mesmo em fonte proporcional (aproximação que funciona bem
+                    # com sigla curta + valor padronizado).
                     hovertemplate=(
-                        f'<span style="color:{cor_linha}; font-weight:700;">'
-                        f'■</span>  '
-                        f'<span style="color:#1A1A1A; font-weight:600;">'
+                        f'<span style="color:{cor_linha}; font-weight:700; '
+                        f'display:inline-block; min-width:40px;">'
                         f'{sigla_label}</span>'
-                        '  <span style="color:#1A1A1A;">'
+                        '<span style="color:#1A1A1A; display:inline-block; '
+                        'min-width:110px; text-align:right;">'
                         'R$ %{y:.0f}/MWh</span>'
                         '<extra></extra>'
                     ),
@@ -822,3 +852,4 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
