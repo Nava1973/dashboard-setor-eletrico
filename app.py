@@ -302,6 +302,14 @@ st.markdown(
         border: 2px solid {BAUHAUS_BLACK} !important;
         border-radius: 0 !important;
     }}
+    /* Quadradinho MARCADO (via input:checked com selector ~ para sibling):
+       Fundo cinza escuro em vez de rosa. Abordagem simples sem :has(). */
+    [data-testid="stAppViewContainer"] .stCheckbox input[type="checkbox"]:checked ~ span,
+    [data-testid="stAppViewContainer"] .stCheckbox input[type="checkbox"]:checked + span {{
+        background: #4A4A4A !important;
+        background-color: #4A4A4A !important;
+        border-color: #4A4A4A !important;
+    }}
 
     /* Divisor */
     hr {{
@@ -493,9 +501,35 @@ with st.sidebar:
         [data-testid="stSidebar"] .stButton > button[data-atualizar="true"]:hover * {
             color: #F6BD16 !important;
         }
-        /* Container do botão Sair — largura 100% via seletor simples */
-        [data-testid="stSidebar"] .stButton {
+        /* Container do botão Sair — largura 100% */
+        [data-testid="stSidebar"] .stButton,
+        [data-testid="stSidebar"] [data-testid="stButton"],
+        [data-testid="stSidebar"] .element-container {
             width: 100% !important;
+        }
+        /* Garante que o botão Sair (identificado via aria-label contendo Sair) seja largura completa.
+           Usamos aria-label que o streamlit-authenticator define no logout. */
+        [data-testid="stSidebar"] button[kind="secondary"] {
+            width: 100% !important;
+            min-height: 2.2rem !important;
+            height: 2.2rem !important;
+            background: transparent !important;
+            border: 1px solid rgba(246, 189, 22, 0.6) !important;
+            color: #F6BD16 !important;
+            font-family: 'Inter', sans-serif !important;
+            font-size: 0.8rem !important;
+            font-weight: 400 !important;
+            padding: 0 !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+        }
+        [data-testid="stSidebar"] button[kind="secondary"] * {
+            color: #F6BD16 !important;
+        }
+        [data-testid="stSidebar"] button[kind="secondary"]:hover {
+            background: rgba(246, 189, 22, 0.15) !important;
+            border: 1px solid #F6BD16 !important;
+            color: #F6BD16 !important;
         }
         </style>
         """,
