@@ -401,13 +401,15 @@ with st.sidebar:
     st.caption(f"Usuário: **{user}**")
 
     # Botão Sair logo abaixo do usuário — retângulo transparente, borda amarela fina.
-    # CSS dedicado pra ficar suave, mesma altura do botão Atualizar.
+    # CSS com maior especificidade porque o global da sidebar sobrescreve wrappers simples.
     st.markdown(
         """
         <style>
-        /* Sair: transparente, borda amarela fina, texto amarelo */
-        .sidebar-logout-wrapper .stButton > button {
+        /* Sair: especificidade alta pra vencer o CSS global da sidebar */
+        [data-testid="stSidebar"] .sidebar-logout-wrapper .stButton > button,
+        [data-testid="stSidebar"] div.sidebar-logout-wrapper .stButton > button {
             background: transparent !important;
+            background-color: transparent !important;
             border: 1px solid #F6BD16 !important;
             color: #F6BD16 !important;
             font-family: 'Inter', sans-serif !important;
@@ -418,26 +420,31 @@ with st.sidebar:
             height: 2.4rem !important;
             box-shadow: none !important;
             width: 100% !important;
+            border-radius: 0 !important;
         }
-        .sidebar-logout-wrapper .stButton > button * {
+        [data-testid="stSidebar"] .sidebar-logout-wrapper .stButton > button *,
+        [data-testid="stSidebar"] .sidebar-logout-wrapper .stButton > button p {
             color: #F6BD16 !important;
+            font-weight: 500 !important;
         }
-        .sidebar-logout-wrapper .stButton > button:hover {
+        [data-testid="stSidebar"] .sidebar-logout-wrapper .stButton > button:hover {
             background: #F6BD16 !important;
+            background-color: #F6BD16 !important;
             color: #1A1A1A !important;
-            border-color: #F6BD16 !important;
+            border: 1px solid #F6BD16 !important;
         }
-        .sidebar-logout-wrapper .stButton > button:hover * {
+        [data-testid="stSidebar"] .sidebar-logout-wrapper .stButton > button:hover *,
+        [data-testid="stSidebar"] .sidebar-logout-wrapper .stButton > button:hover p {
             color: #1A1A1A !important;
         }
-        /* Atualizar: também 2.4rem de altura pra combinar com o Sair */
-        .sidebar-update-wrapper .stButton > button {
+        /* Atualizar: mesma altura do Sair */
+        [data-testid="stSidebar"] .sidebar-update-wrapper .stButton > button {
             min-height: 2.4rem !important;
             height: 2.4rem !important;
             padding: 0 !important;
         }
         </style>
-        <div class="sidebar-logout-wrapper" style="margin-top: 0.5rem;">
+        <div class="sidebar-logout-wrapper" style="margin-top: 0.4rem;">
         """,
         unsafe_allow_html=True,
     )
@@ -472,6 +479,12 @@ if aba == "PLD Diário":
     st.caption(
         "Preço de Liquidação das Diferenças por submercado · "
         "Fonte: CCEE Dados Abertos"
+    )
+    # Linha separadora preta abaixo do título — dá respiro antes do Período
+    st.markdown(
+        '<div style="border-bottom: 2px solid #1A1A1A; '
+        'margin: 0.4rem 0 1rem 0;"></div>',
+        unsafe_allow_html=True,
     )
 
     # --- Carregar dados ---
