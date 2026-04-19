@@ -269,41 +269,45 @@ st.markdown(
         font-weight: 500 !important;
     }}
 
-    /* Checkboxes de submercados (SE, S, NE, N, Média BR) — fonte maior */
+    /* Labels dos checkboxes (SE, S, NE, N, Média BR) — texto preto, fundo transparente.
+       IMPORTANTE: seletor `:not([role="checkbox"])` exclui o quadradinho. */
     [data-testid="stAppViewContainer"] .stCheckbox label,
     [data-testid="stAppViewContainer"] .stCheckbox label p,
-    [data-testid="stAppViewContainer"] .stCheckbox label span {{
+    [data-testid="stAppViewContainer"] .stCheckbox label > span:not([role="checkbox"]),
+    [data-testid="stAppViewContainer"] .stCheckbox label div:not([data-baseweb="checkbox"]) {{
         font-family: 'Inter', sans-serif !important;
         font-size: 0.92rem !important;
         font-weight: 600 !important;
         color: {BAUHAUS_BLACK} !important;
+        background: transparent !important;
+        background-color: transparent !important;
     }}
-    /* Quadradinho do checkbox — SEMPRE preto sólido. Abrange todos os seletores
-       possíveis porque o Streamlit/BaseWeb aplica cor primary (rosa/vermelho) via
-       estilos dinâmicos internos que mudam entre versões. */
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"],
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"],
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="false"],
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"]:hover span[role="checkbox"],
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"]:focus-within span[role="checkbox"],
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] > div,
-    [data-testid="stAppViewContainer"] .stCheckbox label > span:first-child {{
+    /* Quadradinho: APENAS o span com role="checkbox". Não outros spans da label. */
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"] {{
         background: {BAUHAUS_BLACK} !important;
         background-color: {BAUHAUS_BLACK} !important;
         border-color: {BAUHAUS_BLACK} !important;
         border-radius: 0 !important;
     }}
-    /* SVG tick branco quando marcado */
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"] svg,
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"] svg *,
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] span[role="checkbox"][aria-checked="true"] path {{
+    /* Tick BRANCO quando marcado — cobre SVG (fill/stroke) E pseudo-elementos
+       (usado por versões mais novas do BaseWeb via ::after) */
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] svg,
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] svg *,
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] path,
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] polyline,
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] line {{
         fill: #FFFFFF !important;
         stroke: #FFFFFF !important;
         color: #FFFFFF !important;
+        opacity: 1 !important;
     }}
-    /* Override da cor primary do Streamlit no contexto dos checkboxes.
-       O tema BaseWeb usa variáveis CSS pra aplicar cor destacada ao elemento ativo. */
-    [data-testid="stAppViewContainer"] .stCheckbox * {{
+    /* Fallback: se o check for renderizado via ::after (sem SVG) */
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"]::after {{
+        color: #FFFFFF !important;
+        border-color: #FFFFFF !important;
+    }}
+    /* Override da cor primary do Streamlit para os checkboxes */
+    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"] {{
         --primary: {BAUHAUS_BLACK} !important;
         --primary-color: {BAUHAUS_BLACK} !important;
     }}
@@ -881,49 +885,54 @@ if aba == "PLD Diário":
         <style>
         .kpi-ultimo-row {{
             display: flex;
-            flex-wrap: wrap;
+            flex-wrap: nowrap;  /* força uma linha só, sem quebra */
             align-items: center;
-            gap: 0.4rem 1.1rem;
+            gap: 0.3rem 0.7rem;
             margin: 0.8rem 0 0.3rem 0;
-            padding: 0.45rem 0.7rem;
+            padding: 0.4rem 0.65rem;
             border: 2px solid #1A1A1A;
             background: #F5F1E8;
+            overflow-x: auto;  /* caso ainda não caiba, scroll horizontal */
         }}
         .kpi-ultimo-header {{
             font-family: 'Inter', sans-serif;
-            font-size: 0.7rem;
+            font-size: 0.62rem;
             font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 0.1em;
+            letter-spacing: 0.08em;
             color: #4A4A4A;
-            margin-right: 0.4rem;
+            margin-right: 0.25rem;
+            white-space: nowrap;
         }}
         .kpi-ultimo-data {{
             font-family: 'Inter', sans-serif;
-            font-size: 0.8rem;
+            font-size: 0.72rem;
             color: #1A1A1A;
             font-weight: 600;
+            white-space: nowrap;
         }}
         .kpi-item {{
             display: inline-flex;
             align-items: center;
-            gap: 0.35rem;
+            gap: 0.25rem;
+            white-space: nowrap;  /* não quebra sigla|valor */
         }}
         .kpi-label {{
             display: inline-block;
-            padding: 0.12rem 0.4rem;
+            padding: 0.1rem 0.35rem;
             font-family: 'Inter', sans-serif;
-            font-size: 0.65rem;
+            font-size: 0.6rem;
             font-weight: 700;
-            letter-spacing: 0.1em;
+            letter-spacing: 0.08em;
             color: #FFFFFF;
             line-height: 1.2;
         }}
         .kpi-value {{
             font-family: 'Bebas Neue', sans-serif;
-            font-size: 1.1rem;
+            font-size: 1rem;
             color: #1A1A1A;
             letter-spacing: 0.02em;
+            white-space: nowrap;
         }}
         </style>
         <div class="kpi-ultimo-row">
