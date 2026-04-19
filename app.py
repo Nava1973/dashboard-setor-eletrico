@@ -281,8 +281,14 @@ st.markdown(
         font-weight: 500 !important;
     }}
 
-    /* ===== CHECKBOX — labels sempre transparentes, quadradinho tenta preto ===== */
-    /* LABELS: fundo transparente SEMPRE (nunca pintar fundo de labels) */
+    /* ===== CHECKBOX — rosa sólido padrão + tick branco quando marcado =====
+       Abandonamos a tentativa de forçar preto (o BaseWeb não deixa).
+       Aceitamos a cor primary do Streamlit (rosa), só garantimos:
+       - Labels (textos SE/S/NE/N/Média BR) com fundo transparente
+       - Quadradinho rosa SÓLIDO cheio (não só borda)
+       - Tick branco visível quando marcado */
+
+    /* LABELS: fundo transparente SEMPRE */
     [data-testid="stAppViewContainer"] .stCheckbox label,
     [data-testid="stAppViewContainer"] .stCheckbox label p,
     [data-testid="stAppViewContainer"] .stCheckbox label span:not([role="checkbox"]),
@@ -296,25 +302,22 @@ st.markdown(
         font-size: 0.92rem !important;
         font-weight: 600 !important;
     }}
-    /* Container [data-baseweb=checkbox]: transparente (ele envolve o label) */
+    /* Container [data-baseweb=checkbox]: transparente (envolve o label) */
     [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] {{
         background: transparent !important;
         background-color: transparent !important;
     }}
-    /* QUADRADINHO: apenas o span[role=checkbox] — tentativa preto.
-       Se não funcionar, fica a cor primary padrão (rosa), que é aceitável. */
+    /* Quadradinho sem border-radius (quadrado) — cor deixa o Streamlit decidir */
     [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"] {{
-        background: {BAUHAUS_BLACK} !important;
-        background-color: {BAUHAUS_BLACK} !important;
-        border-color: {BAUHAUS_BLACK} !important;
         border-radius: 0 !important;
     }}
-    /* Tick branco quando marcado */
+    /* Tick BRANCO visível quando marcado */
     [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] svg,
     [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] svg *,
     [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] path {{
         fill: #FFFFFF !important;
         stroke: #FFFFFF !important;
+        opacity: 1 !important;
     }}
 
     /* Divisor */
@@ -546,10 +549,10 @@ with st.sidebar:
 if aba == "PLD Diário":
     # Título principal da aba, em destaque Bauhaus (barra vermelha lateral)
     st.markdown("# PLD")
-    # Linha separadora preta abaixo do título — bem colada no Período
+    # Linha separadora preta abaixo do título — margem muito negativa puxa Período pra cima
     st.markdown(
         '<div style="border-bottom: 2px solid #1A1A1A; '
-        'margin: 0 0 -1rem 0;"></div>',
+        'margin: 0 0 -1.5rem 0;"></div>',
         unsafe_allow_html=True,
     )
 
@@ -655,9 +658,10 @@ if aba == "PLD Diário":
 
     # Label invisível nas colunas dos botões pra descerem e ficarem alinhados
     # por baixo com os date_inputs (que têm label "Data inicial"/"Data final").
+    # Ajuste fino: 0.75rem font + 1.2 line-height + 2px margin-bottom ≈ altura do label real
     label_spacer = (
-        '<div style="font-size:0.75rem; line-height:1.2; margin-bottom:2px; '
-        'color:transparent; user-select:none;">·</div>'
+        '<div style="font-size:0.75rem; line-height:1.2; margin: 0 0 2px 0; '
+        'color:transparent; user-select:none; height: calc(0.75rem * 1.2);">·</div>'
     )
     for col in [p1, p2, p3, p4, p5]:
         with col:
