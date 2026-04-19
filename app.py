@@ -252,12 +252,6 @@ st.markdown(
     [data-testid="stAppViewContainer"] .main .block-container {{
         padding-top: 0 !important;
     }}
-    /* Remove o header invisível do Streamlit que ocupa 2.8rem no topo */
-    [data-testid="stHeader"] {{
-        height: 0 !important;
-        min-height: 0 !important;
-        background: transparent !important;
-    }}
 
     /* Caption — usar cinza escuro forte, legível sobre creme.
        Aplicamos só na área principal (sidebar sobrescreve depois). */
@@ -275,11 +269,13 @@ st.markdown(
         font-weight: 500 !important;
     }}
 
-    /* Labels dos checkboxes (SE, S, NE, N, Média BR) — texto preto, fundo transparente. */
-    [data-testid="stAppViewContainer"] .stCheckbox label,
-    [data-testid="stAppViewContainer"] .stCheckbox label p,
-    [data-testid="stAppViewContainer"] .stCheckbox label > span:not([data-baseweb="checkbox"]):not([role="checkbox"]),
-    [data-testid="stAppViewContainer"] .stCheckbox label div:not([data-baseweb="checkbox"]) {{
+    /* ===== CHECKBOX — abordagem minimalista ===== */
+    /* 1. Labels dos checkboxes: texto preto, fundo transparente */
+    [data-testid="stAppViewContainer"] .stCheckbox label {{
+        background: transparent !important;
+        color: {BAUHAUS_BLACK} !important;
+    }}
+    [data-testid="stAppViewContainer"] .stCheckbox label p {{
         font-family: 'Inter', sans-serif !important;
         font-size: 0.92rem !important;
         font-weight: 600 !important;
@@ -287,48 +283,19 @@ st.markdown(
         background: transparent !important;
         background-color: transparent !important;
     }}
-    /* CHECKBOX — pinta TUDO preto no container do checkbox, mais o span interno.
-       O BaseWeb usa hierarquia div > span[role=checkbox] > svg, e qualquer deles
-       pode receber a cor primary rosa. Bloqueamos todos. */
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"],
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] > div,
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] > div > div,
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"],
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"],
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="false"] {{
+    /* 2. APENAS o span role="checkbox" (o quadradinho) fica preto */
+    [data-testid="stAppViewContainer"] .stCheckbox label span[role="checkbox"] {{
         background: {BAUHAUS_BLACK} !important;
         background-color: {BAUHAUS_BLACK} !important;
         border-color: {BAUHAUS_BLACK} !important;
         border-radius: 0 !important;
     }}
-    /* MAS: o container externo [data-baseweb=checkbox] também envolve o label!
-       Então precisamos ser cirúrgicos — remover a pintura onde não faz sentido.
-       O span[role=checkbox] é o elemento certo; corrigir o acima. */
-    [data-testid="stAppViewContainer"] .stCheckbox [data-baseweb="checkbox"] {{
-        background: transparent !important;
-        background-color: transparent !important;
-        border: none !important;
-    }}
-    /* Quadradinho propriamente dito: o <span role="checkbox"> + seu <div> interno. */
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"],
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"] > div {{
-        background: {BAUHAUS_BLACK} !important;
-        background-color: {BAUHAUS_BLACK} !important;
-        border-color: {BAUHAUS_BLACK} !important;
-        border-radius: 0 !important;
-    }}
-    /* Tick BRANCO quando marcado — TODOS os elementos SVG possíveis */
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] svg,
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] svg *,
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] path,
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] polyline,
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] line,
-    [data-testid="stAppViewContainer"] .stCheckbox span[role="checkbox"][aria-checked="true"] polygon {{
+    /* 3. SVG dentro do quadradinho marcado: tick branco */
+    [data-testid="stAppViewContainer"] .stCheckbox label span[role="checkbox"][aria-checked="true"] svg,
+    [data-testid="stAppViewContainer"] .stCheckbox label span[role="checkbox"][aria-checked="true"] svg *,
+    [data-testid="stAppViewContainer"] .stCheckbox label span[role="checkbox"][aria-checked="true"] path {{
         fill: #FFFFFF !important;
         stroke: #FFFFFF !important;
-        color: #FFFFFF !important;
-        opacity: 1 !important;
-        visibility: visible !important;
     }}
 
     /* Divisor */
@@ -559,10 +526,6 @@ with st.sidebar:
 if aba == "PLD Diário":
     # Título principal da aba, em destaque Bauhaus (barra vermelha lateral)
     st.markdown("# PLD")
-    st.caption(
-        "Preço de Liquidação das Diferenças por submercado · "
-        "Fonte: CCEE Dados Abertos"
-    )
     # Linha separadora preta abaixo do título — mínima margem
     st.markdown(
         '<div style="border-bottom: 2px solid #1A1A1A; '
