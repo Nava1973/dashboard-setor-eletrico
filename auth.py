@@ -229,6 +229,8 @@ def require_login() -> str | None:
         config["cookie"]["key"],
         config["cookie"]["expiry_days"],
     )
+    # Guarda no session_state pra que logout_button() possa usar depois
+    st.session_state["_authenticator"] = authenticator
 
     auth_status = st.session_state.get("authentication_status")
 
@@ -261,8 +263,20 @@ def require_login() -> str | None:
         # Sem mensagem extra — o form nativo já é autoexplicativo
         return None
 
-    # Autenticado — botão de logout na sidebar
-    with st.sidebar:
-        authenticator.logout("Sair", "sidebar")
-
+    # Autenticado — logout fica na barra superior (gerenciado pelo app.py)
     return name or username
+
+
+def logout_button(location: str = "main", key: str = "logout_main") -> None:
+    """
+    Renderiza o botão de logout. Pode ser chamado de qualquer lugar do app.
+    location: "main" (topo do app) ou "sidebar"
+    """
+    auth = st.session_state.get("_authenticator")
+    if auth is None:
+        return
+    try:
+        auth.logout("Sair", location, key=key)
+    except TypeError:
+        # Versões antigas não aceitam 'key'
+        auth.logout("Sair", location)
