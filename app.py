@@ -228,6 +228,12 @@ st.markdown(
         height: 2.4rem !important;
         line-height: 2.4rem !important;
     }}
+    /* Alinhar caixas de data PELA BASE com os botões de atalho.
+       O .stDateInput inteiro desce uma altura equivalente ao label dos date_inputs,
+       fazendo a borda inferior da caixa coincidir com a borda inferior dos botões. */
+    .stDateInput {{
+        margin-top: 0 !important;
+    }}
     /* Labels "Data inicial" e "Data final" — compactos pra não esticar a caixa */
     .stDateInput label,
     .stDateInput label *,
@@ -249,11 +255,10 @@ st.markdown(
         padding-bottom: 2rem;
         max-width: 1000px;
     }}
-    /* Reduz altura do header nativo Streamlit (sem escondê-lo — mantém os 3 pontos).
-       De ~3rem padrão para 1.5rem */
+    /* Reduz altura do header nativo Streamlit ao mínimo (só mantém menu 3 pontos) */
     [data-testid="stHeader"] {{
-        height: 1.5rem !important;
-        min-height: 1.5rem !important;
+        height: 0.5rem !important;
+        min-height: 0.5rem !important;
     }}
     /* Remove padding/margin do primeiro elemento da página pra subir tudo */
     .block-container > div:first-child {{
@@ -334,18 +339,18 @@ st.markdown(
         visibility: visible !important;
         opacity: 1 !important;
     }}
-    /* Fallback: pseudo-elemento ::after que desenha um tick manual.
-       Se nenhum SVG existir, desenhamos nós mesmos com caracter unicode ✓ */
+    /* Fallback: tick DESENHADO com bordas CSS (um L inclinado = ✓ reto sem curva).
+       Se nenhum SVG existir, desenhamos nós mesmos. */
     [data-testid="stAppViewContainer"] .stCheckbox label:has(input[type="checkbox"]:checked) > span:first-child::after {{
-        content: "✓" !important;
+        content: "" !important;
         position: absolute !important;
-        top: 50% !important;
+        top: 45% !important;
         left: 50% !important;
-        transform: translate(-50%, -50%) !important;
-        color: #FFFFFF !important;
-        font-size: 13px !important;
-        font-weight: 900 !important;
-        line-height: 1 !important;
+        width: 4px !important;
+        height: 9px !important;
+        border: solid #FFFFFF !important;
+        border-width: 0 2px 2px 0 !important;
+        transform: translate(-50%, -50%) rotate(45deg) !important;
         pointer-events: none !important;
     }}
     /* Garantir que o span quadradinho seja position:relative pro ::after funcionar */
@@ -689,8 +694,15 @@ if aba == "PLD Diário":
         [1, 1, 1, 1, 1, 0.3, 1.4, 1.4]
     )
 
-    # Atalhos e date_inputs em colunas. Sem label_spacer — deixamos o Streamlit
-    # alinhar os widgets naturalmente dentro das colunas.
+    # Label invisível antes dos botões — pra eles descerem a altura do label dos
+    # date_inputs e ficarem alinhados PELA BASE com as caixas "Data inicial"/"Data final".
+    label_spacer = (
+        '<div style="font-size:0.75rem; line-height:1.2; margin: 0 0 2px 0; '
+        'color:transparent; user-select:none; height: 1.1rem;">·</div>'
+    )
+    for col in [p1, p2, p3, p4, p5]:
+        with col:
+            st.markdown(label_spacer, unsafe_allow_html=True)
 
     # Função auxiliar — usa type="primary" quando o atalho está ativo
     def _btn_atalho(col, label, delta_days=None, is_max=False):
