@@ -71,6 +71,32 @@ def _inject_login_css():
             padding: 10px 12px !important;
         }}
 
+        /* Campo de senha — container do input com botão de olho.
+           Remove o espaço cinza ao redor do botão de toggle de visibilidade. */
+        [data-testid="stForm"] [data-testid="stTextInputRootElement"],
+        [data-testid="stForm"] div[data-baseweb="input"] {{
+            background: #FFFFFF !important;
+            border: 2px solid {_BLACK} !important;
+            border-radius: 0 !important;
+        }}
+        [data-testid="stForm"] div[data-baseweb="input"] input {{
+            border: none !important;
+        }}
+        /* Botão de olho (mostrar/ocultar senha) — integrar visualmente */
+        [data-testid="stForm"] button[aria-label*="Show password"],
+        [data-testid="stForm"] button[aria-label*="Hide password"],
+        [data-testid="stForm"] button[kind="iconButton"] {{
+            background: transparent !important;
+            border: none !important;
+            color: {_BLACK} !important;
+            padding: 0 8px !important;
+        }}
+        [data-testid="stForm"] button[aria-label*="Show password"]:hover,
+        [data-testid="stForm"] button[aria-label*="Hide password"]:hover {{
+            background: transparent !important;
+            color: {_RED} !important;
+        }}
+
         /* Labels dos inputs */
         [data-testid="stForm"] label,
         [data-testid="stForm"] label *,
@@ -185,10 +211,6 @@ def require_login() -> str | None:
             '<div class="login-title">Dashboard Setor Elétrico</div>',
             unsafe_allow_html=True,
         )
-        st.markdown(
-            '<div class="login-subtitle">Acesso restrito a usuários autorizados</div>',
-            unsafe_allow_html=True,
-        )
 
     # Renderizar o form nativo do streamlit-authenticator (com CSS customizado aplicado)
     try:
@@ -208,10 +230,7 @@ def require_login() -> str | None:
         )
         return None
     if auth_status is None:
-        st.markdown(
-            '<div class="login-info">Entre com suas credenciais para acessar</div>',
-            unsafe_allow_html=True,
-        )
+        # Sem mensagem extra — o form nativo já é autoexplicativo
         return None
 
     # Autenticado — botão de logout na sidebar
@@ -219,4 +238,3 @@ def require_login() -> str | None:
         authenticator.logout("Sair", "sidebar")
 
     return name or username
-
