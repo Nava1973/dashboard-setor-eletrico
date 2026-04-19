@@ -102,27 +102,47 @@ st.markdown(
         background: {BAUHAUS_CREAM};
     }}
 
-    /* Botão de abrir/fechar sidebar — garantir ícone de seta visível */
+    /* Botão de abrir/fechar sidebar — esconder texto "keyboard_double_arrow_right"
+       que aparece quando Material Icons não carrega, e mostrar SVG próprio */
     [data-testid="stSidebarCollapseButton"],
+    [data-testid="stSidebarCollapsedControl"],
     button[kind="header"] {{
         background: {BAUHAUS_YELLOW} !important;
         border: 2px solid {BAUHAUS_BLACK} !important;
         border-radius: 0 !important;
-        color: {BAUHAUS_BLACK} !important;
+        color: transparent !important;
+        width: 36px !important;
+        height: 36px !important;
+        position: relative !important;
+        overflow: hidden !important;
     }}
-    /* Material Icons: forçar fonte de ícones */
-    [data-testid="stSidebarCollapseButton"] span,
-    [data-testid="stSidebarCollapsedControl"] span,
-    button[kind="header"] span {{
-        font-family: 'Material Symbols Outlined', 'Material Icons' !important;
-        color: {BAUHAUS_BLACK} !important;
-        font-size: 1.5rem !important;
+    /* Esconder qualquer texto/ícone interno */
+    [data-testid="stSidebarCollapseButton"] *,
+    [data-testid="stSidebarCollapsedControl"] *,
+    button[kind="header"] * {{
+        color: transparent !important;
+        font-size: 0 !important;
+        opacity: 0 !important;
     }}
-    /* Botão de expandir (quando sidebar está colapsada) */
-    [data-testid="stSidebarCollapsedControl"] {{
-        background: {BAUHAUS_YELLOW} !important;
-        border: 2px solid {BAUHAUS_BLACK} !important;
-        border-radius: 0 !important;
+    /* Desenhar nossa própria seta com pseudo-elemento */
+    [data-testid="stSidebarCollapseButton"]::after,
+    [data-testid="stSidebarCollapsedControl"]::after,
+    button[kind="header"]::after {{
+        content: "›" !important;
+        position: absolute !important;
+        top: 50% !important;
+        left: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        font-family: 'Inter', sans-serif !important;
+        font-size: 1.6rem !important;
+        font-weight: 700 !important;
+        color: {BAUHAUS_BLACK} !important;
+        opacity: 1 !important;
+        line-height: 1 !important;
+    }}
+    /* Quando sidebar aberta, a seta vira pra esquerda */
+    [data-testid="stSidebarCollapseButton"]::after {{
+        content: "‹" !important;
     }}
     [data-testid="stSidebar"] {{
         background: {BAUHAUS_BLUE};
@@ -253,13 +273,20 @@ st.markdown(
         max-width: 1400px;
     }}
 
-    /* Caption */
-    .stCaption, [data-testid="stCaptionContainer"] {{
+    /* Caption — usar cinza escuro forte, legível sobre creme.
+       Aplicamos só na área principal (sidebar sobrescreve depois). */
+    [data-testid="stAppViewContainer"] .main .stCaption,
+    [data-testid="stAppViewContainer"] .main [data-testid="stCaptionContainer"],
+    [data-testid="stAppViewContainer"] .main [data-testid="stCaptionContainer"] *,
+    .main .stCaption,
+    .main [data-testid="stCaptionContainer"],
+    .main [data-testid="stCaptionContainer"] * {{
         font-family: 'Inter', sans-serif !important;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        font-size: 0.72rem !important;
-        color: {BAUHAUS_GRAY} !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.1em !important;
+        font-size: 0.75rem !important;
+        color: #2E2E2E !important;  /* cinza bem escuro */
+        font-weight: 500 !important;
     }}
 
     /* Divisor */
@@ -295,40 +322,24 @@ st.markdown(
         flex: 1;
     }}
 
-    /* Expander (Baixar dados CSV) — fundo creme com texto preto legível */
-    [data-testid="stExpander"] {{
-        background: {BAUHAUS_CREAM} !important;
-        border: 2px solid {BAUHAUS_BLACK} !important;
-        border-radius: 0 !important;
-    }}
-    [data-testid="stExpander"] summary,
-    [data-testid="stExpander"] summary *,
-    [data-testid="stExpander"] summary p,
-    [data-testid="stExpander"] summary span,
-    [data-testid="stExpander"] details summary,
-    [data-testid="stExpander"] details summary * {{
-        color: {BAUHAUS_BLACK} !important;
-        font-family: 'Inter', sans-serif !important;
-        font-weight: 600 !important;
-        background: {BAUHAUS_CREAM} !important;
-    }}
-    [data-testid="stExpander"] [data-testid="stExpanderDetails"],
-    [data-testid="stExpander"] [data-testid="stExpanderDetails"] * {{
-        background: {BAUHAUS_CREAM} !important;
-        color: {BAUHAUS_BLACK} !important;
-    }}
-    /* Botão "Baixar CSV" dentro do expander */
-    [data-testid="stExpander"] .stDownloadButton > button {{
+    /* Botão de download CSV — estilo Bauhaus */
+    .stDownloadButton > button {{
         background: {BAUHAUS_YELLOW} !important;
         color: {BAUHAUS_BLACK} !important;
         border: 2px solid {BAUHAUS_BLACK} !important;
         border-radius: 0 !important;
         font-family: 'Bebas Neue', sans-serif !important;
         letter-spacing: 0.08em !important;
+        font-size: 1rem !important;
+        padding: 10px 18px !important;
     }}
-    [data-testid="stExpander"] .stDownloadButton > button:hover {{
+    .stDownloadButton > button:hover {{
         background: {BAUHAUS_RED} !important;
         color: {BAUHAUS_CREAM} !important;
+    }}
+    .stDownloadButton > button *,
+    .stDownloadButton > button p {{
+        color: inherit !important;
     }}
     </style>
 
@@ -482,13 +493,15 @@ if aba == "PLD Diário":
     ultima_data = dff["data"].max()
     ultimo_pld = dff[dff["data"] == ultima_data].set_index("submercado")["pld"]
 
-    # Título com data embutida em cinza escuro
+    # Título com data embutida em cinza escuro, bem espaçada e legível
     st.markdown(
-        f'<h3 style="display:flex; align-items:baseline; gap:14px;">'
+        f'<h3 style="display:flex; align-items:baseline; gap:24px; '
+        f'flex-wrap:wrap;">'
         f'<span>Último dia disponível</span>'
         f'<span style="font-family:\'Inter\', sans-serif; font-weight:500; '
-        f'font-size:0.85rem; letter-spacing:0.1em; color:{BAUHAUS_GRAY}; '
-        f'text-transform:none;">{ultima_data.strftime("%d/%m/%Y")}</span>'
+        f'font-size:1.1rem; letter-spacing:0.04em; color:#2E2E2E; '
+        f'text-transform:none; border-bottom:none;">'
+        f'{ultima_data.strftime("%d/%m/%Y")}</span>'
         f'</h3>',
         unsafe_allow_html=True,
     )
@@ -547,6 +560,9 @@ if aba == "PLD Diário":
             if col not in pivot.columns:
                 continue
             is_media = col == "Média BR"
+            cor_linha = CORES_SUBMERCADO[col]
+            # Sigla curta para o hover (■ colorido + nome)
+            sigla_label = col if col != "Média BR" else "BR"
             fig.add_trace(
                 go.Scatter(
                     x=pivot.index,
@@ -554,15 +570,17 @@ if aba == "PLD Diário":
                     name=col,
                     mode="lines",
                     line=dict(
-                        color=CORES_SUBMERCADO[col],
+                        color=cor_linha,
                         width=4 if is_media else 2.5,
                         dash="dot" if is_media else "solid",
                     ),
-                    # Hover: zero casas decimais (arredondado)
+                    # Hover: quadrado colorido + sigla + data + valor, sem linha
                     hovertemplate=(
-                        f"<b>{col}</b><br>"
-                        "%{x|%d/%m/%Y}<br>"
-                        "R$ %{y:.0f}/MWh<extra></extra>"
+                        f'<span style="color:{cor_linha}; font-weight:700;">'
+                        f'■ {sigla_label}</span>'
+                        f'  <span style="color:#1A1A1A;">'
+                        "%{x|%d/%m/%Y}   R$ %{y:.0f}/MWh</span>"
+                        "<extra></extra>"
                     ),
                 )
             )
@@ -573,8 +591,7 @@ if aba == "PLD Diário":
             margin=dict(l=20, r=20, t=30, b=20),
             paper_bgcolor=BAUHAUS_CREAM,
             plot_bgcolor=BAUHAUS_CREAM,
-            hovermode="x unified",
-            # CRÍTICO para as 2 casas decimais no hover unified
+            hovermode="closest",  # hover individual por ponto, sem linha vertical
             hoverlabel=dict(
                 bgcolor=BAUHAUS_CREAM,
                 bordercolor=BAUHAUS_BLACK,
@@ -738,14 +755,15 @@ if aba == "PLD Diário":
     st.markdown(tabela_html, unsafe_allow_html=True)
 
     # --- Download ---
-    with st.expander("Baixar dados filtrados (CSV)"):
-        csv = dff.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "Baixar CSV",
-            csv,
-            file_name=f"pld_diario_{data_ini}_{data_fim}.csv",
-            mime="text/csv",
-        )
+    st.markdown("### Exportar")
+    csv = dff.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="Baixar dados filtrados (CSV)",
+        data=csv,
+        file_name=f"pld_diario_{data_ini}_{data_fim}.csv",
+        mime="text/csv",
+        use_container_width=False,
+    )
 
 # =============================================================================
 # RODAPÉ — com espaçamento claro para evitar sobreposição
@@ -763,5 +781,3 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
-
