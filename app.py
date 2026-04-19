@@ -142,17 +142,21 @@ st.markdown(
         pointer-events: none !important;
     }}
 
-    /* Botão NATIVO de ABRIR (quando sidebar está fechada) — ESCONDER COMPLETAMENTE.
-       Ele é substituído pelo nosso botão flutuante #bauhaus-open-sidebar criado via JS. */
+    /* Botão NATIVO de ABRIR (quando sidebar está fechada) — esconder visualmente
+       mas MANTER clicável para o JS conseguir acionar via .click().
+       Usamos visibility+position:absolute+tamanho zero em vez de display:none,
+       que bloqueia clicks programáticos em alguns browsers. */
     [data-testid="stSidebarCollapsedControl"],
     [data-testid="collapsedControl"],
     button[kind="headerNoPadding"]:not([data-testid="stSidebarCollapseButton"]) {{
-        display: none !important;
         visibility: hidden !important;
         opacity: 0 !important;
-        width: 0 !important;
-        height: 0 !important;
-        pointer-events: none !important;
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 1px !important;
+        height: 1px !important;
+        z-index: -1 !important;
     }}
     [data-testid="stSidebar"] {{
         background: #1A1A1A !important;
@@ -414,13 +418,30 @@ components.html(
             ];
             for (const sel of seletores) {
                 const alvo = doc.querySelector(sel);
-                if (alvo) { alvo.click(); return true; }
+                if (alvo) {
+                    // Múltiplas estratégias para garantir que o clique dispara:
+                    // 1. click() direto
+                    // 2. dispatch de MouseEvent simulado
+                    try {
+                        alvo.click();
+                    } catch(e) {}
+                    try {
+                        const evento = new MouseEvent('click', {
+                            bubbles: true,
+                            cancelable: true,
+                            view: window.parent
+                        });
+                        alvo.dispatchEvent(evento);
+                    } catch(e) {}
+                    return true;
+                }
             }
+            // Fallback: qualquer botão com texto de ícone
             const todos = doc.querySelectorAll('button');
             for (const b of todos) {
                 if (b.id === 'bauhaus-open-sidebar') continue;
                 if (TEXTOS_ICONES.includes(b.textContent.trim())) {
-                    b.click();
+                    try { b.click(); } catch(e) {}
                     return true;
                 }
             }
@@ -660,18 +681,10 @@ if aba == "PLD Diário":
     p1, p2, p3, p4, p5, psp, pd1, pd2 = st.columns(
         [1, 1, 1, 1, 1, 0.3, 1.4, 1.4]
     )
-    label_spacer = (
-        '<div style="font-size:0.75rem; line-height:1.2; margin-bottom:2px; '
-        'color:transparent; user-select:none;">·</div>'
-    )
-    for col in [p1, p2, p3, p4, p5]:
-        with col:
-            st.markdown(label_spacer, unsafe_allow_html=True)
 
     # Função auxiliar para renderizar botão com destaque se ativo
     def _btn_atalho(col, label, delta_days=None, is_max=False):
         with col:
-            # Envolver em div com classe condicional
             if label == preset_atual:
                 st.markdown(
                     '<div class="atalho-ativo">', unsafe_allow_html=True
