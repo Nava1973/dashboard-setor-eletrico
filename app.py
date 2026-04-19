@@ -394,33 +394,62 @@ st.markdown(
     """
     <script>
     (function() {
-        function limparTextoIcone() {
-            // Procura por qualquer elemento que contenha o texto literal do ícone
-            // e substitui por string vazia (o ::before do CSS já desenha a seta).
-            const textoRuim = ['keyboard_double_arrow_right', 'keyboard_double_arrow_left',
+        const SETA_ABRIR = '›';
+        const SETA_FECHAR = '‹';
+        const TEXTOS_ICONES = ['keyboard_double_arrow_right', 'keyboard_double_arrow_left',
                               'chevron_right', 'chevron_left', 'arrow_forward', 'arrow_back',
                               'menu_open', 'menu'];
-            const botoes = document.querySelectorAll(
-                '[data-testid="stSidebarCollapseButton"], ' +
-                '[data-testid="stSidebarCollapsedControl"], ' +
-                '[data-testid="collapsedControl"], ' +
-                'button[kind="header"], ' +
-                'button[kind="headerNoPadding"]'
-            );
-            botoes.forEach(btn => {
-                // Percorre todos os filhos de texto e limpa
-                const walker = document.createTreeWalker(btn, NodeFilter.SHOW_TEXT);
-                let node;
-                while ((node = walker.nextNode())) {
-                    const txt = node.nodeValue.trim();
-                    if (textoRuim.includes(txt)) {
-                        node.nodeValue = '';
-                    }
+
+        function injetarSeta(btn, seta) {
+            // Remove qualquer span de seta antigo (pra evitar duplicação)
+            const antigo = btn.querySelector('.bauhaus-seta');
+            if (antigo) antigo.remove();
+
+            // Apaga textos de ícone residuais
+            const walker = document.createTreeWalker(btn, NodeFilter.SHOW_TEXT);
+            let node;
+            const toRemove = [];
+            while ((node = walker.nextNode())) {
+                if (TEXTOS_ICONES.includes(node.nodeValue.trim())) {
+                    toRemove.push(node);
                 }
-            });
+            }
+            toRemove.forEach(n => n.nodeValue = '');
+
+            // Injeta o span com a seta
+            const span = document.createElement('span');
+            span.className = 'bauhaus-seta';
+            span.textContent = seta;
+            span.style.cssText = 'position:absolute; top:50%; left:50%; ' +
+                'transform:translate(-50%, -50%); font-family:Inter,sans-serif; ' +
+                'font-size:1.8rem; font-weight:700; color:#1A1A1A; line-height:1; ' +
+                'z-index:100; pointer-events:none; opacity:1;';
+            btn.style.position = 'relative';
+            btn.appendChild(span);
         }
-        limparTextoIcone();
-        const obs = new MutationObserver(limparTextoIcone);
+
+        function atualizarBotoes() {
+            // Botão de FECHAR (sidebar aberta)
+            const btnFechar = document.querySelector('[data-testid="stSidebarCollapseButton"]');
+            if (btnFechar) injetarSeta(btnFechar, SETA_FECHAR);
+
+            // Botão de ABRIR (sidebar fechada) — múltiplos seletores possíveis
+            const seletoresAbrir = [
+                '[data-testid="stSidebarCollapsedControl"]',
+                '[data-testid="collapsedControl"]',
+                'button[kind="headerNoPadding"]'
+            ];
+            for (const sel of seletoresAbrir) {
+                const btn = document.querySelector(sel);
+                if (btn) {
+                    injetarSeta(btn, SETA_ABRIR);
+                    break;
+                }
+            }
+        }
+
+        atualizarBotoes();
+        const obs = new MutationObserver(atualizarBotoes);
         obs.observe(document.body, { childList: true, subtree: true, characterData: true });
     })();
     </script>
@@ -498,6 +527,52 @@ if aba == "PLD Diário":
         st.session_state["data_fim"] = max_d
         st.session_state["_dataset_max"] = max_d
 
+    # --- Filtrar por data (usando session_state, não widgets) ---
+    # Os widgets de Período ficam mais abaixo, mas o filtro precisa acontecer
+    # aqui para os KPIs já mostrarem os dados corretos.
+    data_ini = st.session_state["data_ini"]
+    data_fim = st.session_state["data_fim"]
+
+    if data_ini > data_fim:
+        st.error("A data inicial não pode ser posterior à data final.")
+        st.stop()
+
+    mask = (df["data"].dt.date >= data_ini) & (df["data"].dt.date <= data_fim)
+    dff = df.loc[mask].copy()
+
+    if dff.empty:
+        st.warning("Sem dados no intervalo selecionado.")
+        st.stop()
+
+    # --- KPIs (último dia disponível) — vem primeiro ---
+    ultima_data = dff["data"].max()
+    ultimo_pld = dff[dff["data"] == ultima_data].set_index("submercado")["pld"]
+
+    st.markdown(
+        f'<h3 style="margin-top:1rem; margin-bottom:0.3rem;">'
+        f'Último dia disponível'
+        f'</h3>'
+        f'<div style="font-family:\'Inter\', sans-serif; font-weight:500; '
+        f'font-size:1.25rem; letter-spacing:0.02em; color:#2E2E2E; '
+        f'margin-top:0; margin-bottom:1.2rem;">'
+        f'{ultima_data.strftime("%d/%m/%Y")}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    cols = st.columns(5)
+    for i, sub in enumerate(SUBMERCADOS_ORD):
+        with cols[i]:
+            val = ultimo_pld.get(sub)
+            st.metric(
+                label=sub,
+                value=f"R$ {val:,.2f}" if val is not None else "—",
+            )
+    with cols[4]:
+        media_br = ultimo_pld.mean()
+        st.metric(label="MÉDIA BR", value=f"R$ {media_br:,.2f}")
+
+    # --- Período (controles de data) — vem depois dos KPIs, perto do gráfico ---
     st.markdown("### Período")
 
     # Atalhos
@@ -531,60 +606,19 @@ if aba == "PLD Diário":
 
     col_a, col_b = st.columns(2)
     with col_a:
-        data_ini = st.date_input(
+        st.date_input(
             "Data inicial",
             min_value=min_d,
             max_value=max_d,
             key="data_ini",
         )
     with col_b:
-        data_fim = st.date_input(
+        st.date_input(
             "Data final",
             min_value=min_d,
             max_value=max_d,
             key="data_fim",
         )
-
-    if data_ini > data_fim:
-        st.error("A data inicial não pode ser posterior à data final.")
-        st.stop()
-
-    # --- Filtrar por data ---
-    mask = (df["data"].dt.date >= data_ini) & (df["data"].dt.date <= data_fim)
-    dff = df.loc[mask].copy()
-
-    if dff.empty:
-        st.warning("Sem dados no intervalo selecionado.")
-        st.stop()
-
-    # --- KPIs (valores mais recentes) ---
-    ultima_data = dff["data"].max()
-    ultimo_pld = dff[dff["data"] == ultima_data].set_index("submercado")["pld"]
-
-    # Título com data embaixo, em linha separada para garantir respiro
-    st.markdown(
-        f'<h3 style="margin-top:2.2rem; margin-bottom:0.3rem;">'
-        f'Último dia disponível'
-        f'</h3>'
-        f'<div style="font-family:\'Inter\', sans-serif; font-weight:500; '
-        f'font-size:1.25rem; letter-spacing:0.02em; color:#2E2E2E; '
-        f'margin-top:0; margin-bottom:1.2rem;">'
-        f'{ultima_data.strftime("%d/%m/%Y")}'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-    cols = st.columns(5)
-    for i, sub in enumerate(SUBMERCADOS_ORD):
-        with cols[i]:
-            val = ultimo_pld.get(sub)
-            st.metric(
-                label=sub,
-                value=f"R$ {val:,.2f}" if val is not None else "—",
-            )
-    with cols[4]:
-        media_br = ultimo_pld.mean()
-        st.metric(label="MÉDIA BR", value=f"R$ {media_br:,.2f}")
 
     # --- Seletor de submercados ---
     st.markdown("### Série histórica")
@@ -630,11 +664,9 @@ if aba == "PLD Diário":
             is_media = col == "Média BR"
             cor_linha = CORES_SUBMERCADO[col]
             sigla_label = col if col != "Média BR" else "BR"
-            # Padding com &nbsp; para alinhar o R$ — siglas têm 1-2 chars,
-            # então compensamos as de 1 char (S, N) com um nbsp extra
-            sigla_padded = sigla_label
-            if len(sigla_label) == 1:
-                sigla_padded = sigla_label + "&nbsp;"
+            # Com fonte monoespaçada, basta padronizar todas as siglas em 2 chars.
+            # Siglas de 1 char (S, N) ganham um espaço no final.
+            sigla_fix = sigla_label.ljust(2)
             fig.add_trace(
                 go.Scatter(
                     x=pivot.index,
@@ -646,12 +678,12 @@ if aba == "PLD Diário":
                         width=4 if is_media else 2.5,
                         dash="dot" if is_media else "solid",
                     ),
-                    # Hover: sigla colorida + 10 &nbsp; + valor. Alinhamento do R$
-                    # funciona porque todas as siglas agora têm 2 chars efetivos.
+                    # Hover com fonte monoespaçada: &nbsp; tem largura fixa,
+                    # garantindo que "R$" comece na mesma coluna em todas as linhas.
                     hovertemplate=(
                         f'<span style="color:{cor_linha}; font-weight:700;">'
-                        f'{sigla_padded}</span>'
-                        '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+                        f'{sigla_fix}</span>'
+                        '&nbsp;&nbsp;&nbsp;&nbsp;'
                         '<span style="color:#1A1A1A;">R$ %{y:.0f}/MWh</span>'
                         '<extra></extra>'
                     ),
@@ -669,7 +701,9 @@ if aba == "PLD Diário":
                 bgcolor=BAUHAUS_CREAM,
                 bordercolor=BAUHAUS_BLACK,
                 font=dict(
-                    family="Inter, sans-serif",
+                    # Monoespaçada: cada caractere tem a mesma largura.
+                    # Isso GARANTE alinhamento das colunas com &nbsp; repetidos.
+                    family="'JetBrains Mono', 'Courier New', monospace",
                     size=13,
                     color=BAUHAUS_BLACK,
                 ),
