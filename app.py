@@ -1,5 +1,4 @@
 """
-
 Dashboard do Setor Elétrico Brasileiro
 Aba 1: PLD Médio Diário por Submercado
 
@@ -107,58 +106,8 @@ st.markdown(
     /* Botão nativo do Streamlit para sidebar — customizar visual mantendo click.
        Múltiplos seletores porque o Streamlit usa nomes diferentes dependendo
        da versão e do estado (aberto vs fechado). */
-    /* Botão NATIVO de FECHAR (quando sidebar está aberta) — estilizado em amarelo */
-    [data-testid="stSidebarCollapseButton"] {{
-        background: {BAUHAUS_YELLOW} !important;
-        border: 2px solid {BAUHAUS_BLACK} !important;
-        border-radius: 0 !important;
-        width: 40px !important;
-        height: 40px !important;
-        position: relative !important;
-        padding: 0 !important;
-        overflow: hidden !important;
-        cursor: pointer !important;
-    }}
-    /* Esconder conteúdo interno do botão de FECHAR (texto "keyboard_double_arrow_left" etc.) */
-    [data-testid="stSidebarCollapseButton"] > *,
-    [data-testid="stSidebarCollapseButton"] svg,
-    [data-testid="stSidebarCollapseButton"] span {{
-        color: transparent !important;
-        font-size: 0 !important;
-        opacity: 0 !important;
-    }}
-    /* Seta ‹ desenhada via pseudo-elemento */
-    [data-testid="stSidebarCollapseButton"]::before {{
-        content: "‹" !important;
-        position: absolute !important;
-        top: 50% !important;
-        left: 50% !important;
-        transform: translate(-50%, -50%) !important;
-        font-family: 'Inter', -apple-system, sans-serif !important;
-        font-size: 1.8rem !important;
-        font-weight: 700 !important;
-        color: {BAUHAUS_BLACK} !important;
-        line-height: 1 !important;
-        z-index: 10 !important;
-        pointer-events: none !important;
-    }}
-
-    /* Botão NATIVO de ABRIR (quando sidebar está fechada) — esconder visualmente
-       mas MANTER clicável para o JS conseguir acionar via .click().
-       Usamos visibility+position:absolute+tamanho zero em vez de display:none,
-       que bloqueia clicks programáticos em alguns browsers. */
-    [data-testid="stSidebarCollapsedControl"],
-    [data-testid="collapsedControl"],
-    button[kind="headerNoPadding"]:not([data-testid="stSidebarCollapseButton"]) {{
-        visibility: hidden !important;
-        opacity: 0 !important;
-        position: absolute !important;
-        top: 0 !important;
-        left: 0 !important;
-        width: 1px !important;
-        height: 1px !important;
-        z-index: -1 !important;
-    }}
+    /* Botão NATIVO de FECHAR/ABRIR sidebar — deixar padrão do Streamlit.
+       Customizar esses botões leva a inconsistências entre estados aberto/fechado. */
     [data-testid="stSidebar"] {{
         background: #1A1A1A !important;
         border-right: 4px solid {BAUHAUS_YELLOW};
@@ -393,136 +342,8 @@ if user is None:
 
 import streamlit.components.v1 as components
 
-# =============================================================================
-# BOTÃO FLUTUANTE DE ABRIR SIDEBAR
-# Renderizado via iframe (components.html) que cria o botão no documento pai.
-# Essa abordagem é mais robusta que st.markdown porque o iframe roda JS
-# isolado e tem acesso controlado ao window.parent.document.
-# =============================================================================
-components.html(
-    """
-    <script>
-    (function() {
-        const SETA_ABRIR = '\\u203A';  // ›
-        const TEXTOS_ICONES = ['keyboard_double_arrow_right', 'keyboard_double_arrow_left',
-                              'chevron_right', 'chevron_left', 'arrow_forward', 'arrow_back',
-                              'menu_open', 'menu', 'first_page', 'last_page'];
-
-        const doc = window.parent.document;
-
-        function clicarBotaoNativo() {
-            const seletores = [
-                '[data-testid="stSidebarCollapsedControl"]',
-                '[data-testid="collapsedControl"]',
-                '[data-testid="baseButton-headerNoPadding"]',
-                'button[kind="headerNoPadding"]'
-            ];
-            for (const sel of seletores) {
-                const alvo = doc.querySelector(sel);
-                if (alvo) {
-                    // Múltiplas estratégias para garantir que o clique dispara:
-                    // 1. click() direto
-                    // 2. dispatch de MouseEvent simulado
-                    try {
-                        alvo.click();
-                    } catch(e) {}
-                    try {
-                        const evento = new MouseEvent('click', {
-                            bubbles: true,
-                            cancelable: true,
-                            view: window.parent
-                        });
-                        alvo.dispatchEvent(evento);
-                    } catch(e) {}
-                    return true;
-                }
-            }
-            // Fallback: qualquer botão com texto de ícone
-            const todos = doc.querySelectorAll('button');
-            for (const b of todos) {
-                if (b.id === 'bauhaus-open-sidebar') continue;
-                if (TEXTOS_ICONES.includes(b.textContent.trim())) {
-                    try { b.click(); } catch(e) {}
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        function criarOuAtualizarBotao() {
-            let btn = doc.getElementById('bauhaus-open-sidebar');
-            if (!btn) {
-                btn = doc.createElement('button');
-                btn.id = 'bauhaus-open-sidebar';
-                btn.type = 'button';
-                btn.setAttribute('aria-label', 'Abrir menu lateral');
-                btn.textContent = SETA_ABRIR;
-                btn.style.cssText =
-                    'position:fixed !important; top:12px !important; left:12px !important; ' +
-                    'z-index:9999999 !important; ' +
-                    'width:40px !important; height:40px !important; ' +
-                    'background:#F6BD16 !important; border:2px solid #1A1A1A !important; ' +
-                    'border-radius:0 !important; ' +
-                    'cursor:pointer !important; padding:0 !important; margin:0 !important; ' +
-                    'font-family:Inter,Arial,sans-serif !important; ' +
-                    'font-size:22px !important; font-weight:700 !important; ' +
-                    'color:#1A1A1A !important; line-height:1 !important; ' +
-                    'display:none; align-items:center !important; justify-content:center !important; ' +
-                    'box-sizing:border-box !important;';
-                btn.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    clicarBotaoNativo();
-                });
-                doc.body.appendChild(btn);
-            }
-            if (!btn.textContent.trim()) {
-                btn.textContent = SETA_ABRIR;
-            }
-        }
-
-        function esconderNativoDeAbrir() {
-            // Quando sidebar está fechada, o Streamlit renderiza o próprio
-            // botão amarelo. Escondemos ele para mostrar APENAS o nosso flutuante.
-            const seletores = [
-                '[data-testid="stSidebarCollapsedControl"]',
-                '[data-testid="collapsedControl"]',
-                '[data-testid="baseButton-headerNoPadding"]'
-            ];
-            seletores.forEach(sel => {
-                doc.querySelectorAll(sel).forEach(btn => {
-                    if (btn.getAttribute('data-testid') === 'stSidebarCollapseButton') return;
-                    btn.style.display = 'none';
-                });
-            });
-        }
-
-        function toggleVisibilidade() {
-            const btn = doc.getElementById('bauhaus-open-sidebar');
-            if (!btn) return;
-            const sidebar = doc.querySelector('[data-testid="stSidebar"]');
-            if (!sidebar) return;
-            const rect = sidebar.getBoundingClientRect();
-            const estaFechada = rect.width < 50;
-            btn.style.display = estaFechada ? 'flex' : 'none';
-            if (estaFechada) {
-                esconderNativoDeAbrir();
-            }
-        }
-
-        function atualizar() {
-            criarOuAtualizarBotao();
-            toggleVisibilidade();
-        }
-
-        atualizar();
-        setInterval(atualizar, 500);
-    })();
-    </script>
-    """,
-    height=0,
-    width=0,
-)
+# Sidebar usa o botão padrão do Streamlit — sem customização.
+# É estável em todas as versões e não causa problemas de clique.
 
 # =============================================================================
 # SIDEBAR
@@ -649,7 +470,7 @@ if aba == "PLD Diário":
     def _preset_ativo(di, df_fim):
         """Retorna o nome do preset ativo, ou None se for custom."""
         if df_fim != max_d:
-            return None  # data final não é o máximo → custom
+            return None
         delta = (max_d - di).days
         if delta == 7: return "7d"
         if delta == 30: return "30d"
@@ -662,16 +483,23 @@ if aba == "PLD Diário":
         st.session_state["data_ini"], st.session_state["data_fim"]
     )
 
-    # CSS para estado "ativo" dos botões de atalho (injetado aqui porque é contextual)
+    # CSS para o botão "primary" do Streamlit (=> estado ativo do atalho)
+    # Em vez de wrappers complicados, usamos type="primary" que o Streamlit
+    # aplica no botão ativo com estilo diferenciado. Redefinimos a cor primary
+    # aqui pra ser o amarelo Bauhaus.
     st.markdown(
         f"""
         <style>
-        /* Botão de atalho ATIVO — fundo amarelo Bauhaus */
-        .atalho-ativo .stButton > button {{
+        .stButton > button[kind="primary"] {{
             background: {BAUHAUS_YELLOW} !important;
             color: {BAUHAUS_BLACK} !important;
-            border-color: {BAUHAUS_BLACK} !important;
+            border: 2px solid {BAUHAUS_BLACK} !important;
             font-weight: 700 !important;
+        }}
+        .stButton > button[kind="primary"]:hover {{
+            background: {BAUHAUS_RED} !important;
+            color: {BAUHAUS_CREAM} !important;
+            border-color: {BAUHAUS_BLACK} !important;
         }}
         </style>
         """,
@@ -683,22 +511,17 @@ if aba == "PLD Diário":
         [1, 1, 1, 1, 1, 0.3, 1.4, 1.4]
     )
 
-    # Função auxiliar para renderizar botão com destaque se ativo
+    # Função auxiliar — usa type="primary" quando o atalho está ativo
     def _btn_atalho(col, label, delta_days=None, is_max=False):
         with col:
-            if label == preset_atual:
-                st.markdown(
-                    '<div class="atalho-ativo">', unsafe_allow_html=True
-                )
-            if st.button(label, use_container_width=True, key=f"btn_{label}"):
+            tipo = "primary" if label == preset_atual else "secondary"
+            if st.button(label, use_container_width=True, key=f"btn_{label}", type=tipo):
                 if is_max:
                     st.session_state["data_ini"] = min_d
                 else:
                     st.session_state["data_ini"] = max_d - timedelta(days=delta_days)
                 st.session_state["data_fim"] = max_d
                 st.rerun()
-            if label == preset_atual:
-                st.markdown('</div>', unsafe_allow_html=True)
 
     _btn_atalho(p1, "7d", delta_days=7)
     _btn_atalho(p2, "30d", delta_days=30)
