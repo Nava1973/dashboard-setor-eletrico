@@ -94,7 +94,8 @@ st.markdown(
         letter-spacing: 0.05em !important;
         border-bottom: 2px solid {BAUHAUS_BLACK};
         padding-bottom: 3px;
-        margin-top: 1.8rem !important;
+        margin-top: 1.3rem !important;
+        margin-bottom: 0.6rem !important;
     }}
 
     /* Fundo da página */
@@ -294,9 +295,9 @@ st.markdown(
 
     /* Bloco principal — compacto */
     .block-container {{
-        padding-top: 1.2rem;
-        padding-bottom: 3rem;
-        max-width: 1100px;  /* reduzido de 1400 para ficar mais compacto em telas grandes */
+        padding-top: 0.8rem;
+        padding-bottom: 2rem;
+        max-width: 1100px;
     }}
 
     /* Caption — usar cinza escuro forte, legível sobre creme.
@@ -396,13 +397,14 @@ st.markdown(
     (function() {
         const SETA_ABRIR = '›';
         const SETA_FECHAR = '‹';
+        const TEXTOS_ICONES = ['keyboard_double_arrow_right', 'keyboard_double_arrow_left',
+                              'chevron_right', 'chevron_left', 'arrow_forward', 'arrow_back',
+                              'menu_open', 'menu', 'first_page', 'last_page'];
 
         function forceBauhausSeta(btn, seta) {
             if (!btn) return;
-            // Marca de controle para não refazer toda vez
             if (btn.dataset.bauhausSeta === seta) return;
 
-            // Limpa TUDO e injeta a seta como innerHTML
             btn.innerHTML = '<span style="font-family:Inter,sans-serif; ' +
                 'font-size:1.8rem; font-weight:700; color:#1A1A1A; ' +
                 'line-height:1; pointer-events:none; ' +
@@ -418,22 +420,43 @@ st.markdown(
             const btnFechar = document.querySelector('[data-testid="stSidebarCollapseButton"]');
             if (btnFechar) forceBauhausSeta(btnFechar, SETA_FECHAR);
 
-            // Sidebar FECHADA → botão de ABRIR (pode ter vários seletores)
+            // Sidebar FECHADA → botão de ABRIR.
+            // Tentamos vários seletores + fallback por conteúdo (qualquer botão
+            // cujo texto interno seja um ícone conhecido).
             const seletoresAbrir = [
                 '[data-testid="stSidebarCollapsedControl"]',
                 '[data-testid="collapsedControl"]',
-                '[data-testid="baseButton-headerNoPadding"]'
+                '[data-testid="baseButton-headerNoPadding"]',
+                'button[kind="headerNoPadding"]',
+                'button[kind="header"]'
             ];
+            let btnAbrir = null;
             for (const sel of seletoresAbrir) {
                 const btns = document.querySelectorAll(sel);
-                btns.forEach(btn => forceBauhausSeta(btn, SETA_ABRIR));
+                btns.forEach(btn => {
+                    // Ignora o botão de fechar (que tem stSidebarCollapseButton)
+                    if (btn.getAttribute('data-testid') === 'stSidebarCollapseButton') return;
+                    forceBauhausSeta(btn, SETA_ABRIR);
+                    btnAbrir = btn;
+                });
+            }
+
+            // Fallback: se não achou pelos seletores, procura qualquer botão
+            // no topo da página que contenha texto "keyboard_double_arrow..."
+            if (!btnAbrir) {
+                const todos = document.querySelectorAll('button');
+                todos.forEach(btn => {
+                    if (btn.dataset.bauhausSeta) return;  // já tratado
+                    const txt = btn.textContent.trim();
+                    if (TEXTOS_ICONES.includes(txt)) {
+                        forceBauhausSeta(btn, SETA_ABRIR);
+                    }
+                });
             }
         }
 
-        // Executar agora e em loop constante (o Streamlit pode re-renderizar)
         atualizarBotoes();
-        setInterval(atualizarBotoes, 300);
-
+        setInterval(atualizarBotoes, 200);
         const obs = new MutationObserver(atualizarBotoes);
         obs.observe(document.body, { childList: true, subtree: true });
     })();
@@ -457,14 +480,12 @@ with st.sidebar:
     )
 
     st.divider()
-    st.caption("ATUALIZAÇÃO")
-    if st.button("Forçar atualização", use_container_width=True):
+    if st.button("Atualizar", use_container_width=True):
         clear_cache()
         st.rerun()
 
     st.caption(
-        "Dados atualizados automaticamente 1x ao dia. "
-        "Use o botão acima para recarregar a CCEE."
+        "Dados atualizados automaticamente 1x ao dia."
     )
 
 # =============================================================================
@@ -545,7 +566,8 @@ if aba == "PLD Diário":
         unsafe_allow_html=True,
     )
 
-    cols = st.columns(5)
+    # KPIs em colunas mais apertadas + um "filler" ao final pra não esticar tudo
+    cols = st.columns([1, 1, 1, 1, 1, 2])
     for i, sub in enumerate(SUBMERCADOS_ORD):
         with cols[i]:
             val = ultimo_pld.get(sub)
@@ -556,6 +578,7 @@ if aba == "PLD Diário":
     with cols[4]:
         media_br = ultimo_pld.mean()
         st.metric(label="MÉDIA BR", value=f"R$ {media_br:,.2f}")
+    # cols[5] fica vazio — serve como filler para reduzir largura dos KPIs
 
     # --- Período (controles de data) — vem depois dos KPIs, perto do gráfico ---
     st.markdown("### Período")
@@ -753,7 +776,14 @@ if aba == "PLD Diário":
         st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
 
     # --- Estatísticas do período (tabela) ---
-    st.markdown("### Estatísticas do período")
+    st.markdown(
+        f'<h3 style="margin-bottom:0.3rem;">Estatísticas do período</h3>'
+        f'<div style="font-family:\'Inter\', sans-serif; font-weight:500; '
+        f'font-size:0.95rem; color:#2E2E2E; margin-bottom:0.8rem;">'
+        f'{data_ini.strftime("%d/%m/%Y")} — {data_fim.strftime("%d/%m/%Y")}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
     stats = (
         dff.groupby("submercado")["pld"]
         .agg(["min", "mean", "max"])
