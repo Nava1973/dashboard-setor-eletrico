@@ -258,11 +258,48 @@ st.markdown(
         padding-bottom: 2rem;
         max-width: 1000px;
     }}
-    /* Esconder a barra colorida decorativa do Streamlit no topo —
-       múltiplos seletores pra pegar qualquer versão do decoration */
+    /* Header nativo Streamlit — esconder TOTALMENTE a barra decorativa colorida.
+       A versão atual do Streamlit usa <header class="stAppHeader"> e dentro dele
+       um <div class="stAppToolbar"> com os 3 pontos. A barra colorida vem do
+       background do stAppHeader ou de um ::before dele. */
+    [data-testid="stHeader"],
+    header[data-testid="stHeader"],
+    .stAppHeader,
+    header.stAppHeader {{
+        height: 0 !important;
+        min-height: 0 !important;
+        max-height: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        background: transparent !important;
+        background-color: transparent !important;
+        background-image: none !important;
+        border: none !important;
+        overflow: hidden !important;
+    }}
+    /* Pseudo-elementos do header que podem desenhar a barra colorida */
+    [data-testid="stHeader"]::before,
+    [data-testid="stHeader"]::after,
+    .stAppHeader::before,
+    .stAppHeader::after {{
+        display: none !important;
+        content: none !important;
+        background: transparent !important;
+        height: 0 !important;
+    }}
+    /* Toolbar (3 pontos) — fixo no canto superior direito, fora do fluxo */
+    [data-testid="stToolbar"],
+    .stAppToolbar,
+    [data-testid="stAppToolbar"] {{
+        position: fixed !important;
+        top: 0.3rem !important;
+        right: 0.5rem !important;
+        z-index: 9999 !important;
+        background: transparent !important;
+    }}
+    /* Esconder stDecoration (barra colorida alternativa) */
     [data-testid="stDecoration"],
     [data-testid="stDecorationLine"],
-    div[data-testid="stDecoration"],
     [class*="StyledDecoration"],
     #stDecoration,
     div.stDecoration {{
@@ -270,20 +307,6 @@ st.markdown(
         height: 0 !important;
         visibility: hidden !important;
         opacity: 0 !important;
-    }}
-    /* Header nativo Streamlit — zero altura, sem background */
-    [data-testid="stHeader"] {{
-        height: 0 !important;
-        min-height: 0 !important;
-        padding: 0 !important;
-        background: transparent !important;
-    }}
-    /* Toolbar (3 pontos) — absoluto no canto, não ocupa espaço */
-    [data-testid="stToolbar"] {{
-        position: absolute !important;
-        top: 0.3rem !important;
-        right: 0.3rem !important;
-        z-index: 999 !important;
     }}
     /* Remove padding/margin do primeiro elemento da página pra subir tudo */
     .block-container > div:first-child {{
@@ -322,9 +345,26 @@ st.markdown(
         gap: 0.5rem !important;
         min-height: 1.5rem !important;
         line-height: 1 !important;
+        vertical-align: middle !important;
     }}
-    [data-testid="stAppViewContainer"] .stCheckbox label p,
-    [data-testid="stAppViewContainer"] .stCheckbox label > div {{
+    /* stWidgetLabel — o div wrapper do texto dentro do label do checkbox */
+    [data-testid="stAppViewContainer"] .stCheckbox label [data-testid="stWidgetLabel"] {{
+        display: flex !important;
+        align-items: center !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        line-height: 1 !important;
+    }}
+    /* stMarkdownContainer dentro do label */
+    [data-testid="stAppViewContainer"] .stCheckbox label [data-testid="stMarkdownContainer"] {{
+        display: flex !important;
+        align-items: center !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        line-height: 1 !important;
+    }}
+    /* O <p> com o texto (SE, S, NE, N, Média BR) */
+    [data-testid="stAppViewContainer"] .stCheckbox label p {{
         background: transparent !important;
         background-color: transparent !important;
         color: {BAUHAUS_BLACK} !important;
@@ -334,7 +374,7 @@ st.markdown(
         line-height: 1 !important;
         margin: 0 !important;
         padding: 0 !important;
-        display: flex !important;
+        display: inline-flex !important;
         align-items: center !important;
     }}
 
