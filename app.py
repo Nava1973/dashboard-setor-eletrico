@@ -2,8 +2,9 @@
 Dashboard do Setor Elétrico Brasileiro
 Aba 1: PLD Médio Diário por Submercado
 
-Design: Bauhaus — cores primárias (vermelho/amarelo/azul), geometria pura,
-tipografia geométrica sem serifa. Forma segue função.
+Design: Bauhaus clássico — paleta de cores primárias fiel aos tapetes
+de Josef Albers (azul cobalto, vermelho cádmio, amarelo cromo).
+Tipografia: Bebas Neue (condensada, impactante) + Inter (legibilidade).
 
 Fonte: CCEE - Portal Dados Abertos
 https://dadosabertos.ccee.org.br/dataset/pld_media_diaria
@@ -21,170 +22,195 @@ from data_loader import load_pld_media_diaria, clear_cache
 # CONFIGURAÇÃO DA PÁGINA
 # =============================================================================
 st.set_page_config(
-    page_title="Dashboard Setor Elétrico BR",
+    page_title="Dashboard Setor Elétrico",
     page_icon="▲",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # =============================================================================
-# PALETA BAUHAUS
+# PALETA BAUHAUS CLÁSSICA
 # =============================================================================
-# Cores primárias puras + preto e branco. Base do movimento.
-BAUHAUS_RED = "#E63946"      # vermelho Bauhaus (mais vibrante que o clássico)
-BAUHAUS_YELLOW = "#FFBE0B"   # amarelo primário
-BAUHAUS_BLUE = "#0077B6"     # azul primário
-BAUHAUS_BLACK = "#0A0A0A"
-BAUHAUS_WHITE = "#FAFAFA"
-BAUHAUS_GRAY = "#757575"
-BAUHAUS_LIGHT = "#EDEDED"
+# Cores mais próximas do Bauhaus histórico (Itten, Albers, Kandinsky).
+BAUHAUS_RED = "#D62828"      # vermelho cádmio — quente, puro
+BAUHAUS_YELLOW = "#F6BD16"   # amarelo cromo — saturado, sem laranjado
+BAUHAUS_BLUE = "#1D3557"     # azul cobalto profundo
+BAUHAUS_BLACK = "#1A1A1A"    # preto tinteiro, não "puro"
+BAUHAUS_CREAM = "#F5F1E8"    # creme (papel) em vez de branco estéril
+BAUHAUS_GRAY = "#6B6B6B"
+BAUHAUS_LIGHT = "#E8E3D4"    # creme mais escuro pra elementos sutis
 
-# Atribuição de cores por submercado
+# Atribuição por submercado
 CORES_SUBMERCADO = {
-    "SE": BAUHAUS_RED,         # maior mercado → vermelho (mais presente)
+    "SE": BAUHAUS_RED,
     "S": BAUHAUS_BLUE,
     "NE": BAUHAUS_YELLOW,
     "N": BAUHAUS_BLACK,
-    "Média BR": BAUHAUS_GRAY,  # linha neutra
+    "Média BR": BAUHAUS_GRAY,
 }
 
 SUBMERCADOS_ORD = ["SE", "S", "NE", "N"]
 
 # =============================================================================
-# CSS — TIPOGRAFIA E COMPONENTES BAUHAUS
+# CSS — TIPOGRAFIA + COMPONENTES
 # =============================================================================
 st.markdown(
     f"""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap');
 
-    /* Tipografia geral: Space Grotesk (geométrica, funcional) */
+    /* Tipografia geral */
     html, body, [class*="css"], .stMarkdown, .stText, p, span, div, label {{
-        font-family: 'Space Grotesk', 'Helvetica Neue', Arial, sans-serif !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
     }}
 
-    /* Títulos: Archivo Black — super geométrico, alto contraste */
+    /* Títulos — Bebas Neue: condensada, alto impacto, muito Bauhaus */
     h1, h2, h3, h4 {{
-        font-family: 'Archivo Black', 'Space Grotesk', sans-serif !important;
-        font-weight: 900 !important;
-        letter-spacing: -0.02em !important;
-        text-transform: uppercase;
+        font-family: 'Bebas Neue', 'Inter', sans-serif !important;
+        font-weight: 400 !important;
+        letter-spacing: 0.02em !important;
     }}
-
     h1 {{
-        font-size: 2.6rem !important;
+        font-size: 3rem !important;
         line-height: 1 !important;
-        border-left: 12px solid {BAUHAUS_RED};
+        border-left: 10px solid {BAUHAUS_RED};
         padding-left: 16px;
         margin-bottom: 0.5rem !important;
+        color: {BAUHAUS_BLACK};
     }}
-
     h3 {{
-        font-size: 1.1rem !important;
+        font-size: 1.4rem !important;
         letter-spacing: 0.05em !important;
-        border-bottom: 3px solid {BAUHAUS_BLACK};
-        padding-bottom: 6px;
-        margin-top: 2rem !important;
+        color: {BAUHAUS_BLACK};
+        border-bottom: 2px solid {BAUHAUS_BLACK};
+        padding-bottom: 4px;
+        margin-top: 2.2rem !important;
     }}
 
-    /* KPIs — blocos geométricos puros */
+    /* Fundo da página */
+    .stApp {{
+        background: {BAUHAUS_CREAM};
+    }}
+
+    /* Sidebar — deixar o Streamlit cuidar do botão de abrir/fechar.
+       Apenas estilizamos o interior. */
+    [data-testid="stSidebar"] {{
+        background: {BAUHAUS_BLUE};
+        border-right: 4px solid {BAUHAUS_BLACK};
+    }}
+    [data-testid="stSidebar"] * {{
+        color: {BAUHAUS_CREAM} !important;
+    }}
+    [data-testid="stSidebar"] h3 {{
+        color: {BAUHAUS_YELLOW} !important;
+        border-bottom: 2px solid {BAUHAUS_YELLOW};
+    }}
+    [data-testid="stSidebar"] hr {{
+        border-top: 1px solid rgba(255,255,255,0.3) !important;
+    }}
+    [data-testid="stSidebar"] .stButton > button {{
+        background: {BAUHAUS_YELLOW} !important;
+        color: {BAUHAUS_BLACK} !important;
+        border: 2px solid {BAUHAUS_BLACK} !important;
+    }}
+    [data-testid="stSidebar"] .stButton > button:hover {{
+        background: {BAUHAUS_RED} !important;
+        color: {BAUHAUS_CREAM} !important;
+    }}
+
+    /* KPIs */
     [data-testid="stMetric"] {{
-        background: {BAUHAUS_WHITE};
+        background: {BAUHAUS_CREAM};
         border: 2px solid {BAUHAUS_BLACK};
-        padding: 14px 16px;
-        border-radius: 0;  /* sem arredondamento — Bauhaus é geométrico */
+        padding: 16px 18px;
+        border-radius: 0;
     }}
     [data-testid="stMetricValue"] {{
-        font-family: 'Archivo Black', sans-serif !important;
-        font-size: 1.7rem !important;
+        font-family: 'Bebas Neue', sans-serif !important;
+        font-size: 2rem !important;
         color: {BAUHAUS_BLACK} !important;
+        letter-spacing: 0.02em;
     }}
     [data-testid="stMetricLabel"] {{
         text-transform: uppercase !important;
-        font-size: 0.7rem !important;
-        letter-spacing: 0.15em !important;
+        font-size: 0.72rem !important;
+        letter-spacing: 0.18em !important;
         font-weight: 700 !important;
         color: {BAUHAUS_BLACK} !important;
     }}
 
-    /* Botões — retângulos puros, sem sombras */
+    /* Botões principais (fora da sidebar) */
     .stButton > button {{
         border-radius: 0 !important;
         border: 2px solid {BAUHAUS_BLACK} !important;
-        background: {BAUHAUS_WHITE} !important;
+        background: {BAUHAUS_CREAM} !important;
         color: {BAUHAUS_BLACK} !important;
-        font-family: 'Archivo Black', sans-serif !important;
-        text-transform: uppercase;
+        font-family: 'Bebas Neue', sans-serif !important;
         letter-spacing: 0.08em;
-        font-size: 0.8rem !important;
+        font-size: 1rem !important;
+        padding: 8px 12px !important;
         transition: all 0.15s ease !important;
     }}
     .stButton > button:hover {{
         background: {BAUHAUS_YELLOW} !important;
-        border-color: {BAUHAUS_BLACK} !important;
         color: {BAUHAUS_BLACK} !important;
-        transform: translate(-2px, -2px);
-        box-shadow: 4px 4px 0 {BAUHAUS_BLACK};
     }}
 
     /* Inputs de data */
     .stDateInput > div > div {{
         border-radius: 0 !important;
         border: 2px solid {BAUHAUS_BLACK} !important;
+        background: {BAUHAUS_CREAM};
     }}
-
-    /* Checkboxes */
-    .stCheckbox {{
-        font-family: 'Space Grotesk', sans-serif !important;
-    }}
-
-    /* Sidebar */
-    [data-testid="stSidebar"] {{
-        background: {BAUHAUS_LIGHT};
-        border-right: 3px solid {BAUHAUS_BLACK};
-    }}
-
-    /* Tabela — centralizar números */
-    [data-testid="stDataFrame"] table {{
-        font-family: 'Space Grotesk', sans-serif !important;
-    }}
-    [data-testid="stDataFrame"] td {{
-        text-align: center !important;
-    }}
-    [data-testid="stDataFrame"] th {{
-        text-align: center !important;
-        font-family: 'Archivo Black', sans-serif !important;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
+    .stDateInput input {{
+        font-family: 'Inter', sans-serif !important;
+        color: {BAUHAUS_BLACK} !important;
     }}
 
     /* Bloco principal */
     .block-container {{
         padding-top: 1.5rem;
+        padding-bottom: 4rem;  /* espaço para rodapé não sobrepor */
         max-width: 1400px;
     }}
 
     /* Caption */
     .stCaption, [data-testid="stCaptionContainer"] {{
-        font-family: 'Space Grotesk', sans-serif !important;
+        font-family: 'Inter', sans-serif !important;
         text-transform: uppercase;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.1em;
         font-size: 0.72rem !important;
         color: {BAUHAUS_GRAY} !important;
     }}
 
-    /* Remover linhas divisórias padrão e colocar nossas */
+    /* Divisor */
     hr {{
         border: none !important;
         border-top: 3px solid {BAUHAUS_BLACK} !important;
-        margin: 2rem 0 !important;
+        margin: 2.5rem 0 1.5rem 0 !important;
     }}
 
-    /* Faixa decorativa no topo — três formas primárias */
+    /* Rodapé — usar classe própria com espaçamento claro */
+    .rodape {{
+        font-family: 'Inter', sans-serif;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        font-size: 0.7rem;
+        color: {BAUHAUS_GRAY};
+        text-align: center;
+        padding: 1rem 0;
+        line-height: 1.8;  /* evita sobreposição */
+    }}
+    .rodape span {{
+        display: inline-block;
+        margin: 0 0.6rem;
+    }}
+
+    /* Faixa decorativa no topo */
     .bauhaus-stripe {{
         display: flex;
         height: 8px;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1.8rem;
     }}
     .bauhaus-stripe > div {{
         flex: 1;
@@ -212,7 +238,7 @@ if user is None:
 # SIDEBAR
 # =============================================================================
 with st.sidebar:
-    st.markdown(f"### ▲ SEB")
+    st.markdown("### Dashboard Setor Elétrico")
     st.caption(f"Usuário: **{user}**")
     st.divider()
 
@@ -229,15 +255,15 @@ with st.sidebar:
         st.rerun()
 
     st.caption(
-        "Os dados são atualizados automaticamente 1x ao dia. "
-        "Use o botão acima para forçar recarga imediata da CCEE."
+        "Dados atualizados automaticamente 1x ao dia. "
+        "Use o botão acima para recarregar a CCEE."
     )
 
 # =============================================================================
 # ABA: PLD MÉDIO DIÁRIO POR SUBMERCADO
 # =============================================================================
 if aba == "PLD Diário":
-    st.markdown("# PLD Diário")
+    st.markdown("# PLD DIÁRIO")
     st.caption(
         "Preço de Liquidação das Diferenças por submercado · "
         "Fonte: CCEE Dados Abertos"
@@ -270,7 +296,6 @@ if aba == "PLD Diário":
     min_d = df["data"].min().date()
     max_d = df["data"].max().date()
 
-    # Inicializar estado (ou resetar se o dataset mudou)
     if (
         "data_ini" not in st.session_state
         or st.session_state.get("_dataset_max") != max_d
@@ -310,7 +335,6 @@ if aba == "PLD Diário":
             st.session_state["data_fim"] = max_d
             st.rerun()
 
-    # Date pickers — fonte única de verdade
     col_a, col_b = st.columns(2)
     with col_a:
         data_ini = st.date_input(
@@ -381,12 +405,11 @@ if aba == "PLD Diário":
     if not submercados_selecionados and not mostrar_media:
         st.info("Selecione ao menos um submercado ou a Média BR para visualizar.")
     else:
-        # --- Preparar dados para o gráfico ---
+        # --- Preparar dados ---
         pivot = dff.pivot_table(
             index="data", columns="submercado", values="pld", aggfunc="mean"
         ).sort_index()
 
-        # Média BR (média simples entre os 4 submercados disponíveis)
         submercados_presentes = [s for s in SUBMERCADOS_ORD if s in pivot.columns]
         pivot["Média BR"] = pivot[submercados_presentes].mean(axis=1)
 
@@ -412,21 +435,32 @@ if aba == "PLD Diário":
                         width=4 if is_media else 2.5,
                         dash="dot" if is_media else "solid",
                     ),
+                    # Formatação explícita com 2 casas decimais no hover
                     hovertemplate=(
                         f"<b>{col}</b><br>"
                         "%{x|%d/%m/%Y}<br>"
-                        "R$ %{y:,.2f}/MWh<extra></extra>"
+                        "R$ %{y:.2f}/MWh<extra></extra>"
                     ),
                 )
             )
 
-        # Layout Bauhaus — claro, geométrico, sem decorações supérfluas
+        # Layout Bauhaus — papel creme, tipografia impactante, geometria
         fig.update_layout(
             height=500,
             margin=dict(l=20, r=20, t=30, b=20),
-            paper_bgcolor=BAUHAUS_WHITE,
-            plot_bgcolor=BAUHAUS_WHITE,
+            paper_bgcolor=BAUHAUS_CREAM,
+            plot_bgcolor=BAUHAUS_CREAM,
             hovermode="x unified",
+            # CRÍTICO para as 2 casas decimais no hover unified
+            hoverlabel=dict(
+                bgcolor=BAUHAUS_CREAM,
+                bordercolor=BAUHAUS_BLACK,
+                font=dict(
+                    family="Inter, sans-serif",
+                    size=13,
+                    color=BAUHAUS_BLACK,
+                ),
+            ),
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
@@ -435,8 +469,8 @@ if aba == "PLD Diário":
                 x=0,
                 bgcolor="rgba(0,0,0,0)",
                 font=dict(
-                    family="Archivo Black, sans-serif",
-                    size=12,
+                    family="Bebas Neue, sans-serif",
+                    size=14,
                     color=BAUHAUS_BLACK,
                 ),
             ),
@@ -449,7 +483,7 @@ if aba == "PLD Diário":
                 ticks="outside",
                 tickcolor=BAUHAUS_BLACK,
                 tickfont=dict(
-                    family="Space Grotesk, sans-serif",
+                    family="Inter, sans-serif",
                     size=11,
                     color=BAUHAUS_BLACK,
                 ),
@@ -458,8 +492,8 @@ if aba == "PLD Diário":
                 title=dict(
                     text="R$/MWh",
                     font=dict(
-                        family="Archivo Black, sans-serif",
-                        size=12,
+                        family="Bebas Neue, sans-serif",
+                        size=14,
                         color=BAUHAUS_BLACK,
                     ),
                 ),
@@ -472,18 +506,21 @@ if aba == "PLD Diário":
                 ticks="outside",
                 tickcolor=BAUHAUS_BLACK,
                 tickfont=dict(
-                    family="Space Grotesk, sans-serif",
+                    family="Inter, sans-serif",
                     size=11,
                     color=BAUHAUS_BLACK,
                 ),
                 zeroline=False,
+                # Força 2 decimais nos valores do eixo Y e no hover
+                tickformat=".2f",
+                hoverformat=".2f",
             ),
-            font=dict(family="Space Grotesk, sans-serif", size=12),
+            font=dict(family="Inter, sans-serif", size=12),
         )
 
         st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
 
-    # --- Estatísticas do período ---
+    # --- Estatísticas do período (tabela) ---
     st.markdown("### Estatísticas do período")
     stats = (
         dff.groupby("submercado")["pld"]
@@ -492,21 +529,43 @@ if aba == "PLD Diário":
         .round(2)
     )
     stats.columns = ["Mínimo", "Média", "Máximo", "Desvio-padrão"]
-    stats.index.name = "Submercado"
 
-    # Centraliza tudo (números e headers)
-    styled = (
-        stats.style
-        .format("R$ {:,.2f}")
-        .set_properties(**{"text-align": "center"})
-        .set_table_styles(
-            [
-                {"selector": "th", "props": [("text-align", "center")]},
-                {"selector": "td", "props": [("text-align", "center")]},
-            ]
-        )
+    # Usar column_config do Streamlit: mais confiável que Styler para
+    # formatar e centralizar valores numéricos em dataframes.
+    stats_reset = stats.reset_index()
+    stats_reset.columns = ["Submercado", "Mínimo", "Média", "Máximo", "Desvio-padrão"]
+
+    st.dataframe(
+        stats_reset,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Submercado": st.column_config.TextColumn(
+                "Submercado",
+                width="small",
+            ),
+            "Mínimo": st.column_config.NumberColumn(
+                "Mínimo",
+                format="R$ %.2f",
+                width="medium",
+            ),
+            "Média": st.column_config.NumberColumn(
+                "Média",
+                format="R$ %.2f",
+                width="medium",
+            ),
+            "Máximo": st.column_config.NumberColumn(
+                "Máximo",
+                format="R$ %.2f",
+                width="medium",
+            ),
+            "Desvio-padrão": st.column_config.NumberColumn(
+                "Desvio-padrão",
+                format="R$ %.2f",
+                width="medium",
+            ),
+        },
     )
-    st.dataframe(styled, use_container_width=True)
 
     # --- Download ---
     with st.expander("Baixar dados filtrados (CSV)"):
@@ -519,9 +578,18 @@ if aba == "PLD Diário":
         )
 
 # =============================================================================
-# RODAPÉ
+# RODAPÉ — com espaçamento claro para evitar sobreposição
 # =============================================================================
-st.divider()
-st.caption(
-    "Dashboard Setor Elétrico · Dados CCEE Portal Dados Abertos (CC-BY-4.0)"
+st.markdown(
+    """
+    <hr>
+    <div class="rodape">
+        <span>Dashboard Setor Elétrico</span>
+        <span>·</span>
+        <span>Dados: CCEE Portal Dados Abertos</span>
+        <span>·</span>
+        <span>Licença CC-BY-4.0</span>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
