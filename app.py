@@ -34,7 +34,7 @@ st.set_page_config(
 # Cores mais próximas do Bauhaus histórico (Itten, Albers, Kandinsky).
 BAUHAUS_RED = "#D62828"      # vermelho cádmio — quente, puro
 BAUHAUS_YELLOW = "#F6BD16"   # amarelo cromo — saturado, sem laranjado
-BAUHAUS_BLUE = "#1D3557"     # azul cobalto profundo
+BAUHAUS_BLUE = "#3D5AFE"     # azul ultramar — mais vibrante, destaca do preto
 BAUHAUS_BLACK = "#1A1A1A"    # preto tinteiro, não "puro"
 BAUHAUS_CREAM = "#F5F1E8"    # creme (papel) em vez de branco estéril
 BAUHAUS_GRAY = "#4A4A4A"     # cinza escuro legível sobre creme (antes #6B6B6B ficou fraco)
@@ -361,6 +361,45 @@ if user is None:
     st.stop()
 
 # =============================================================================
+# JS HOTFIX — limpa texto "keyboard_double_arrow_right" dos botões de sidebar
+# que aparecem quando Material Icons não carrega. Também roda em mudanças.
+# =============================================================================
+st.markdown(
+    """
+    <script>
+    (function() {
+        function limparBotoesSidebar() {
+            // Botão de colapsar (aparece quando sidebar está ABERTA)
+            const btnColapsar = document.querySelectorAll(
+                '[data-testid="stSidebarCollapseButton"], ' +
+                '[data-testid="stSidebarCollapsedControl"], ' +
+                'button[kind="header"]'
+            );
+            btnColapsar.forEach(btn => {
+                // Limpar texto interno e aplicar seta própria se ainda não tiver
+                if (!btn.dataset.limpo) {
+                    // Identificar se é botão de abrir ou fechar
+                    const ehFechado = btn.getAttribute('data-testid') === 'stSidebarCollapsedControl';
+                    const seta = ehFechado ? '›' : '‹';
+                    btn.innerHTML = '<span style="font-family:Inter,sans-serif; ' +
+                                    'font-size:1.6rem; font-weight:700; color:#1A1A1A; ' +
+                                    'line-height:1;">' + seta + '</span>';
+                    btn.dataset.limpo = 'true';
+                }
+            });
+        }
+        // Executar imediatamente
+        limparBotoesSidebar();
+        // Observar mudanças no DOM (o Streamlit re-renderiza frequentemente)
+        const observer = new MutationObserver(limparBotoesSidebar);
+        observer.observe(document.body, { childList: true, subtree: true });
+    })();
+    </script>
+    """,
+    unsafe_allow_html=True,
+)
+
+# =============================================================================
 # SIDEBAR
 # =============================================================================
 with st.sidebar:
@@ -495,12 +534,12 @@ if aba == "PLD Diário":
 
     # Título com data embutida em cinza escuro, bem espaçada e legível
     st.markdown(
-        f'<h3 style="display:flex; align-items:baseline; gap:24px; '
-        f'flex-wrap:wrap;">'
+        f'<h3 style="display:flex; align-items:baseline; gap:40px; '
+        f'flex-wrap:wrap; margin-top:2.2rem;">'
         f'<span>Último dia disponível</span>'
-        f'<span style="font-family:\'Inter\', sans-serif; font-weight:500; '
-        f'font-size:1.1rem; letter-spacing:0.04em; color:#2E2E2E; '
-        f'text-transform:none; border-bottom:none;">'
+        f'<span style="font-family:\'Inter\', sans-serif; font-weight:600; '
+        f'font-size:1.3rem; letter-spacing:0.02em; color:#2E2E2E; '
+        f'text-transform:none; border-bottom:none; padding-bottom:0;">'
         f'{ultima_data.strftime("%d/%m/%Y")}</span>'
         f'</h3>',
         unsafe_allow_html=True,
@@ -561,7 +600,6 @@ if aba == "PLD Diário":
                 continue
             is_media = col == "Média BR"
             cor_linha = CORES_SUBMERCADO[col]
-            # Sigla curta para o hover (■ colorido + nome)
             sigla_label = col if col != "Média BR" else "BR"
             fig.add_trace(
                 go.Scatter(
@@ -574,13 +612,16 @@ if aba == "PLD Diário":
                         width=4 if is_media else 2.5,
                         dash="dot" if is_media else "solid",
                     ),
-                    # Hover: quadrado colorido + sigla + data + valor, sem linha
+                    # Hover unified: quadrado colorido + sigla + valor
+                    # (a data aparece uma vez só, no topo do balão, via x unified)
                     hovertemplate=(
                         f'<span style="color:{cor_linha}; font-weight:700;">'
-                        f'■ {sigla_label}</span>'
-                        f'  <span style="color:#1A1A1A;">'
-                        "%{x|%d/%m/%Y}   R$ %{y:.0f}/MWh</span>"
-                        "<extra></extra>"
+                        f'■</span>  '
+                        f'<span style="color:#1A1A1A; font-weight:600;">'
+                        f'{sigla_label}</span>'
+                        '  <span style="color:#1A1A1A;">'
+                        'R$ %{y:.0f}/MWh</span>'
+                        '<extra></extra>'
                     ),
                 )
             )
@@ -591,7 +632,7 @@ if aba == "PLD Diário":
             margin=dict(l=20, r=20, t=30, b=20),
             paper_bgcolor=BAUHAUS_CREAM,
             plot_bgcolor=BAUHAUS_CREAM,
-            hovermode="closest",  # hover individual por ponto, sem linha vertical
+            hovermode="x unified",  # tooltip único com todas as séries + data no topo
             hoverlabel=dict(
                 bgcolor=BAUHAUS_CREAM,
                 bordercolor=BAUHAUS_BLACK,
