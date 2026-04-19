@@ -228,11 +228,14 @@ st.markdown(
         height: 2.4rem !important;
         line-height: 2.4rem !important;
     }}
-    /* Alinhamento: sem label_spacer nos botões, subimos o widget de data inteiro
-       via margin-top negativo equivalente à altura do seu label. Assim os botões
-       (que estão em cima na coluna) e as caixas de data ficam com a BASE alinhada. */
-    .stDateInput {{
-        margin-top: -1.1rem !important;
+    /* Alinhamento caixas de data pela base com botões de atalho.
+       A caixa de data tem label "Data inicial"/"Data final" em cima (~1.5rem).
+       Subimos o widget inteiro essa altura pra base coincidir com a dos botões. */
+    .stDateInput,
+    [data-testid="stDateInput"],
+    div[data-testid="column"] > div > .stDateInput,
+    div[data-testid="column"] .element-container:has(.stDateInput) {{
+        margin-top: -1.5rem !important;
     }}
     /* Labels "Data inicial" e "Data final" — compactos pra não esticar a caixa */
     .stDateInput label,
@@ -255,13 +258,19 @@ st.markdown(
         padding-bottom: 2rem;
         max-width: 1000px;
     }}
-    /* Reduz altura do header nativo Streamlit — o mínimo pra manter 3 pontos */
+    /* Esconder barra colorida decorativa que aparece no topo quando mexemos no header */
+    [data-testid="stDecoration"] {{
+        display: none !important;
+        height: 0 !important;
+    }}
+    /* Header nativo Streamlit — zero altura, sem background */
     [data-testid="stHeader"] {{
         height: 0 !important;
         min-height: 0 !important;
         padding: 0 !important;
+        background: transparent !important;
     }}
-    /* stToolbar (container dos 3 pontinhos) — posição absoluta pra não ocupar espaço */
+    /* Toolbar (3 pontos) — absoluto no canto, não ocupa espaço */
     [data-testid="stToolbar"] {{
         position: absolute !important;
         top: 0.3rem !important;
