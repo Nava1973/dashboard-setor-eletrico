@@ -280,8 +280,10 @@ st.markdown(
     .stDateInput input {{
         font-family: 'Inter', sans-serif !important;
         color: {BAUHAUS_BLACK} !important;
+        padding: 0.4rem 0.6rem !important;  /* altura compacta pra alinhar com botões */
+        font-size: 0.9rem !important;
     }}
-    /* Labels "Data inicial" e "Data final" — PRETO forçado */
+    /* Labels "Data inicial" e "Data final" — compactos pra não esticar a caixa */
     .stDateInput label,
     .stDateInput label *,
     .stDateInput label p,
@@ -291,6 +293,9 @@ st.markdown(
         color: {BAUHAUS_BLACK} !important;
         font-weight: 600 !important;
         font-family: 'Inter', sans-serif !important;
+        font-size: 0.75rem !important;
+        margin-bottom: 2px !important;
+        line-height: 1.2 !important;
     }}
 
     /* Bloco principal — compacto */
@@ -410,12 +415,33 @@ components.html(
     <script>
     (function() {
         const SETA_ABRIR = '\\u203A';  // ›
-        const SETA_FECHAR = '\\u2039';  // ‹
         const TEXTOS_ICONES = ['keyboard_double_arrow_right', 'keyboard_double_arrow_left',
                               'chevron_right', 'chevron_left', 'arrow_forward', 'arrow_back',
                               'menu_open', 'menu', 'first_page', 'last_page'];
 
         const doc = window.parent.document;
+
+        function clicarBotaoNativo() {
+            const seletores = [
+                '[data-testid="stSidebarCollapsedControl"]',
+                '[data-testid="collapsedControl"]',
+                '[data-testid="baseButton-headerNoPadding"]',
+                'button[kind="headerNoPadding"]'
+            ];
+            for (const sel of seletores) {
+                const alvo = doc.querySelector(sel);
+                if (alvo) { alvo.click(); return true; }
+            }
+            const todos = doc.querySelectorAll('button');
+            for (const b of todos) {
+                if (b.id === 'bauhaus-open-sidebar') continue;
+                if (TEXTOS_ICONES.includes(b.textContent.trim())) {
+                    b.click();
+                    return true;
+                }
+            }
+            return false;
+        }
 
         function criarOuAtualizarBotao() {
             let btn = doc.getElementById('bauhaus-open-sidebar');
@@ -437,31 +463,32 @@ components.html(
                     'color:#1A1A1A !important; line-height:1 !important; ' +
                     'display:none; align-items:center !important; justify-content:center !important; ' +
                     'box-sizing:border-box !important;';
-                btn.onclick = function(e) {
+                btn.addEventListener('click', function(e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    const alvos = [
-                        doc.querySelector('[data-testid="stSidebarCollapsedControl"]'),
-                        doc.querySelector('[data-testid="collapsedControl"]'),
-                        doc.querySelector('[data-testid="baseButton-headerNoPadding"]'),
-                        doc.querySelector('button[kind="headerNoPadding"]')
-                    ];
-                    for (const alvo of alvos) {
-                        if (alvo) { alvo.click(); return; }
-                    }
-                    doc.querySelectorAll('button').forEach(b => {
-                        if (b.id === 'bauhaus-open-sidebar') return;
-                        if (TEXTOS_ICONES.includes(b.textContent.trim())) {
-                            b.click();
-                        }
-                    });
-                };
+                    clicarBotaoNativo();
+                });
                 doc.body.appendChild(btn);
             }
-            // Garante que conteúdo não sumiu
             if (!btn.textContent.trim()) {
                 btn.textContent = SETA_ABRIR;
             }
+        }
+
+        function esconderNativoDeAbrir() {
+            // Quando sidebar está fechada, o Streamlit renderiza o próprio
+            // botão amarelo. Escondemos ele para mostrar APENAS o nosso flutuante.
+            const seletores = [
+                '[data-testid="stSidebarCollapsedControl"]',
+                '[data-testid="collapsedControl"]',
+                '[data-testid="baseButton-headerNoPadding"]'
+            ];
+            seletores.forEach(sel => {
+                doc.querySelectorAll(sel).forEach(btn => {
+                    if (btn.getAttribute('data-testid') === 'stSidebarCollapseButton') return;
+                    btn.style.display = 'none';
+                });
+            });
         }
 
         function toggleVisibilidade() {
@@ -472,6 +499,9 @@ components.html(
             const rect = sidebar.getBoundingClientRect();
             const estaFechada = rect.width < 50;
             btn.style.display = estaFechada ? 'flex' : 'none';
+            if (estaFechada) {
+                esconderNativoDeAbrir();
+            }
         }
 
         function atualizar() {
@@ -479,7 +509,6 @@ components.html(
             toggleVisibilidade();
         }
 
-        // Roda a cada 500ms — sem MutationObserver pra não causar loop
         atualizar();
         setInterval(atualizar, 500);
     })();
@@ -609,11 +638,19 @@ if aba == "PLD Diário":
         '<h3 style="margin-bottom:0.6rem;">Período</h3>',
         unsafe_allow_html=True,
     )
-    # Atalhos + date inputs na mesma linha: atalhos à esquerda, datas à direita
-    # Proporção: 5 botões (1 cada) + spacer (0.3) + 2 date_inputs (1.3 cada)
+    # Atalhos + date inputs na mesma linha
     p1, p2, p3, p4, p5, psp, pd1, pd2 = st.columns(
         [1, 1, 1, 1, 1, 0.3, 1.4, 1.4]
     )
+    # Label invisível nas colunas dos botões pra alinhar verticalmente
+    # com os date_inputs (que têm label "Data inicial"/"Data final")
+    label_spacer = (
+        '<div style="font-size:0.75rem; line-height:1.2; margin-bottom:2px; '
+        'color:transparent; user-select:none;">·</div>'
+    )
+    for col in [p1, p2, p3, p4, p5]:
+        with col:
+            st.markdown(label_spacer, unsafe_allow_html=True)
     with p1:
         if st.button("7d", use_container_width=True):
             st.session_state["data_ini"] = max_d - timedelta(days=7)
@@ -641,19 +678,17 @@ if aba == "PLD Diário":
             st.rerun()
     with pd1:
         st.date_input(
-            "Início",
+            "Data inicial",
             min_value=min_d,
             max_value=max_d,
             key="data_ini",
-            label_visibility="collapsed",
         )
     with pd2:
         st.date_input(
-            "Fim",
+            "Data final",
             min_value=min_d,
             max_value=max_d,
             key="data_fim",
-            label_visibility="collapsed",
         )
 
     # --- Seletor de submercados (antes do gráfico) ---
@@ -830,6 +865,7 @@ if aba == "PLD Diário":
             font-family: 'Inter', sans-serif;
             margin: 0.5rem 0 1.5rem 0;
             border: 2px solid {BAUHAUS_BLACK};
+            border-left: 8px solid {BAUHAUS_RED};
         }}
         .bauhaus-table thead tr {{
             background: {BAUHAUS_BLACK};
