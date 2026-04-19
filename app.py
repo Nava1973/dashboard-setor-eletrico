@@ -342,8 +342,56 @@ if user is None:
 
 import streamlit.components.v1 as components
 
-# Sidebar usa o botão padrão do Streamlit — sem customização.
-# É estável em todas as versões e não causa problemas de clique.
+# Substituir o texto dos ícones Material ("keyboard_double_arrow_right" etc.)
+# por símbolos simples (>> e <<) quando o ícone não carrega.
+# O botão nativo do Streamlit continua funcionando normalmente.
+components.html(
+    """
+    <script>
+    (function() {
+        const doc = window.parent.document;
+        const SUBSTITUICOES = {
+            'keyboard_double_arrow_right': '>>',
+            'keyboard_double_arrow_left': '<<',
+            'chevron_right': '>',
+            'chevron_left': '<',
+            'arrow_forward': '>',
+            'arrow_back': '<',
+            'menu_open': '<<',
+            'menu': '>>',
+            'first_page': '<<',
+            'last_page': '>>'
+        };
+
+        function substituirTextos() {
+            // Percorre nós de texto dentro de botões do cabeçalho/sidebar
+            const botoes = doc.querySelectorAll(
+                '[data-testid="stSidebarCollapseButton"], ' +
+                '[data-testid="stSidebarCollapsedControl"], ' +
+                '[data-testid="collapsedControl"], ' +
+                'button[kind="header"], ' +
+                'button[kind="headerNoPadding"]'
+            );
+            botoes.forEach(btn => {
+                const walker = doc.createTreeWalker(btn, NodeFilter.SHOW_TEXT);
+                let node;
+                while ((node = walker.nextNode())) {
+                    const txt = node.nodeValue.trim();
+                    if (SUBSTITUICOES[txt]) {
+                        node.nodeValue = SUBSTITUICOES[txt];
+                    }
+                }
+            });
+        }
+
+        substituirTextos();
+        setInterval(substituirTextos, 500);
+    })();
+    </script>
+    """,
+    height=0,
+    width=0,
+)
 
 # =============================================================================
 # SIDEBAR
