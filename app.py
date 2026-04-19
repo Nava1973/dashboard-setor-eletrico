@@ -58,17 +58,29 @@ st.markdown(
     f"""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
 
     /* Tipografia geral */
     html, body, [class*="css"], .stMarkdown, .stText, p, span, div, label {{
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
     }}
 
-    /* Títulos — Bebas Neue: condensada, alto impacto, muito Bauhaus */
-    h1, h2, h3, h4 {{
+    /* Títulos — Bebas Neue: condensada, alto impacto, muito Bauhaus.
+       Cor PRETA forçada pra contrastar com o fundo creme da página. */
+    h1, h2, h3, h4,
+    .main h1, .main h2, .main h3, .main h4,
+    [data-testid="stAppViewContainer"] h1,
+    [data-testid="stAppViewContainer"] h2,
+    [data-testid="stAppViewContainer"] h3,
+    [data-testid="stAppViewContainer"] h4 {{
         font-family: 'Bebas Neue', 'Inter', sans-serif !important;
         font-weight: 400 !important;
         letter-spacing: 0.02em !important;
+        color: {BAUHAUS_BLACK} !important;
+    }}
+    /* Inclui o elemento real do título dentro do Streamlit */
+    h1 *, h2 *, h3 *, h4 * {{
+        color: {BAUHAUS_BLACK} !important;
     }}
     h1 {{
         font-size: 3rem !important;
@@ -76,12 +88,10 @@ st.markdown(
         border-left: 10px solid {BAUHAUS_RED};
         padding-left: 16px;
         margin-bottom: 0.5rem !important;
-        color: {BAUHAUS_BLACK};
     }}
     h3 {{
         font-size: 1.4rem !important;
         letter-spacing: 0.05em !important;
-        color: {BAUHAUS_BLACK};
         border-bottom: 2px solid {BAUHAUS_BLACK};
         padding-bottom: 4px;
         margin-top: 2.2rem !important;
@@ -92,8 +102,28 @@ st.markdown(
         background: {BAUHAUS_CREAM};
     }}
 
-    /* Sidebar — deixar o Streamlit cuidar do botão de abrir/fechar.
-       Apenas estilizamos o interior. */
+    /* Botão de abrir/fechar sidebar — garantir ícone de seta visível */
+    [data-testid="stSidebarCollapseButton"],
+    button[kind="header"] {{
+        background: {BAUHAUS_YELLOW} !important;
+        border: 2px solid {BAUHAUS_BLACK} !important;
+        border-radius: 0 !important;
+        color: {BAUHAUS_BLACK} !important;
+    }}
+    /* Material Icons: forçar fonte de ícones */
+    [data-testid="stSidebarCollapseButton"] span,
+    [data-testid="stSidebarCollapsedControl"] span,
+    button[kind="header"] span {{
+        font-family: 'Material Symbols Outlined', 'Material Icons' !important;
+        color: {BAUHAUS_BLACK} !important;
+        font-size: 1.5rem !important;
+    }}
+    /* Botão de expandir (quando sidebar está colapsada) */
+    [data-testid="stSidebarCollapsedControl"] {{
+        background: {BAUHAUS_YELLOW} !important;
+        border: 2px solid {BAUHAUS_BLACK} !important;
+        border-radius: 0 !important;
+    }}
     [data-testid="stSidebar"] {{
         background: {BAUHAUS_BLUE};
         border-right: 4px solid {BAUHAUS_BLACK};
@@ -148,22 +178,25 @@ st.markdown(
         color: rgba(245, 241, 232, 0.75) !important;
     }}
 
-    /* KPIs */
+    /* KPIs — cards com borda preta, reduzidos (~80%) */
     [data-testid="stMetric"] {{
         background: {BAUHAUS_CREAM};
         border: 2px solid {BAUHAUS_BLACK};
-        padding: 16px 18px;
+        padding: 10px 14px;
         border-radius: 0;
     }}
-    [data-testid="stMetricValue"] {{
+    [data-testid="stMetric"] [data-testid="stMetricValue"],
+    [data-testid="stMetric"] [data-testid="stMetricValue"] * {{
         font-family: 'Bebas Neue', sans-serif !important;
-        font-size: 2rem !important;
+        font-size: 1.5rem !important;
         color: {BAUHAUS_BLACK} !important;
-        letter-spacing: 0.02em;
+        letter-spacing: 0.02em !important;
     }}
-    [data-testid="stMetricLabel"] {{
+    [data-testid="stMetric"] [data-testid="stMetricLabel"],
+    [data-testid="stMetric"] [data-testid="stMetricLabel"] *,
+    [data-testid="stMetric"] [data-testid="stMetricLabel"] p {{
         text-transform: uppercase !important;
-        font-size: 0.72rem !important;
+        font-size: 0.68rem !important;
         letter-spacing: 0.18em !important;
         font-weight: 700 !important;
         color: {BAUHAUS_BLACK} !important;
@@ -465,18 +498,18 @@ if aba == "PLD Diário":
                         width=4 if is_media else 2.5,
                         dash="dot" if is_media else "solid",
                     ),
-                    # Formatação explícita com 2 casas decimais no hover
+                    # Hover: zero casas decimais (arredondado)
                     hovertemplate=(
                         f"<b>{col}</b><br>"
                         "%{x|%d/%m/%Y}<br>"
-                        "R$ %{y:.2f}/MWh<extra></extra>"
+                        "R$ %{y:.0f}/MWh<extra></extra>"
                     ),
                 )
             )
 
         # Layout Bauhaus — papel creme, tipografia impactante, geometria
         fig.update_layout(
-            height=500,
+            height=400,  # reduzido (antes 500)
             margin=dict(l=20, r=20, t=30, b=20),
             paper_bgcolor=BAUHAUS_CREAM,
             plot_bgcolor=BAUHAUS_CREAM,
@@ -541,9 +574,9 @@ if aba == "PLD Diário":
                     color=BAUHAUS_BLACK,
                 ),
                 zeroline=False,
-                # Força 2 decimais nos valores do eixo Y e no hover
-                tickformat=".2f",
-                hoverformat=".2f",
+                # Zero decimais no eixo Y (e no hover unified)
+                tickformat=".0f",
+                hoverformat=".0f",
             ),
             font=dict(family="Inter, sans-serif", size=12),
         )
@@ -554,15 +587,11 @@ if aba == "PLD Diário":
     st.markdown("### Estatísticas do período")
     stats = (
         dff.groupby("submercado")["pld"]
-        .agg(["min", "mean", "max", "std"])
+        .agg(["min", "mean", "max"])
         .reindex(SUBMERCADOS_ORD)
         .round(2)
     )
 
-    # Formatar como texto para conseguir centralização real.
-    # column_config.NumberColumn alinha à direita por padrão (convenção de
-    # valores monetários) e ignora text-align via CSS. A solução robusta é
-    # converter os números em string formatada e usar TextColumn.
     def fmt_brl(v):
         if pd.isna(v):
             return "—"
@@ -573,26 +602,27 @@ if aba == "PLD Diário":
         "Mínimo": stats["min"].map(fmt_brl),
         "Média": stats["mean"].map(fmt_brl),
         "Máximo": stats["max"].map(fmt_brl),
-        "Desvio-padrão": stats["std"].map(fmt_brl),
     })
 
-    # CSS específico para centralizar TextColumn na tabela
+    # CSS ultra-específico para centralizar st.dataframe.
+    # Streamlit usa glide-data-grid internamente, que respeita data-align.
     st.markdown(
         """
         <style>
-        /* Centraliza conteúdo de todas as células e cabeçalhos do st.dataframe */
-        [data-testid="stDataFrame"] [role="gridcell"] {
-            justify-content: center !important;
+        /* Força centralização em TODAS as células e headers do st.dataframe */
+        [data-testid="stDataFrame"] [role="gridcell"],
+        [data-testid="stDataFrame"] [role="columnheader"],
+        [data-testid="stDataFrame"] [data-testid="stDataFrameCell"],
+        [data-testid="stDataFrame"] div[data-sticky-first-element] {
             text-align: center !important;
-        }
-        [data-testid="stDataFrame"] [role="columnheader"] {
             justify-content: center !important;
-            text-align: center !important;
+            align-items: center !important;
         }
-        [data-testid="stDataFrame"] [role="gridcell"] > div,
-        [data-testid="stDataFrame"] [role="columnheader"] > div {
+        [data-testid="stDataFrame"] [role="gridcell"] > *,
+        [data-testid="stDataFrame"] [role="columnheader"] > * {
             text-align: center !important;
             width: 100% !important;
+            margin: 0 auto !important;
         }
         </style>
         """,
@@ -603,6 +633,12 @@ if aba == "PLD Diário":
         tabela,
         use_container_width=True,
         hide_index=True,
+        column_config={
+            "Submercado": st.column_config.TextColumn("Submercado"),
+            "Mínimo": st.column_config.TextColumn("Mínimo"),
+            "Média": st.column_config.TextColumn("Média"),
+            "Máximo": st.column_config.TextColumn("Máximo"),
+        },
     )
 
     # --- Download ---
