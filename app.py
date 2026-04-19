@@ -559,6 +559,16 @@ if aba == "PLD Diário":
         [1, 1, 1, 1, 1, 0.3, 1.4, 1.4]
     )
 
+    # Label invisível nas colunas dos botões pra descerem e ficarem alinhados
+    # por baixo com os date_inputs (que têm label "Data inicial"/"Data final").
+    label_spacer = (
+        '<div style="font-size:0.75rem; line-height:1.2; margin-bottom:2px; '
+        'color:transparent; user-select:none;">·</div>'
+    )
+    for col in [p1, p2, p3, p4, p5]:
+        with col:
+            st.markdown(label_spacer, unsafe_allow_html=True)
+
     # Função auxiliar — usa type="primary" quando o atalho está ativo
     def _btn_atalho(col, label, delta_days=None, is_max=False):
         with col:
@@ -839,7 +849,23 @@ if aba == "PLD Diário":
 
     # --- Download ---
     st.markdown("### Exportar")
-    csv = dff.to_csv(index=False).encode("utf-8")
+    # Pivotar: data nas linhas, submercados em colunas (formato "largo")
+    # Ordem de colunas: N, NE, SE, S (alfabética por padrão em português)
+    csv_pivot = dff.pivot_table(
+        index="data",
+        columns="submercado",
+        values="pld",
+        aggfunc="mean",
+    )
+    # Reordenar colunas explicitamente: N, NE, SE, S
+    ordem_csv = [c for c in ["N", "NE", "SE", "S"] if c in csv_pivot.columns]
+    csv_pivot = csv_pivot[ordem_csv]
+    # Formatar data como DD/MM/AAAA (padrão BR)
+    csv_export = csv_pivot.reset_index()
+    csv_export["data"] = csv_export["data"].dt.strftime("%d/%m/%Y")
+    csv_export = csv_export.rename(columns={"data": "Data"})
+    # Usa separador ; e decimal , (padrão brasileiro pra Excel)
+    csv = csv_export.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
     st.download_button(
         label="Baixar dados filtrados (CSV)",
         data=csv,
