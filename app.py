@@ -102,47 +102,62 @@ st.markdown(
         background: {BAUHAUS_CREAM};
     }}
 
-    /* Botão nativo do Streamlit para sidebar — ESCONDER completamente.
-       O texto "keyboard_double_arrow_right" aparece quando Material Icons
-       não carrega, e CSS+JS não conseguem sobrescrever de forma confiável.
-       Solução: escondemos e renderizamos nosso próprio botão via JS. */
+    /* Botão nativo do Streamlit para sidebar — mostrar mas customizar.
+       Usa pseudo-elemento ::before que sobrepõe o texto interno do botão
+       (incluindo "keyboard_double_arrow_right" quando Material Icons falha). */
     [data-testid="stSidebarCollapseButton"],
-    [data-testid="stSidebarCollapsedControl"],
-    button[kind="header"][data-testid="baseButton-headerNoPadding"] {{
-        display: none !important;
-        visibility: hidden !important;
-        width: 0 !important;
-        height: 0 !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-    }}
-
-    /* Nosso botão custom de toggle — posicionado fixo no canto superior esquerdo */
-    #bauhaus-sidebar-toggle {{
-        position: fixed !important;
-        top: 12px !important;
-        left: 12px !important;
-        z-index: 999999 !important;
-        width: 40px !important;
-        height: 40px !important;
+    [data-testid="stSidebarCollapsedControl"] {{
         background: {BAUHAUS_YELLOW} !important;
         border: 2px solid {BAUHAUS_BLACK} !important;
         border-radius: 0 !important;
-        cursor: pointer !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        font-family: 'Inter', sans-serif !important;
-        font-size: 1.6rem !important;
+        width: 40px !important;
+        height: 40px !important;
+        position: relative !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+    }}
+
+    /* Esconder TODO o conteúdo interno com opacidade zero */
+    [data-testid="stSidebarCollapseButton"] > *,
+    [data-testid="stSidebarCollapsedControl"] > *,
+    [data-testid="stSidebarCollapseButton"] svg,
+    [data-testid="stSidebarCollapsedControl"] svg,
+    [data-testid="stSidebarCollapseButton"] span,
+    [data-testid="stSidebarCollapsedControl"] span {{
+        opacity: 0 !important;
+        visibility: hidden !important;
+    }}
+
+    /* Desenhar nossa seta via pseudo-elemento ::before (fica por cima de tudo) */
+    [data-testid="stSidebarCollapseButton"]::before {{
+        content: "‹" !important;
+        position: absolute !important;
+        top: 50% !important;
+        left: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        font-family: 'Inter', -apple-system, sans-serif !important;
+        font-size: 1.8rem !important;
         font-weight: 700 !important;
         color: {BAUHAUS_BLACK} !important;
         line-height: 1 !important;
-        padding: 0 !important;
-        user-select: none !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        z-index: 10 !important;
     }}
-    #bauhaus-sidebar-toggle:hover {{
-        background: {BAUHAUS_RED} !important;
-        color: {BAUHAUS_CREAM} !important;
+    [data-testid="stSidebarCollapsedControl"]::before {{
+        content: "›" !important;
+        position: absolute !important;
+        top: 50% !important;
+        left: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        font-family: 'Inter', -apple-system, sans-serif !important;
+        font-size: 1.8rem !important;
+        font-weight: 700 !important;
+        color: {BAUHAUS_BLACK} !important;
+        line-height: 1 !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        z-index: 10 !important;
     }}
     [data-testid="stSidebar"] {{
         background: #1A1A1A !important;
@@ -362,72 +377,6 @@ if user is None:
     st.stop()
 
 # =============================================================================
-# JS HOTFIX — limpa texto "keyboard_double_arrow_right" dos botões de sidebar
-# que aparecem quando Material Icons não carrega. Também roda em mudanças.
-# =============================================================================
-st.markdown(
-    """
-    <script>
-    (function() {
-        // Cria nosso próprio botão de toggle da sidebar e esconde o nativo.
-        // Motivo: o botão nativo mostra "keyboard_double_arrow_right" quando
-        // Material Icons não carrega, e CSS não consegue sobrescrever.
-        function setupBotaoCustom() {
-            // Checa se já foi criado
-            if (document.getElementById('bauhaus-sidebar-toggle')) {
-                return;
-            }
-            const btn = document.createElement('button');
-            btn.id = 'bauhaus-sidebar-toggle';
-            btn.setAttribute('aria-label', 'Abrir/fechar menu lateral');
-            btn.innerHTML = '‹';  // será atualizado baseado no estado
-            btn.onclick = function() {
-                // Tenta encontrar e clicar no botão nativo (mesmo escondido, funciona)
-                const alvos = [
-                    document.querySelector('[data-testid="stSidebarCollapseButton"]'),
-                    document.querySelector('[data-testid="stSidebarCollapsedControl"]'),
-                    document.querySelector('button[kind="header"]')
-                ];
-                for (const alvo of alvos) {
-                    if (alvo) {
-                        alvo.click();
-                        break;
-                    }
-                }
-            };
-            document.body.appendChild(btn);
-        }
-
-        function atualizarSeta() {
-            const btn = document.getElementById('bauhaus-sidebar-toggle');
-            if (!btn) return;
-            const sidebar = document.querySelector('[data-testid="stSidebar"]');
-            if (!sidebar) return;
-            // Se sidebar está visível (aberta), seta aponta pra esquerda (fechar)
-            // Se está escondida (aria-expanded=false ou display=none), aponta pra direita (abrir)
-            const rect = sidebar.getBoundingClientRect();
-            const estaAberta = rect.width > 50;  // heurística: aberta tem ~300px
-            btn.innerHTML = estaAberta ? '‹' : '›';
-        }
-
-        function init() {
-            setupBotaoCustom();
-            atualizarSeta();
-        }
-
-        // Executa ao carregar e observa mudanças no DOM
-        init();
-        const observer = new MutationObserver(function() {
-            init();
-        });
-        observer.observe(document.body, { childList: true, subtree: true, attributes: true });
-    })();
-    </script>
-    """,
-    unsafe_allow_html=True,
-)
-
-# =============================================================================
 # SIDEBAR
 # =============================================================================
 with st.sidebar:
@@ -641,15 +590,14 @@ if aba == "PLD Diário":
                         dash="dot" if is_media else "solid",
                     ),
                     # Hover: sigla colorida à esquerda, valor alinhado à direita.
-                    # Usamos padding com espaços unicode pra forçar alinhamento
-                    # mesmo em fonte proporcional (aproximação que funciona bem
-                    # com sigla curta + valor padronizado).
+                    # min-width da sigla garante separação visual entre o texto
+                    # da sigla e o valor começando no "R$".
                     hovertemplate=(
                         f'<span style="color:{cor_linha}; font-weight:700; '
-                        f'display:inline-block; min-width:40px;">'
+                        f'display:inline-block; min-width:70px;">'
                         f'{sigla_label}</span>'
                         '<span style="color:#1A1A1A; display:inline-block; '
-                        'min-width:110px; text-align:right;">'
+                        'min-width:120px; text-align:left;">'
                         'R$ %{y:.0f}/MWh</span>'
                         '<extra></extra>'
                     ),
@@ -852,4 +800,3 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
