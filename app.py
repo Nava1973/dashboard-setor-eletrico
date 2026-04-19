@@ -431,18 +431,23 @@ st.markdown(
             const btn = document.createElement('button');
             btn.id = 'bauhaus-open-sidebar';
             btn.setAttribute('aria-label', 'Abrir menu lateral');
-            btn.innerHTML = SETA_ABRIR;
+            btn.type = 'button';
+            // Usa div interno com a seta para garantir que conteúdo persista
+            btn.innerHTML = '<div style="font-family:Inter,Arial,sans-serif;' +
+                'font-size:22px;font-weight:700;color:#1A1A1A;line-height:1;' +
+                'pointer-events:none;">' + SETA_ABRIR + '</div>';
             btn.style.cssText =
-                'position:fixed; top:12px; left:12px; z-index:9999999; ' +
-                'width:40px; height:40px; ' +
-                'background:#F6BD16; border:2px solid #1A1A1A; border-radius:0; ' +
-                'font-family:Inter,sans-serif; font-size:1.8rem; font-weight:700; ' +
-                'color:#1A1A1A; line-height:1; cursor:pointer; padding:0; ' +
-                'display:none; align-items:center; justify-content:center;';
+                'position:fixed !important; top:12px !important; left:12px !important; ' +
+                'z-index:9999999 !important; ' +
+                'width:40px !important; height:40px !important; ' +
+                'background:#F6BD16 !important; border:2px solid #1A1A1A !important; ' +
+                'border-radius:0 !important; ' +
+                'cursor:pointer !important; padding:0 !important; margin:0 !important; ' +
+                'display:none; align-items:center; justify-content:center; ' +
+                'box-sizing:border-box !important;';
             btn.onclick = function(e) {
                 e.preventDefault();
                 e.stopPropagation();
-                // Procura e clica no botão nativo do Streamlit por trás
                 const alvos = [
                     document.querySelector('[data-testid="stSidebarCollapsedControl"]'),
                     document.querySelector('[data-testid="collapsedControl"]'),
@@ -450,13 +455,10 @@ st.markdown(
                     document.querySelector('button[kind="headerNoPadding"]')
                 ];
                 for (const alvo of alvos) {
-                    if (alvo) {
-                        alvo.click();
-                        return;
-                    }
+                    if (alvo) { alvo.click(); return; }
                 }
-                // Fallback: qualquer botão com texto de ícone
                 document.querySelectorAll('button').forEach(b => {
+                    if (b.id === 'bauhaus-open-sidebar') return;
                     if (TEXTOS_ICONES.includes(b.textContent.trim())) {
                         b.click();
                     }
@@ -468,10 +470,15 @@ st.markdown(
         function toggleBotaoFlutuante() {
             const btnFlut = document.getElementById('bauhaus-open-sidebar');
             if (!btnFlut) return;
+            // Garante que a seta ainda está lá (CSP ou Streamlit podem remover)
+            if (!btnFlut.querySelector('div')) {
+                btnFlut.innerHTML = '<div style="font-family:Inter,Arial,sans-serif;' +
+                    'font-size:22px;font-weight:700;color:#1A1A1A;line-height:1;' +
+                    'pointer-events:none;">' + SETA_ABRIR + '</div>';
+            }
             const sidebar = document.querySelector('[data-testid="stSidebar"]');
             if (!sidebar) return;
             const rect = sidebar.getBoundingClientRect();
-            // Se sidebar tem largura < 50px, está fechada → mostrar botão flutuante
             const estaFechada = rect.width < 50;
             btnFlut.style.display = estaFechada ? 'flex' : 'none';
         }
@@ -688,9 +695,7 @@ if aba == "PLD Diário":
             key="data_fim",
         )
 
-    # --- Seletor de submercados ---
-    st.markdown("### Série histórica")
-
+    # --- Seletor de submercados (antes do gráfico) ---
     sel_cols = st.columns([1, 1, 1, 1, 1.3, 4])
     submercados_selecionados = []
     with sel_cols[0]:
