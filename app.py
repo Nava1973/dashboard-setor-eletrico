@@ -316,6 +316,16 @@ st.markdown(
         font-weight: 500 !important;
     }}
 
+    /* Checkboxes de submercados (SE, S, NE, N, Média BR) — fonte maior */
+    [data-testid="stAppViewContainer"] .stCheckbox label,
+    [data-testid="stAppViewContainer"] .stCheckbox label p,
+    [data-testid="stAppViewContainer"] .stCheckbox label span {{
+        font-family: 'Inter', sans-serif !important;
+        font-size: 1rem !important;
+        font-weight: 600 !important;
+        color: {BAUHAUS_BLACK} !important;
+    }}
+
     /* Divisor */
     hr {{
         border: none !important;
@@ -404,7 +414,6 @@ st.markdown(
         function forceBauhausSeta(btn, seta) {
             if (!btn) return;
             if (btn.dataset.bauhausSeta === seta) return;
-
             btn.innerHTML = '<span style="font-family:Inter,sans-serif; ' +
                 'font-size:1.8rem; font-weight:700; color:#1A1A1A; ' +
                 'line-height:1; pointer-events:none; ' +
@@ -415,46 +424,93 @@ st.markdown(
             btn.style.overflow = 'visible';
         }
 
+        // Botão flutuante de backup — sempre visível quando sidebar está fechada.
+        // Fica posicionado por cima do nativo e clica nele por baixo.
+        function criarBotaoFlutuante() {
+            if (document.getElementById('bauhaus-open-sidebar')) return;
+            const btn = document.createElement('button');
+            btn.id = 'bauhaus-open-sidebar';
+            btn.setAttribute('aria-label', 'Abrir menu lateral');
+            btn.innerHTML = SETA_ABRIR;
+            btn.style.cssText =
+                'position:fixed; top:12px; left:12px; z-index:9999999; ' +
+                'width:40px; height:40px; ' +
+                'background:#F6BD16; border:2px solid #1A1A1A; border-radius:0; ' +
+                'font-family:Inter,sans-serif; font-size:1.8rem; font-weight:700; ' +
+                'color:#1A1A1A; line-height:1; cursor:pointer; padding:0; ' +
+                'display:none; align-items:center; justify-content:center;';
+            btn.onclick = function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                // Procura e clica no botão nativo do Streamlit por trás
+                const alvos = [
+                    document.querySelector('[data-testid="stSidebarCollapsedControl"]'),
+                    document.querySelector('[data-testid="collapsedControl"]'),
+                    document.querySelector('[data-testid="baseButton-headerNoPadding"]'),
+                    document.querySelector('button[kind="headerNoPadding"]')
+                ];
+                for (const alvo of alvos) {
+                    if (alvo) {
+                        alvo.click();
+                        return;
+                    }
+                }
+                // Fallback: qualquer botão com texto de ícone
+                document.querySelectorAll('button').forEach(b => {
+                    if (TEXTOS_ICONES.includes(b.textContent.trim())) {
+                        b.click();
+                    }
+                });
+            };
+            document.body.appendChild(btn);
+        }
+
+        function toggleBotaoFlutuante() {
+            const btnFlut = document.getElementById('bauhaus-open-sidebar');
+            if (!btnFlut) return;
+            const sidebar = document.querySelector('[data-testid="stSidebar"]');
+            if (!sidebar) return;
+            const rect = sidebar.getBoundingClientRect();
+            // Se sidebar tem largura < 50px, está fechada → mostrar botão flutuante
+            const estaFechada = rect.width < 50;
+            btnFlut.style.display = estaFechada ? 'flex' : 'none';
+        }
+
         function atualizarBotoes() {
-            // Sidebar ABERTA → botão de FECHAR
+            // Botão de fechar (sidebar aberta)
             const btnFechar = document.querySelector('[data-testid="stSidebarCollapseButton"]');
             if (btnFechar) forceBauhausSeta(btnFechar, SETA_FECHAR);
 
-            // Sidebar FECHADA → botão de ABRIR.
-            // Tentamos vários seletores + fallback por conteúdo (qualquer botão
-            // cujo texto interno seja um ícone conhecido).
+            // Botão nativo de abrir (tentamos estilizar também, mas confiamos
+            // mais no flutuante acima)
             const seletoresAbrir = [
                 '[data-testid="stSidebarCollapsedControl"]',
                 '[data-testid="collapsedControl"]',
                 '[data-testid="baseButton-headerNoPadding"]',
-                'button[kind="headerNoPadding"]',
-                'button[kind="header"]'
+                'button[kind="headerNoPadding"]'
             ];
-            let btnAbrir = null;
             for (const sel of seletoresAbrir) {
-                const btns = document.querySelectorAll(sel);
-                btns.forEach(btn => {
-                    // Ignora o botão de fechar (que tem stSidebarCollapseButton)
+                document.querySelectorAll(sel).forEach(btn => {
                     if (btn.getAttribute('data-testid') === 'stSidebarCollapseButton') return;
                     forceBauhausSeta(btn, SETA_ABRIR);
-                    btnAbrir = btn;
                 });
             }
 
-            // Fallback: se não achou pelos seletores, procura qualquer botão
-            // no topo da página que contenha texto "keyboard_double_arrow..."
-            if (!btnAbrir) {
-                const todos = document.querySelectorAll('button');
-                todos.forEach(btn => {
-                    if (btn.dataset.bauhausSeta) return;  // já tratado
-                    const txt = btn.textContent.trim();
-                    if (TEXTOS_ICONES.includes(txt)) {
-                        forceBauhausSeta(btn, SETA_ABRIR);
-                    }
-                });
-            }
+            // Fallback por conteúdo
+            document.querySelectorAll('button').forEach(btn => {
+                if (btn.dataset.bauhausSeta) return;
+                if (btn.id === 'bauhaus-open-sidebar') return;
+                const txt = btn.textContent.trim();
+                if (TEXTOS_ICONES.includes(txt)) {
+                    forceBauhausSeta(btn, SETA_ABRIR);
+                }
+            });
+
+            // Mostra/esconde botão flutuante baseado no estado da sidebar
+            toggleBotaoFlutuante();
         }
 
+        criarBotaoFlutuante();
         atualizarBotoes();
         setInterval(atualizarBotoes, 200);
         const obs = new MutationObserver(atualizarBotoes);
@@ -581,10 +637,14 @@ if aba == "PLD Diário":
     # cols[5] fica vazio — serve como filler para reduzir largura dos KPIs
 
     # --- Período (controles de data) — vem depois dos KPIs, perto do gráfico ---
-    st.markdown("### Período")
-
-    # Atalhos
-    st.caption("Atalhos")
+    st.markdown(
+        '<h3 style="margin-bottom:0.2rem;">Período</h3>'
+        '<div style="font-family:\'Inter\', sans-serif; '
+        'text-transform:uppercase; letter-spacing:0.1em; font-size:0.72rem; '
+        'color:#2E2E2E; margin-top:0.6rem; margin-bottom:0.3rem;">'
+        'Atalhos</div>',
+        unsafe_allow_html=True,
+    )
     cb1, cb2, cb3, cb4, cb5, _ = st.columns([1, 1, 1, 1, 1, 5])
     with cb1:
         if st.button("7d", use_container_width=True):
@@ -725,7 +785,7 @@ if aba == "PLD Diário":
                 bgcolor="rgba(0,0,0,0)",
                 font=dict(
                     family="Bebas Neue, sans-serif",
-                    size=14,
+                    size=17,
                     color=BAUHAUS_BLACK,
                 ),
             ),
@@ -739,7 +799,7 @@ if aba == "PLD Diário":
                 tickcolor=BAUHAUS_BLACK,
                 tickfont=dict(
                     family="Inter, sans-serif",
-                    size=11,
+                    size=13,
                     color=BAUHAUS_BLACK,
                 ),
             ),
@@ -748,7 +808,7 @@ if aba == "PLD Diário":
                     text="R$/MWh",
                     font=dict(
                         family="Bebas Neue, sans-serif",
-                        size=14,
+                        size=16,
                         color=BAUHAUS_BLACK,
                     ),
                 ),
@@ -762,11 +822,10 @@ if aba == "PLD Diário":
                 tickcolor=BAUHAUS_BLACK,
                 tickfont=dict(
                     family="Inter, sans-serif",
-                    size=11,
+                    size=13,
                     color=BAUHAUS_BLACK,
                 ),
                 zeroline=False,
-                # Zero decimais no eixo Y (e no hover unified)
                 tickformat=".0f",
                 hoverformat=".0f",
             ),
