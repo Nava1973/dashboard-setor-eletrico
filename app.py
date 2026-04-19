@@ -258,10 +258,18 @@ st.markdown(
         padding-bottom: 2rem;
         max-width: 1000px;
     }}
-    /* Esconder barra colorida decorativa que aparece no topo quando mexemos no header */
-    [data-testid="stDecoration"] {{
+    /* Esconder a barra colorida decorativa do Streamlit no topo —
+       múltiplos seletores pra pegar qualquer versão do decoration */
+    [data-testid="stDecoration"],
+    [data-testid="stDecorationLine"],
+    div[data-testid="stDecoration"],
+    [class*="StyledDecoration"],
+    #stDecoration,
+    div.stDecoration {{
         display: none !important;
         height: 0 !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
     }}
     /* Header nativo Streamlit — zero altura, sem background */
     [data-testid="stHeader"] {{
@@ -305,13 +313,15 @@ st.markdown(
 
     /* ===== CHECKBOX — PRETO sólido + tick branco reto ===== */
 
-    /* LABEL (contém quadradinho + texto): alinhamento flex horizontal */
+    /* LABEL (contém quadradinho + texto): alinhamento flex horizontal com centro vertical */
     [data-testid="stAppViewContainer"] .stCheckbox label {{
         background: transparent !important;
         background-color: transparent !important;
         display: flex !important;
-        align-items: center !important;  /* centraliza verticalmente quadradinho + texto */
+        align-items: center !important;
         gap: 0.5rem !important;
+        min-height: 1.5rem !important;
+        line-height: 1 !important;
     }}
     [data-testid="stAppViewContainer"] .stCheckbox label p,
     [data-testid="stAppViewContainer"] .stCheckbox label > div {{
@@ -321,12 +331,14 @@ st.markdown(
         font-family: 'Inter', sans-serif !important;
         font-size: 0.92rem !important;
         font-weight: 600 !important;
-        line-height: 1.2 !important;
+        line-height: 1 !important;
         margin: 0 !important;
         padding: 0 !important;
+        display: flex !important;
+        align-items: center !important;
     }}
 
-    /* QUADRADINHO (span primeiro filho): tamanho fixo 1rem pra estabilidade */
+    /* QUADRADINHO: tamanho fixo + centrado verticalmente */
     [data-testid="stAppViewContainer"] .stCheckbox label > span:first-child {{
         background: transparent !important;
         background-color: transparent !important;
@@ -337,8 +349,13 @@ st.markdown(
         height: 1rem !important;
         min-width: 1rem !important;
         min-height: 1rem !important;
+        max-width: 1rem !important;
+        max-height: 1rem !important;
         flex-shrink: 0 !important;
-        display: inline-block !important;
+        display: inline-flex !important;
+        align-self: center !important;
+        margin: 0 !important;
+        padding: 0 !important;
     }}
 
     /* QUADRADINHO MARCADO: preto sólido */
@@ -362,7 +379,7 @@ st.markdown(
         pointer-events: none !important;
     }}
 
-    /* Esconder o SVG interno do Streamlit (evita conflito com nosso ::after) */
+    /* Esconder o SVG interno do Streamlit */
     [data-testid="stAppViewContainer"] .stCheckbox label > span:first-child svg {{
         display: none !important;
     }}
@@ -497,11 +514,30 @@ components.html(
             });
         }
 
+        function esconderDecoration() {
+            // Esconde a barra colorida decorativa do Streamlit no topo
+            const seletores = [
+                '[data-testid="stDecoration"]',
+                '[data-testid="stDecorationLine"]',
+                '[class*="StyledDecoration"]',
+                '.stDecoration'
+            ];
+            for (const sel of seletores) {
+                doc.querySelectorAll(sel).forEach(el => {
+                    el.style.display = 'none';
+                    el.style.height = '0';
+                    el.style.visibility = 'hidden';
+                });
+            }
+        }
+
         substituirTextos();
         marcarBotoesSidebar();
+        esconderDecoration();
         setInterval(() => {
             substituirTextos();
             marcarBotoesSidebar();
+            esconderDecoration();
         }, 500);
     })();
     </script>
