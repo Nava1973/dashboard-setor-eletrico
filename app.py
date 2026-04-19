@@ -597,22 +597,8 @@ if aba == "PLD Diário":
             return "—"
         return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-    # Renderizar tabela HTML nativa — garante centralização e controle visual
-    # total (st.dataframe usa Glide Grid que ignora CSS externo).
-    linhas_html = ""
-    for sub in SUBMERCADOS_ORD:
-        if sub in stats.index:
-            row = stats.loc[sub]
-            linhas_html += f"""
-            <tr>
-                <td class="sub-col">{sub}</td>
-                <td>{fmt_brl(row['min'])}</td>
-                <td>{fmt_brl(row['mean'])}</td>
-                <td>{fmt_brl(row['max'])}</td>
-            </tr>
-            """
-
-    tabela_html = f"""
+    # CSS da tabela — injetado separadamente (f-string só com interpolações simples)
+    css_tabela = f"""
     <style>
         .bauhaus-table {{
             width: 100%;
@@ -634,6 +620,7 @@ if aba == "PLD Diário":
             padding: 12px 10px;
             text-align: center;
             border-right: 1px solid {BAUHAUS_GRAY};
+            color: {BAUHAUS_CREAM};
         }}
         .bauhaus-table th:last-child {{
             border-right: none;
@@ -658,24 +645,36 @@ if aba == "PLD Diário":
             letter-spacing: 0.1em;
             background: {BAUHAUS_LIGHT};
         }}
-        .bauhaus-table tbody tr:hover {{
-            background: rgba(246, 189, 22, 0.15);
-        }}
     </style>
-    <table class="bauhaus-table">
-        <thead>
-            <tr>
-                <th>Submercado</th>
-                <th>Mínimo</th>
-                <th>Média</th>
-                <th>Máximo</th>
-            </tr>
-        </thead>
-        <tbody>
-            {linhas_html}
-        </tbody>
-    </table>
     """
+    st.markdown(css_tabela, unsafe_allow_html=True)
+
+    # HTML da tabela — montado com concatenação simples (sem f-string para evitar
+    # conflito de chaves com CSS)
+    linhas_html = ""
+    for sub in SUBMERCADOS_ORD:
+        if sub in stats.index:
+            row = stats.loc[sub]
+            linhas_html += (
+                "<tr>"
+                f'<td class="sub-col">{sub}</td>'
+                f"<td>{fmt_brl(row['min'])}</td>"
+                f"<td>{fmt_brl(row['mean'])}</td>"
+                f"<td>{fmt_brl(row['max'])}</td>"
+                "</tr>"
+            )
+
+    tabela_html = (
+        '<table class="bauhaus-table">'
+        "<thead><tr>"
+        "<th>Submercado</th>"
+        "<th>Mínimo</th>"
+        "<th>Média</th>"
+        "<th>Máximo</th>"
+        "</tr></thead>"
+        f"<tbody>{linhas_html}</tbody>"
+        "</table>"
+    )
     st.markdown(tabela_html, unsafe_allow_html=True)
 
     # --- Download ---
@@ -704,4 +703,5 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
 
