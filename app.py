@@ -103,11 +103,13 @@ st.markdown(
     }}
 
     /* Botão nativo do Streamlit para sidebar — customizar visual mantendo click.
-       Estratégia: esconder visualmente o conteúdo (via cor/tamanho), mas manter
-       ele clicável. O pseudo-elemento ::before desenha nossa seta por cima,
-       com pointer-events: none pra não interceptar o clique. */
+       Múltiplos seletores porque o Streamlit usa nomes diferentes dependendo
+       da versão e do estado (aberto vs fechado). */
     [data-testid="stSidebarCollapseButton"],
-    [data-testid="stSidebarCollapsedControl"] {{
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="collapsedControl"],
+    button[kind="header"],
+    button[kind="headerNoPadding"] {{
         background: {BAUHAUS_YELLOW} !important;
         border: 2px solid {BAUHAUS_BLACK} !important;
         border-radius: 0 !important;
@@ -119,22 +121,24 @@ st.markdown(
         cursor: pointer !important;
     }}
 
-    /* Esconder conteúdo interno visualmente, mas mantendo o clique funcionando.
-       Não usamos visibility:hidden nem display:none porque isso quebra o clique. */
+    /* Esconder conteúdo interno visualmente, mas mantendo o clique funcionando. */
     [data-testid="stSidebarCollapseButton"] > *,
     [data-testid="stSidebarCollapsedControl"] > *,
+    [data-testid="collapsedControl"] > *,
     [data-testid="stSidebarCollapseButton"] svg,
     [data-testid="stSidebarCollapsedControl"] svg,
+    [data-testid="collapsedControl"] svg,
     [data-testid="stSidebarCollapseButton"] span,
-    [data-testid="stSidebarCollapsedControl"] span {{
+    [data-testid="stSidebarCollapsedControl"] span,
+    [data-testid="collapsedControl"] span,
+    button[kind="header"] span,
+    button[kind="headerNoPadding"] span {{
         color: transparent !important;
         font-size: 0 !important;
         opacity: 0 !important;
     }}
 
-    /* Desenhar nossa seta via pseudo-elemento ::before.
-       pointer-events: none é CRUCIAL — senão o ::before intercepta o click
-       e o botão nativo não recebe o evento. */
+    /* Seta para FECHAR (sidebar aberta) */
     [data-testid="stSidebarCollapseButton"]::before {{
         content: "‹" !important;
         position: absolute !important;
@@ -149,7 +153,9 @@ st.markdown(
         z-index: 10 !important;
         pointer-events: none !important;
     }}
-    [data-testid="stSidebarCollapsedControl"]::before {{
+    /* Seta para ABRIR (sidebar fechada) — múltiplos seletores */
+    [data-testid="stSidebarCollapsedControl"]::before,
+    [data-testid="collapsedControl"]::before {{
         content: "›" !important;
         position: absolute !important;
         top: 50% !important;
@@ -381,6 +387,48 @@ if user is None:
     st.stop()
 
 # =============================================================================
+# JS FALLBACK — limpa texto literal "keyboard_double_arrow_right" caso
+# apareça no botão de abrir sidebar (Material Icons não carregou).
+# =============================================================================
+st.markdown(
+    """
+    <script>
+    (function() {
+        function limparTextoIcone() {
+            // Procura por qualquer elemento que contenha o texto literal do ícone
+            // e substitui por string vazia (o ::before do CSS já desenha a seta).
+            const textoRuim = ['keyboard_double_arrow_right', 'keyboard_double_arrow_left',
+                              'chevron_right', 'chevron_left', 'arrow_forward', 'arrow_back',
+                              'menu_open', 'menu'];
+            const botoes = document.querySelectorAll(
+                '[data-testid="stSidebarCollapseButton"], ' +
+                '[data-testid="stSidebarCollapsedControl"], ' +
+                '[data-testid="collapsedControl"], ' +
+                'button[kind="header"], ' +
+                'button[kind="headerNoPadding"]'
+            );
+            botoes.forEach(btn => {
+                // Percorre todos os filhos de texto e limpa
+                const walker = document.createTreeWalker(btn, NodeFilter.SHOW_TEXT);
+                let node;
+                while ((node = walker.nextNode())) {
+                    const txt = node.nodeValue.trim();
+                    if (textoRuim.includes(txt)) {
+                        node.nodeValue = '';
+                    }
+                }
+            });
+        }
+        limparTextoIcone();
+        const obs = new MutationObserver(limparTextoIcone);
+        obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+    })();
+    </script>
+    """,
+    unsafe_allow_html=True,
+)
+
+# =============================================================================
 # SIDEBAR
 # =============================================================================
 with st.sidebar:
@@ -582,6 +630,11 @@ if aba == "PLD Diário":
             is_media = col == "Média BR"
             cor_linha = CORES_SUBMERCADO[col]
             sigla_label = col if col != "Média BR" else "BR"
+            # Padding com &nbsp; para alinhar o R$ — siglas têm 1-2 chars,
+            # então compensamos as de 1 char (S, N) com um nbsp extra
+            sigla_padded = sigla_label
+            if len(sigla_label) == 1:
+                sigla_padded = sigla_label + "&nbsp;"
             fig.add_trace(
                 go.Scatter(
                     x=pivot.index,
@@ -593,13 +646,12 @@ if aba == "PLD Diário":
                         width=4 if is_media else 2.5,
                         dash="dot" if is_media else "solid",
                     ),
-                    # Hover: sigla colorida + espaçamento fixo com &nbsp; + valor.
-                    # Plotly mantém &nbsp; literais no hover, o que garante
-                    # separação visual confiável entre colunas.
+                    # Hover: sigla colorida + 10 &nbsp; + valor. Alinhamento do R$
+                    # funciona porque todas as siglas agora têm 2 chars efetivos.
                     hovertemplate=(
                         f'<span style="color:{cor_linha}; font-weight:700;">'
-                        f'{sigla_label}</span>'
-                        '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+                        f'{sigla_padded}</span>'
+                        '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
                         '<span style="color:#1A1A1A;">R$ %{y:.0f}/MWh</span>'
                         '<extra></extra>'
                     ),
