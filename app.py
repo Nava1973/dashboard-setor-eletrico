@@ -108,14 +108,44 @@ st.markdown(
     [data-testid="stSidebar"] hr {{
         border-top: 1px solid rgba(255,255,255,0.3) !important;
     }}
+    /* Botão na sidebar: amarelo com texto preto (contraste garantido) */
     [data-testid="stSidebar"] .stButton > button {{
         background: {BAUHAUS_YELLOW} !important;
         color: {BAUHAUS_BLACK} !important;
         border: 2px solid {BAUHAUS_BLACK} !important;
     }}
+    [data-testid="stSidebar"] .stButton > button * {{
+        color: {BAUHAUS_BLACK} !important;
+    }}
     [data-testid="stSidebar"] .stButton > button:hover {{
         background: {BAUHAUS_RED} !important;
         color: {BAUHAUS_CREAM} !important;
+    }}
+    [data-testid="stSidebar"] .stButton > button:hover * {{
+        color: {BAUHAUS_CREAM} !important;
+    }}
+    /* Radio da sidebar (navegação) — texto claro sobre fundo azul */
+    [data-testid="stSidebar"] [data-testid="stRadio"] label,
+    [data-testid="stSidebar"] [data-testid="stRadio"] label p,
+    [data-testid="stSidebar"] [data-testid="stRadio"] label span {{
+        color: {BAUHAUS_CREAM} !important;
+    }}
+    /* Se algum elemento tiver fundo claro na sidebar, força texto escuro */
+    [data-testid="stSidebar"] input,
+    [data-testid="stSidebar"] select,
+    [data-testid="stSidebar"] textarea {{
+        background: {BAUHAUS_CREAM} !important;
+        color: {BAUHAUS_BLACK} !important;
+    }}
+    /* Links na sidebar */
+    [data-testid="stSidebar"] a {{
+        color: {BAUHAUS_YELLOW} !important;
+        text-decoration: underline;
+    }}
+    /* Caption específica na sidebar — mais legível */
+    [data-testid="stSidebar"] .stCaption,
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {{
+        color: rgba(245, 241, 232, 0.75) !important;
     }}
 
     /* KPIs */
@@ -528,43 +558,51 @@ if aba == "PLD Diário":
         .reindex(SUBMERCADOS_ORD)
         .round(2)
     )
-    stats.columns = ["Mínimo", "Média", "Máximo", "Desvio-padrão"]
 
-    # Usar column_config do Streamlit: mais confiável que Styler para
-    # formatar e centralizar valores numéricos em dataframes.
-    stats_reset = stats.reset_index()
-    stats_reset.columns = ["Submercado", "Mínimo", "Média", "Máximo", "Desvio-padrão"]
+    # Formatar como texto para conseguir centralização real.
+    # column_config.NumberColumn alinha à direita por padrão (convenção de
+    # valores monetários) e ignora text-align via CSS. A solução robusta é
+    # converter os números em string formatada e usar TextColumn.
+    def fmt_brl(v):
+        if pd.isna(v):
+            return "—"
+        return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    tabela = pd.DataFrame({
+        "Submercado": stats.index,
+        "Mínimo": stats["min"].map(fmt_brl),
+        "Média": stats["mean"].map(fmt_brl),
+        "Máximo": stats["max"].map(fmt_brl),
+        "Desvio-padrão": stats["std"].map(fmt_brl),
+    })
+
+    # CSS específico para centralizar TextColumn na tabela
+    st.markdown(
+        """
+        <style>
+        /* Centraliza conteúdo de todas as células e cabeçalhos do st.dataframe */
+        [data-testid="stDataFrame"] [role="gridcell"] {
+            justify-content: center !important;
+            text-align: center !important;
+        }
+        [data-testid="stDataFrame"] [role="columnheader"] {
+            justify-content: center !important;
+            text-align: center !important;
+        }
+        [data-testid="stDataFrame"] [role="gridcell"] > div,
+        [data-testid="stDataFrame"] [role="columnheader"] > div {
+            text-align: center !important;
+            width: 100% !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.dataframe(
-        stats_reset,
+        tabela,
         use_container_width=True,
         hide_index=True,
-        column_config={
-            "Submercado": st.column_config.TextColumn(
-                "Submercado",
-                width="small",
-            ),
-            "Mínimo": st.column_config.NumberColumn(
-                "Mínimo",
-                format="R$ %.2f",
-                width="medium",
-            ),
-            "Média": st.column_config.NumberColumn(
-                "Média",
-                format="R$ %.2f",
-                width="medium",
-            ),
-            "Máximo": st.column_config.NumberColumn(
-                "Máximo",
-                format="R$ %.2f",
-                width="medium",
-            ),
-            "Desvio-padrão": st.column_config.NumberColumn(
-                "Desvio-padrão",
-                format="R$ %.2f",
-                width="medium",
-            ),
-        },
     )
 
     # --- Download ---
