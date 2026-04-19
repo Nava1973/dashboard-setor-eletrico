@@ -61,7 +61,7 @@ def _inject_login_css():
             margin: 0 auto;
         }}
 
-        /* Inputs (username, password) */
+        /* Inputs (username, password) — garantir largura completa e sem espaço branco */
         [data-testid="stForm"] input {{
             border-radius: 0 !important;
             border: 2px solid {_BLACK} !important;
@@ -69,32 +69,60 @@ def _inject_login_css():
             color: {_BLACK} !important;
             font-family: 'Inter', sans-serif !important;
             padding: 10px 12px !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
         }}
 
-        /* Campo de senha — container do input com botão de olho.
-           Remove o espaço cinza ao redor do botão de toggle de visibilidade. */
+        /* Campo de senha — container flex com botão de olho colado no final.
+           Remove QUALQUER espaço em branco à direita. */
         [data-testid="stForm"] [data-testid="stTextInputRootElement"],
         [data-testid="stForm"] div[data-baseweb="input"] {{
             background: #FFFFFF !important;
             border: 2px solid {_BLACK} !important;
             border-radius: 0 !important;
+            display: flex !important;
+            align-items: stretch !important;
+            width: 100% !important;
+            padding: 0 !important;
+            overflow: hidden !important;
+        }}
+        [data-testid="stForm"] div[data-baseweb="input"] > div {{
+            flex: 1 !important;
+            display: flex !important;
         }}
         [data-testid="stForm"] div[data-baseweb="input"] input {{
             border: none !important;
+            flex: 1 !important;
+            width: 100% !important;
         }}
-        /* Botão de olho (mostrar/ocultar senha) — integrar visualmente */
+        /* Botão de olho — amarelo Bauhaus, colado no final, sem margem */
         [data-testid="stForm"] button[aria-label*="Show password"],
         [data-testid="stForm"] button[aria-label*="Hide password"],
         [data-testid="stForm"] button[kind="iconButton"] {{
-            background: transparent !important;
+            background: {_YELLOW} !important;
             border: none !important;
+            border-left: 2px solid {_BLACK} !important;
             color: {_BLACK} !important;
-            padding: 0 8px !important;
+            padding: 0 12px !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            min-width: 44px !important;
+            height: auto !important;
+            align-self: stretch !important;
         }}
         [data-testid="stForm"] button[aria-label*="Show password"]:hover,
         [data-testid="stForm"] button[aria-label*="Hide password"]:hover {{
-            background: transparent !important;
-            color: {_RED} !important;
+            background: {_RED} !important;
+            color: {_CREAM} !important;
+        }}
+        /* Garantir que ícone dentro do botão fique preto (ou creme no hover) */
+        [data-testid="stForm"] button[aria-label*="Show password"] svg,
+        [data-testid="stForm"] button[aria-label*="Hide password"] svg,
+        [data-testid="stForm"] button[kind="iconButton"] svg {{
+            fill: currentColor !important;
         }}
 
         /* Labels dos inputs */
