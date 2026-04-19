@@ -15,7 +15,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import timedelta
 
-from auth import require_login
+from auth import require_login, logout_button
 from data_loader import load_pld_media_diaria, clear_cache
 
 # =============================================================================
@@ -397,10 +397,6 @@ components.html(
 # SIDEBAR
 # =============================================================================
 with st.sidebar:
-    st.markdown("### Dashboard Setor Elétrico")
-    st.caption(f"Usuário: **{user}**")
-    st.divider()
-
     aba = st.radio(
         "NAVEGAÇÃO",
         ["PLD Diário"],
@@ -417,15 +413,83 @@ with st.sidebar:
     )
 
 # =============================================================================
+# BARRA SUPERIOR: Título + usuário + logout
+# Layout horizontal no topo da área principal, acima de qualquer aba.
+# =============================================================================
+# CSS específico da topbar: logout discreto, texto do título em Bebas Neue
+st.markdown(
+    """
+    <style>
+    /* Container da topbar */
+    .topbar-title {
+        font-family: 'Bebas Neue', sans-serif;
+        font-size: 1.3rem;
+        letter-spacing: 0.08em;
+        color: #1A1A1A;
+        line-height: 2.2rem;
+        margin: 0;
+        padding: 0;
+    }
+    .topbar-user {
+        font-family: 'Inter', sans-serif;
+        font-size: 0.85rem;
+        color: #4A4A4A;
+        text-align: right;
+        line-height: 2.2rem;
+        margin: 0;
+        padding: 0 0.5rem 0 0;
+    }
+    /* Logout botão — discreto, só texto sublinhado */
+    .topbar-logout-wrapper .stButton > button {
+        background: transparent !important;
+        border: none !important;
+        color: #4A4A4A !important;
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.85rem !important;
+        font-weight: 500 !important;
+        text-decoration: underline !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+        min-height: 2.2rem !important;
+        height: 2.2rem !important;
+    }
+    .topbar-logout-wrapper .stButton > button:hover {
+        color: #D62828 !important;
+        background: transparent !important;
+        border: none !important;
+    }
+    /* Linha separadora abaixo da topbar */
+    .topbar-separator {
+        border-bottom: 2px solid #1A1A1A;
+        margin: 0.3rem 0 1rem 0;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+tb_col1, tb_col2, tb_col3 = st.columns([5, 2, 1])
+with tb_col1:
+    st.markdown(
+        '<div class="topbar-title">DASHBOARD SETOR ELÉTRICO</div>',
+        unsafe_allow_html=True,
+    )
+with tb_col2:
+    st.markdown(
+        f'<div class="topbar-user">Usuário: <strong>{user}</strong></div>',
+        unsafe_allow_html=True,
+    )
+with tb_col3:
+    st.markdown('<div class="topbar-logout-wrapper">', unsafe_allow_html=True)
+    logout_button(location="main", key="logout_topbar")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+st.markdown('<div class="topbar-separator"></div>', unsafe_allow_html=True)
+
+# =============================================================================
 # ABA: PLD MÉDIO DIÁRIO POR SUBMERCADO
 # =============================================================================
 if aba == "PLD Diário":
-    st.markdown("# PLD DIÁRIO")
-    st.caption(
-        "Preço de Liquidação das Diferenças por submercado · "
-        "Fonte: CCEE Dados Abertos"
-    )
-
     # --- Carregar dados ---
     with st.spinner("Carregando dados da CCEE…"):
         try:
@@ -478,39 +542,9 @@ if aba == "PLD Diário":
         st.warning("Sem dados no intervalo selecionado.")
         st.stop()
 
-    # --- KPIs (último dia disponível) — vem primeiro ---
-    ultima_data = dff["data"].max()
-    ultimo_pld = dff[dff["data"] == ultima_data].set_index("submercado")["pld"]
-
+    # --- Período (controles de data) — vem primeiro, logo antes do gráfico ---
     st.markdown(
-        f'<h3 style="margin-top:1rem; margin-bottom:0.3rem;">'
-        f'Último dia disponível'
-        f'</h3>'
-        f'<div style="font-family:\'Inter\', sans-serif; font-weight:500; '
-        f'font-size:1rem; letter-spacing:0.02em; color:#2E2E2E; '
-        f'margin-top:0; margin-bottom:0.8rem;">'
-        f'{ultima_data.strftime("%d/%m/%Y")}'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-    # KPIs em colunas mais apertadas + um "filler" ao final pra não esticar tudo
-    cols = st.columns([1, 1, 1, 1, 1, 2])
-    for i, sub in enumerate(SUBMERCADOS_ORD):
-        with cols[i]:
-            val = ultimo_pld.get(sub)
-            st.metric(
-                label=sub,
-                value=f"R$ {val:,.2f}" if val is not None else "—",
-            )
-    with cols[4]:
-        media_br = ultimo_pld.mean()
-        st.metric(label="MÉDIA BR", value=f"R$ {media_br:,.2f}")
-    # cols[5] fica vazio — serve como filler para reduzir largura dos KPIs
-
-    # --- Período (controles de data) — vem depois dos KPIs, perto do gráfico ---
-    st.markdown(
-        '<h3 style="margin-bottom:0.6rem;">Período</h3>',
+        '<h3 style="margin-top:0.5rem; margin-bottom:0.6rem;">Período</h3>',
         unsafe_allow_html=True,
     )
 
@@ -623,6 +657,18 @@ if aba == "PLD Diário":
     if not submercados_selecionados and not mostrar_media:
         st.info("Selecione ao menos um submercado ou a Média BR para visualizar.")
     else:
+        # Subtítulo do gráfico — indica periodicidade (futuramente trocável)
+        periodicidade_label = "PLD médio diário"  # por enquanto fixo; vai virar variável
+        st.markdown(
+            f'<div style="font-family:\'Bebas Neue\', sans-serif; '
+            f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
+            f'margin: 0.8rem 0 0.3rem 0; padding-bottom:3px; '
+            f'border-bottom: 2px solid #1A1A1A;">'
+            f'{periodicidade_label.upper()} · R$/MWh'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
         # --- Preparar dados ---
         pivot = dff.pivot_table(
             index="data", columns="submercado", values="pld", aggfunc="mean"
@@ -745,6 +791,95 @@ if aba == "PLD Diário":
         )
 
         st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
+
+    # --- Último dia disponível (KPIs compactos em linha única) ---
+    ultima_data = dff["data"].max()
+    ultimo_pld = dff[dff["data"] == ultima_data].set_index("submercado")["pld"]
+    media_br_ultimo = ultimo_pld.mean()
+
+    # Formata valores BR (vírgula decimal)
+    def _fmt_br(v):
+        if v is None or (hasattr(v, "__float__") and not (v == v)):
+            return "—"
+        return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    # Monta linha única com todos os valores, compacta, sem cards
+    kpi_items = []
+    for sub in SUBMERCADOS_ORD:
+        val = ultimo_pld.get(sub)
+        cor = CORES_SUBMERCADO.get(sub, "#1A1A1A")
+        kpi_items.append(
+            f'<span class="kpi-item">'
+            f'<span class="kpi-label" style="background:{cor};">{sub}</span>'
+            f'<span class="kpi-value">R$ {_fmt_br(val)}</span>'
+            f'</span>'
+        )
+    # Adiciona Média BR no final
+    kpi_items.append(
+        f'<span class="kpi-item">'
+        f'<span class="kpi-label" style="background:#6B6B6B;">BR</span>'
+        f'<span class="kpi-value">R$ {_fmt_br(media_br_ultimo)}</span>'
+        f'</span>'
+    )
+
+    st.markdown(
+        f"""
+        <style>
+        .kpi-ultimo-row {{
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.4rem 1.2rem;
+            margin: 1rem 0 0.3rem 0;
+            padding: 0.5rem 0.8rem;
+            border: 2px solid #1A1A1A;
+            background: #F5F1E8;
+        }}
+        .kpi-ultimo-header {{
+            font-family: 'Inter', sans-serif;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #4A4A4A;
+            margin-right: 0.5rem;
+        }}
+        .kpi-ultimo-data {{
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
+            color: #1A1A1A;
+            font-weight: 600;
+        }}
+        .kpi-item {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+        }}
+        .kpi-label {{
+            display: inline-block;
+            padding: 0.15rem 0.45rem;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            color: #FFFFFF;
+            line-height: 1.2;
+        }}
+        .kpi-value {{
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.2rem;
+            color: #1A1A1A;
+            letter-spacing: 0.02em;
+        }}
+        </style>
+        <div class="kpi-ultimo-row">
+            <span class="kpi-ultimo-header">Último dia</span>
+            <span class="kpi-ultimo-data">{ultima_data.strftime("%d/%m/%Y")}</span>
+            {''.join(kpi_items)}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # --- Estatísticas do período (tabela) ---
     st.markdown(
