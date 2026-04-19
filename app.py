@@ -102,9 +102,10 @@ st.markdown(
         background: {BAUHAUS_CREAM};
     }}
 
-    /* Botão nativo do Streamlit para sidebar — mostrar mas customizar.
-       Usa pseudo-elemento ::before que sobrepõe o texto interno do botão
-       (incluindo "keyboard_double_arrow_right" quando Material Icons falha). */
+    /* Botão nativo do Streamlit para sidebar — customizar visual mantendo click.
+       Estratégia: esconder visualmente o conteúdo (via cor/tamanho), mas manter
+       ele clicável. O pseudo-elemento ::before desenha nossa seta por cima,
+       com pointer-events: none pra não interceptar o clique. */
     [data-testid="stSidebarCollapseButton"],
     [data-testid="stSidebarCollapsedControl"] {{
         background: {BAUHAUS_YELLOW} !important;
@@ -115,20 +116,25 @@ st.markdown(
         position: relative !important;
         padding: 0 !important;
         overflow: hidden !important;
+        cursor: pointer !important;
     }}
 
-    /* Esconder TODO o conteúdo interno com opacidade zero */
+    /* Esconder conteúdo interno visualmente, mas mantendo o clique funcionando.
+       Não usamos visibility:hidden nem display:none porque isso quebra o clique. */
     [data-testid="stSidebarCollapseButton"] > *,
     [data-testid="stSidebarCollapsedControl"] > *,
     [data-testid="stSidebarCollapseButton"] svg,
     [data-testid="stSidebarCollapsedControl"] svg,
     [data-testid="stSidebarCollapseButton"] span,
     [data-testid="stSidebarCollapsedControl"] span {{
+        color: transparent !important;
+        font-size: 0 !important;
         opacity: 0 !important;
-        visibility: hidden !important;
     }}
 
-    /* Desenhar nossa seta via pseudo-elemento ::before (fica por cima de tudo) */
+    /* Desenhar nossa seta via pseudo-elemento ::before.
+       pointer-events: none é CRUCIAL — senão o ::before intercepta o click
+       e o botão nativo não recebe o evento. */
     [data-testid="stSidebarCollapseButton"]::before {{
         content: "‹" !important;
         position: absolute !important;
@@ -140,9 +146,8 @@ st.markdown(
         font-weight: 700 !important;
         color: {BAUHAUS_BLACK} !important;
         line-height: 1 !important;
-        visibility: visible !important;
-        opacity: 1 !important;
         z-index: 10 !important;
+        pointer-events: none !important;
     }}
     [data-testid="stSidebarCollapsedControl"]::before {{
         content: "›" !important;
@@ -155,9 +160,8 @@ st.markdown(
         font-weight: 700 !important;
         color: {BAUHAUS_BLACK} !important;
         line-height: 1 !important;
-        visibility: visible !important;
-        opacity: 1 !important;
         z-index: 10 !important;
+        pointer-events: none !important;
     }}
     [data-testid="stSidebar"] {{
         background: #1A1A1A !important;
@@ -589,16 +593,14 @@ if aba == "PLD Diário":
                         width=4 if is_media else 2.5,
                         dash="dot" if is_media else "solid",
                     ),
-                    # Hover: sigla colorida à esquerda, valor alinhado à direita.
-                    # min-width da sigla garante separação visual entre o texto
-                    # da sigla e o valor começando no "R$".
+                    # Hover: sigla colorida + espaçamento fixo com &nbsp; + valor.
+                    # Plotly mantém &nbsp; literais no hover, o que garante
+                    # separação visual confiável entre colunas.
                     hovertemplate=(
-                        f'<span style="color:{cor_linha}; font-weight:700; '
-                        f'display:inline-block; min-width:70px;">'
+                        f'<span style="color:{cor_linha}; font-weight:700;">'
                         f'{sigla_label}</span>'
-                        '<span style="color:#1A1A1A; display:inline-block; '
-                        'min-width:120px; text-align:left;">'
-                        'R$ %{y:.0f}/MWh</span>'
+                        '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'
+                        '<span style="color:#1A1A1A;">R$ %{y:.0f}/MWh</span>'
                         '<extra></extra>'
                     ),
                 )
