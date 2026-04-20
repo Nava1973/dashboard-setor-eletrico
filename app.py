@@ -599,12 +599,14 @@ if aba == "PLD Diário":
     )
 
     # --- Carregar dados ---
-    # Fase 1 do feature de granularidade: session_state default "diario".
-    # O dropdown no título do gráfico (Fase 2) vai atualizar essa chave.
+    # Granularidade é atualizada pelo dropdown no título (selectbox com
+    # on_change callback) antes do script rodar, então aqui já temos o
+    # valor correto na session_state.
     st.session_state.setdefault("granularidade", "diario")
+    granularidade = st.session_state["granularidade"]
     with st.spinner("Carregando dados da CCEE…"):
         try:
-            df = get_pld_df(st.session_state["granularidade"])
+            df = get_pld_df(granularidade)
         except Exception as e:
             st.error(f"Falha ao carregar dados da CCEE: {e}")
             debug = st.session_state.get("_debug_erros", [])
@@ -631,10 +633,12 @@ if aba == "PLD Diário":
     if (
         "data_ini" not in st.session_state
         or st.session_state.get("_dataset_max") != max_d
+        or st.session_state.get("_dataset_min") != min_d
     ):
         st.session_state["data_ini"] = max(min_d, max_d - timedelta(days=90))
         st.session_state["data_fim"] = max_d
         st.session_state["_dataset_max"] = max_d
+        st.session_state["_dataset_min"] = min_d
 
     # --- Filtrar por data (usando session_state, não widgets) ---
     # Os widgets de Período ficam mais abaixo, mas o filtro precisa acontecer
@@ -758,15 +762,16 @@ if aba == "PLD Diário":
         st.info("Selecione ao menos um submercado ou a Média BR para visualizar.")
     else:
         # =====================================================================
-        # Título-dropdown (Fase 2 visual — integração ao gráfico é Fase 3).
+        # Título-dropdown (Fase 3 — integrado ao gráfico).
         # st.selectbox estilizado como título Bauhaus. Usa testids estáveis
         # (stSelectbox + data-baseweb="select") pra sobreviver a upgrades do
         # Streamlit. Menu aberto mantém visual default BaseWeb — preço
         # pago por robustez. Não renderizamos "· R$/MWh" aqui porque o
         # eixo Y do gráfico já mostra a unidade.
-        # Valor escolhido atualiza session_state["granularidade_display"];
-        # o gráfico segue lendo session_state["granularidade"] = "diario"
-        # até a Fase 3 conectar.
+        #
+        # Fluxo: on_change callback atualiza session_state["granularidade"]
+        # ANTES do próximo main-script run. Assim o get_pld_df no topo do
+        # bloco já lê o novo valor e o render todo usa dados coerentes.
         # =====================================================================
         LABELS_GRAN = {
             "horario": "PLD HORÁRIO",
@@ -774,7 +779,11 @@ if aba == "PLD Diário":
             "semanal": "PLD MÉDIO SEMANAL",
             "mensal":  "PLD MÉDIO MENSAL",
         }
-        st.session_state.setdefault("granularidade_display", "diario")
+
+        def _on_granularidade_change():
+            st.session_state["granularidade"] = st.session_state[
+                "selectbox_granularidade"
+            ]
 
         # CSS: flatten do selectbox pra virar título Bauhaus
         st.markdown(
@@ -795,6 +804,21 @@ if aba == "PLD Diário":
                 padding-left: 0 !important;
                 min-height: 0 !important;
                 cursor: pointer !important;
+                width: fit-content !important;
+                max-width: 100% !important;
+            }
+            /* Esconde chevron SVG default do BaseWeb (evita seta dupla) */
+            [data-testid="stSelectbox"] [data-baseweb="select"] svg {
+                display: none !important;
+            }
+            /* ▾ preta sempre visível, colada no texto */
+            [data-testid="stSelectbox"] [data-baseweb="select"] > div::after {
+                content: "▾";
+                color: #1A1A1A;
+                font-size: 1.7em;
+                margin-left: 0.3em;
+                pointer-events: none;
+                line-height: 1;
             }
             </style>
             """,
@@ -802,18 +826,15 @@ if aba == "PLD Diário":
         )
 
         opcoes_ordem = ["horario", "diario", "semanal", "mensal"]
-        idx_atual = opcoes_ordem.index(st.session_state["granularidade_display"])
-        escolha = st.selectbox(
+        st.selectbox(
             "Granularidade do PLD",
             options=opcoes_ordem,
-            index=idx_atual,
+            index=opcoes_ordem.index(st.session_state["granularidade"]),
             format_func=lambda k: LABELS_GRAN[k],
             label_visibility="collapsed",
             key="selectbox_granularidade",
+            on_change=_on_granularidade_change,
         )
-        if escolha != st.session_state["granularidade_display"]:
-            st.session_state["granularidade_display"] = escolha
-            st.rerun()
 
         # --- Preparar dados ---
         pivot = dff.pivot_table(
@@ -906,6 +927,18 @@ if aba == "PLD Diário":
                     size=13,
                     color=BAUHAUS_BLACK,
                 ),
+                # Formato do header do tooltip (hovermode="x unified").
+                # Semanal: mostra só início da semana. CCEE não publica
+                # data_fim; calcular data+6dias assumiria semana fixa,
+                # então preferimos o início puro. Se o usuário quiser
+                # ver o range, mudar hovermode pra "x" e passar customdata
+                # por trace com fim = data + timedelta(days=6).
+                hoverformat={
+                    "horario": "%d/%m/%Y %H:%M",
+                    "diario":  "%d/%m/%Y",
+                    "semanal": "%d/%m/%Y",
+                    "mensal":  "%b %Y",
+                }[granularidade],
             ),
             yaxis=dict(
                 title=dict(
@@ -936,7 +969,23 @@ if aba == "PLD Diário":
             font=dict(family="Inter, sans-serif", size=12),
         )
 
+        # Caption de performance: horário + período ≥ 180 dias pode
+        # demorar alguns segundos no primeiro render (até ~230k pontos).
+        periodo_dias = (data_fim - data_ini).days
+        if granularidade == "horario" and periodo_dias >= 180:
+            st.caption(
+                "Granularidade horária com período longo — "
+                "renderização pode levar alguns segundos."
+            )
+
         st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
+
+    # --- KPIs + tabela de estatísticas: só em diário (Fase 4 adapta pras outras) ---
+    if granularidade != "diario":
+        st.caption(
+            "KPIs e tabela de estatísticas disponíveis apenas em granularidade "
+            "diária. Versões específicas por granularidade vêm em breve."
+        )
 
     # --- Último dia disponível (KPIs compactos em linha única) ---
     ultima_data = dff["data"].max()
@@ -968,8 +1017,7 @@ if aba == "PLD Diário":
         f'</span>'
     )
 
-    st.markdown(
-        f"""
+    _kpi_row_html = f"""
         <style>
         .kpi-ultimo-row {{
             display: flex;
@@ -1028,19 +1076,20 @@ if aba == "PLD Diário":
             <span class="kpi-ultimo-data">{ultima_data.strftime("%d/%m/%Y")}</span>
             {''.join(kpi_items)}
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        """
+    if granularidade == "diario":
+        st.markdown(_kpi_row_html, unsafe_allow_html=True)
 
     # --- Estatísticas do período (tabela) ---
-    st.markdown(
+    _stats_header_html = (
         f'<h3 style="margin-bottom:0.3rem;">Estatísticas do período</h3>'
         f'<div style="font-family:\'Inter\', sans-serif; font-weight:500; '
         f'font-size:0.95rem; color:#2E2E2E; margin-bottom:0.8rem;">'
         f'{data_ini.strftime("%d/%m/%Y")} — {data_fim.strftime("%d/%m/%Y")}'
-        f'</div>',
-        unsafe_allow_html=True,
+        f'</div>'
     )
+    if granularidade == "diario":
+        st.markdown(_stats_header_html, unsafe_allow_html=True)
     stats = (
         dff.groupby("submercado")["pld"]
         .agg(["min", "mean", "max"])
@@ -1103,7 +1152,8 @@ if aba == "PLD Diário":
         }}
     </style>
     """
-    st.markdown(css_tabela, unsafe_allow_html=True)
+    if granularidade == "diario":
+        st.markdown(css_tabela, unsafe_allow_html=True)
 
     # HTML da tabela — montado com concatenação simples (sem f-string para evitar
     # conflito de chaves com CSS)
@@ -1131,7 +1181,8 @@ if aba == "PLD Diário":
         f"<tbody>{linhas_html}</tbody>"
         "</table>"
     )
-    st.markdown(tabela_html, unsafe_allow_html=True)
+    if granularidade == "diario":
+        st.markdown(tabela_html, unsafe_allow_html=True)
 
     # --- Download ---
     st.markdown("### Exportar")
@@ -1155,7 +1206,7 @@ if aba == "PLD Diário":
     st.download_button(
         label="Baixar dados filtrados (CSV)",
         data=csv,
-        file_name=f"pld_diario_{data_ini}_{data_fim}.csv",
+        file_name=f"pld_{granularidade}_{data_ini}_{data_fim}.csv",
         mime="text/csv",
         use_container_width=False,
     )
