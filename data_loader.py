@@ -1,8 +1,14 @@
 """
 data_loader.py
-Ingestão dos dados de PLD da CCEE em 4 granularidades: diária, horária,
-semanal e mensal. Todas compartilham a mesma infraestrutura de download
-(curl_cffi + cascade CKAN→dump→PDA) e o mesmo SUBMERCADO_MAP.
+Ingestão de dados pro dashboard. Duas fontes consolidadas neste módulo:
+
+  1) CCEE — PLD em 4 granularidades (diária, horária, semanal, mensal).
+     Infraestrutura própria: cascade CKAN→dump→PDA com curl_cffi.
+  2) ONS — EAR (Energia Armazenada) diária por subsistema, mais SIN agregado.
+     Baixado direto do S3 público do ONS em parquet.
+
+Ambas compartilham _http_get + BROWSER_HEADERS + padrão de cache/erro.
+Seção ONS fica no final do arquivo (ver "RESERVATÓRIOS (ONS)").
 
 Estratégia de carregamento por ano (em ordem de preferência):
 1. API CKAN datastore_search (paginada, mais estável)
@@ -823,9 +829,222 @@ def load_pld_media_mensal() -> pd.DataFrame:
     return _load_dataset("mensal", _normalize_mensal)
 
 
+# =============================================================================
+# RESERVATÓRIOS (ONS)
+# =============================================================================
+# Dataset: ear-diario-por-subsistema (CKAN ONS, só pra metadata).
+# Origem real dos arquivos: AWS S3 público, virtual-hosted style.
+# URL pattern:
+#   https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/ear_subsistema_di/
+#     EAR_DIARIO_SUBSISTEMA_{YYYY}.parquet
+#
+# Schema do parquet ONS (validado na Fase A, ver docs/reservatorios_research.md):
+#   id_subsistema                    (str) 'N','NE','S','SE'
+#   nom_subsistema                   (str) 'NORTE','NORDESTE','SUL','SUDESTE'
+#   ear_data                         (str) 'YYYY-MM-DD'
+#   ear_max_subsistema               (float, MWmês)
+#   ear_verif_subsistema_mwmes       (float, MWmês)
+#   ear_verif_subsistema_percentual  (float, %)  ← métrica principal
+#
+# Schema de saída (long-form):
+#   data (datetime), subsistema_code (str), subsistema_nome (str), ear_pct (float)
+#
+# SIN é CALCULADO (dataset só tem os 4 subsistemas — não tem linha SIN):
+#   SIN_pct(data) = sum(ear_verif_mwmes) / sum(ear_max) × 100
+# =============================================================================
+
+ONS_EAR_SUBSISTEMA_URL = (
+    "https://ons-aws-prod-opendata.s3.amazonaws.com/"
+    "dataset/ear_subsistema_di/EAR_DIARIO_SUBSISTEMA_{ano}.parquet"
+)
+
+# Mapa ONS id → nome completo usado na renderização.
+# ONS usa "SUDESTE" (não "SUDESTE/CENTRO-OESTE") — aderimos à convenção oficial.
+SUBSISTEMA_NOMES = {
+    "SE":  "SUDESTE",
+    "S":   "SUL",
+    "NE":  "NORDESTE",
+    "N":   "NORTE",
+    "SIN": "SIN",
+}
+
+# Anos disponíveis (confirmado Fase A: 2000-2026). Rever anualmente.
+# Se ONS publicar 2027, acrescentar ao range ou usar descoberta dinâmica.
+RESERVATORIOS_YEARS_AVAILABLE = list(range(2000, 2027))
+
+
+def _download_reservatorio_parquet_raw(ano: int) -> pd.DataFrame | None:
+    """Baixa 1 ano de EAR por subsistema em parquet do S3 ONS. Sem cache."""
+    url = ONS_EAR_SUBSISTEMA_URL.format(ano=ano)
+    try:
+        r = _http_get(url, headers=BROWSER_HEADERS, timeout=60)
+        r.raise_for_status()
+    except Exception as e:
+        errs = st.session_state.setdefault("_debug_erros", [])
+        errs.append(f"ONS EAR {ano} (download): {type(e).__name__}: {e}")
+        return None
+
+    try:
+        return pd.read_parquet(io.BytesIO(r.content))
+    except Exception as e:
+        errs = st.session_state.setdefault("_debug_erros", [])
+        errs.append(f"ONS EAR {ano} (parse parquet): {type(e).__name__}: {e}")
+        return None
+
+
+# Cache longo (30 dias) pra anos FECHADOS. ONS não altera histórico publicado.
+# Separado do ano corrente pra não re-baixar 26 anos quando só o ano atual mudou.
+@st.cache_data(ttl=60 * 60 * 24 * 30, show_spinner=False)
+def _download_reservatorio_parquet_historico(ano: int) -> pd.DataFrame | None:
+    """Ano fechado — cache de 30 dias. Invalidar manualmente via clear_cache
+    só se suspeitar de reedição do ONS (raro)."""
+    return _download_reservatorio_parquet_raw(ano)
+
+
+def _normalize_reservatorios(df: pd.DataFrame) -> pd.DataFrame:
+    """Normaliza schema ONS pra long-form (data, code, nome, ear_pct)."""
+    df.columns = [str(c).strip() for c in df.columns]
+
+    col_code = "id_subsistema"
+    col_nome = "nom_subsistema"
+    col_data = "ear_data"
+    col_pct  = "ear_verif_subsistema_percentual"
+
+    missing = [c for c in (col_code, col_nome, col_data, col_pct)
+               if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"Colunas ONS faltando: {missing}. Presentes: {list(df.columns)}"
+        )
+
+    out = pd.DataFrame({
+        "data": pd.to_datetime(df[col_data], errors="coerce"),
+        "subsistema_code": df[col_code].astype(str).str.strip().str.upper(),
+        "subsistema_nome": df[col_nome].astype(str).str.strip().str.upper(),
+        "ear_pct": pd.to_numeric(df[col_pct], errors="coerce"),
+    })
+    out = out.dropna(subset=["data", "subsistema_code", "ear_pct"])
+    out = out[out["subsistema_code"].isin(["SE", "S", "NE", "N"])]
+    return out
+
+
+def _compute_sin_aggregate(raw_frames: list[pd.DataFrame]) -> pd.DataFrame:
+    """
+    Calcula série SIN a partir dos frames brutos (preserva ear_max +
+    ear_verif_mwmes antes do normalize que descartaria essas colunas).
+
+    SIN_pct(data) = sum(ear_verif_mwmes) / sum(ear_max) × 100
+
+    Retorna mesmo schema de saída: (data, code='SIN', nome='SIN', ear_pct).
+    """
+    if not raw_frames:
+        return pd.DataFrame(
+            columns=["data", "subsistema_code", "subsistema_nome", "ear_pct"]
+        )
+
+    full = pd.concat(raw_frames, ignore_index=True)
+    full["ear_data"] = pd.to_datetime(full["ear_data"], errors="coerce")
+    full["ear_max_subsistema"] = pd.to_numeric(
+        full["ear_max_subsistema"], errors="coerce"
+    )
+    full["ear_verif_subsistema_mwmes"] = pd.to_numeric(
+        full["ear_verif_subsistema_mwmes"], errors="coerce"
+    )
+    full = full[full["id_subsistema"].isin(["SE", "S", "NE", "N"])]
+
+    agg = (
+        full.groupby("ear_data", as_index=False)[
+            ["ear_max_subsistema", "ear_verif_subsistema_mwmes"]
+        ]
+        .sum()
+    )
+    # Divisão por zero extremamente improvável (EARmax nunca zera), mas proteger
+    agg["ear_pct"] = np.where(
+        agg["ear_max_subsistema"] > 0,
+        agg["ear_verif_subsistema_mwmes"] / agg["ear_max_subsistema"] * 100.0,
+        np.nan,
+    )
+
+    out = pd.DataFrame({
+        "data": agg["ear_data"],
+        "subsistema_code": "SIN",
+        "subsistema_nome": "SIN",
+        "ear_pct": agg["ear_pct"],
+    })
+    return out.dropna(subset=["data", "ear_pct"])
+
+
+@st.cache_data(ttl=60 * 60 * 2, show_spinner=False)
+def load_reservatorios() -> pd.DataFrame:
+    """
+    Baixa e consolida EAR por subsistema do ONS + calcula linha SIN agregada.
+
+    Retorna DataFrame long-form:
+      data             datetime64
+      subsistema_code  str    'SE'|'S'|'NE'|'N'|'SIN'
+      subsistema_nome  str    'SUDESTE'|'SUL'|'NORDESTE'|'NORTE'|'SIN'
+      ear_pct          float  0-100
+
+    Fonte: S3 público ONS, 27 anos de parquet (~900KB total).
+
+    Cache em 2 camadas:
+      - Externo (esta função): TTL 2h. Captura atualização diária do ONS.
+      - Interno: _download_reservatorio_parquet_historico(ano) com TTL 30d
+        pra anos fechados (não mudam) → evita re-baixar 26 anos toda vez.
+        Ano corrente é baixado direto (sem cache interno) — refresh a cada 2h.
+
+    clear_cache() limpa só o cache externo. Historic interno sobrevive.
+    Resultado: 'Atualizar' invalida só o ano corrente (histórico preservado).
+    """
+    st.session_state["_debug_erros"] = []
+
+    ano_corrente = datetime.now().year
+
+    raw_frames = []
+    erros = []
+    for ano in RESERVATORIOS_YEARS_AVAILABLE:
+        if ano < ano_corrente:
+            df_raw = _download_reservatorio_parquet_historico(ano)
+        else:
+            # Ano corrente (ou futuro, se alguém colocar): sempre fresh
+            df_raw = _download_reservatorio_parquet_raw(ano)
+        if df_raw is None or df_raw.empty:
+            erros.append(str(ano))
+            continue
+        raw_frames.append(df_raw)
+
+    st.session_state["_erros_carga_reservatorios"] = erros
+
+    if not raw_frames:
+        raise RuntimeError(
+            "Não foi possível baixar dados do ONS "
+            "(ear-diario-por-subsistema) em nenhum ano. "
+            f"Anos com falha: {', '.join(erros)}."
+        )
+
+    subsistema_frames = []
+    for df_raw in raw_frames:
+        try:
+            subsistema_frames.append(_normalize_reservatorios(df_raw))
+        except Exception as e:
+            erros.append(f"parse: {e}")
+
+    sin_df = _compute_sin_aggregate(raw_frames)
+
+    if not subsistema_frames and sin_df.empty:
+        raise RuntimeError("Nenhum frame ONS normalizado com sucesso.")
+
+    df = pd.concat(subsistema_frames + [sin_df], ignore_index=True)
+    df = df.drop_duplicates(subset=["data", "subsistema_code"], keep="last")
+    df = df.sort_values(["subsistema_code", "data"]).reset_index(drop=True)
+    return df
+
+
 def clear_cache() -> None:
-    """Força reload no próximo acesso — limpa cache das 4 granularidades."""
+    """Força reload no próximo acesso — limpa cache de PLD (4 granularidades)
+    e de reservatórios (ONS)."""
     load_pld_media_diaria.clear()
     load_pld_horaria.clear()
     load_pld_media_semanal.clear()
     load_pld_media_mensal.clear()
+    load_reservatorios.clear()

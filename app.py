@@ -21,6 +21,7 @@ from data_loader import (
     load_pld_horaria,
     load_pld_media_semanal,
     load_pld_media_mensal,
+    load_reservatorios,
     clear_cache,
 )
 
@@ -341,6 +342,20 @@ st.markdown(
         top: 3px;
     }}
 
+    /* Botões "primary" do Streamlit (atalhos de período ativos em PLD e
+       Reservatórios): amarelo Bauhaus com borda preta. Hover = vermelho. */
+    .stButton > button[kind="primary"] {{
+        background: {BAUHAUS_YELLOW} !important;
+        color: {BAUHAUS_BLACK} !important;
+        border: 2px solid {BAUHAUS_BLACK} !important;
+        font-weight: 700 !important;
+    }}
+    .stButton > button[kind="primary"]:hover {{
+        background: {BAUHAUS_RED} !important;
+        color: {BAUHAUS_CREAM} !important;
+        border-color: {BAUHAUS_BLACK} !important;
+    }}
+
     /* Divisor */
     hr {{
         border: none !important;
@@ -485,6 +500,91 @@ components.html(
 )
 
 # =============================================================================
+# HELPER: controles de período (atalhos + date_inputs)
+# Reusado pelas abas PLD e Reservatórios. Diferem apenas nos presets
+# (1M/3M/6M/12M/Máx vs 1A/3A/5A/10A/Máx) e nas session_state keys.
+# =============================================================================
+def _render_period_controls(
+    *,
+    presets,          # list[tuple[str, int|None, bool]]: (label, delta_days, is_max)
+    session_key_ini,  # str: chave em session_state pra data_ini
+    session_key_fim,  # str: chave em session_state pra data_fim
+    key_prefix,       # str: prefixo dos keys dos botões (ex: "btn_" ou "btn_res_")
+    min_d,
+    max_d,
+):
+    """Renderiza atalhos + 2 date_inputs numa linha, com botão "primary"
+    amarelo pro preset ativo. Reset de mudança de dataset é responsabilidade
+    do caller (feito antes de chamar esta função)."""
+    data_ini_atual = st.session_state[session_key_ini]
+    data_fim_atual = st.session_state[session_key_fim]
+
+    # Detecta preset ativo comparando com cada entrada da lista
+    preset_atual = None
+    if data_fim_atual == max_d:
+        for label, delta, is_max in presets:
+            if is_max and data_ini_atual == min_d:
+                preset_atual = label
+                break
+            if delta is not None and (max_d - data_ini_atual).days == delta:
+                preset_atual = label
+                break
+
+    n = len(presets)
+    cols = st.columns([1] * n + [0.3, 1.4, 1.4])
+
+    for i, (label, delta, is_max) in enumerate(presets):
+        with cols[i]:
+            tipo = "primary" if label == preset_atual else "secondary"
+            if st.button(
+                label, use_container_width=True,
+                key=f"{key_prefix}{label}", type=tipo,
+            ):
+                if is_max:
+                    st.session_state[session_key_ini] = min_d
+                else:
+                    st.session_state[session_key_ini] = (
+                        max_d - timedelta(days=delta)
+                    )
+                st.session_state[session_key_fim] = max_d
+                st.rerun()
+
+    with cols[n + 1]:
+        st.date_input(
+            "Data inicial", min_value=min_d, max_value=max_d,
+            key=session_key_ini,
+        )
+    with cols[n + 2]:
+        st.date_input(
+            "Data final", min_value=min_d, max_value=max_d,
+            key=session_key_fim,
+        )
+
+
+def _add_wet_season_bands(fig, *, date_start, date_end):
+    """
+    Adiciona faixas verticais azul-claras (período úmido hidrológico BR)
+    ao gráfico Plotly. Período úmido = 1º nov → 30 abr do ano seguinte.
+    Gera uma faixa pra cada período úmido que intersecta [date_start, date_end].
+    """
+    first_year = date_start.year - 1  # margem de segurança
+    last_year = date_end.year
+    for year in range(first_year, last_year + 1):
+        ws = pd.Timestamp(year=year, month=11, day=1).date()
+        we = pd.Timestamp(year=year + 1, month=4, day=30).date()
+        # Só adiciona se intersecta o intervalo visível
+        if we >= date_start and ws <= date_end:
+            fig.add_vrect(
+                x0=max(ws, date_start),
+                x1=min(we, date_end),
+                fillcolor="#B3D4F1",
+                opacity=0.3,
+                layer="below",
+                line_width=0,
+            )
+
+
+# =============================================================================
 # SIDEBAR
 # =============================================================================
 with st.sidebar:
@@ -572,7 +672,7 @@ with st.sidebar:
 
     aba = st.radio(
         "NAVEGAÇÃO",
-        ["PLD Diário"],
+        ["PLD", "Reservatórios"],
         label_visibility="collapsed",
     )
 
@@ -588,7 +688,7 @@ with st.sidebar:
 # Sem barra superior — Sair fica no final da sidebar (vide bloco SIDEBAR abaixo).
 # Assim a página ganha espaço vertical e a topbar nativa do Streamlit (3 pontos)
 # não compete com elementos customizados.
-if aba == "PLD Diário":
+if aba == "PLD":
     # Título principal da aba, em destaque Bauhaus (barra vermelha lateral)
     st.markdown("# PLD")
     # Linha separadora preta abaixo do título — margem muito negativa puxa Período pra cima
@@ -657,88 +757,21 @@ if aba == "PLD Diário":
         st.warning("Sem dados no intervalo selecionado.")
         st.stop()
 
-    # --- Período (controles de data) — sem título, direto os botões e caixas,
-    # para ficar próximo do título PLD e ganhar espaço vertical ---
-
-    # Detectar qual preset está ativo comparando data_ini/data_fim com cada atalho
-    def _preset_ativo(di, df_fim):
-        """Retorna o nome do preset ativo, ou None se for custom."""
-        if df_fim != max_d:
-            return None
-        delta = (max_d - di).days
-        if delta == 30: return "1M"
-        if delta == 90: return "3M"
-        if delta == 180: return "6M"
-        if delta == 365: return "12M"
-        if di == min_d: return "Máx"
-        return None
-
-    preset_atual = _preset_ativo(
-        st.session_state["data_ini"], st.session_state["data_fim"]
+    # --- Período (atalhos + date_inputs) — via helper reusado ---
+    _render_period_controls(
+        presets=[
+            ("1M", 30, False),
+            ("3M", 90, False),
+            ("6M", 180, False),
+            ("12M", 365, False),
+            ("Máx", None, True),
+        ],
+        session_key_ini="data_ini",
+        session_key_fim="data_fim",
+        key_prefix="btn_",
+        min_d=min_d,
+        max_d=max_d,
     )
-
-    # CSS para o botão "primary" do Streamlit (=> estado ativo do atalho)
-    # Em vez de wrappers complicados, usamos type="primary" que o Streamlit
-    # aplica no botão ativo com estilo diferenciado. Redefinimos a cor primary
-    # aqui pra ser o amarelo Bauhaus.
-    st.markdown(
-        f"""
-        <style>
-        .stButton > button[kind="primary"] {{
-            background: {BAUHAUS_YELLOW} !important;
-            color: {BAUHAUS_BLACK} !important;
-            border: 2px solid {BAUHAUS_BLACK} !important;
-            font-weight: 700 !important;
-        }}
-        .stButton > button[kind="primary"]:hover {{
-            background: {BAUHAUS_RED} !important;
-            color: {BAUHAUS_CREAM} !important;
-            border-color: {BAUHAUS_BLACK} !important;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # Atalhos + date inputs na mesma linha
-    p1, p2, p3, p4, p5, psp, pd1, pd2 = st.columns(
-        [1, 1, 1, 1, 1, 0.3, 1.4, 1.4]
-    )
-
-    # Sem label_spacer — vamos alinhar via CSS direto nas caixas de data
-
-    # Função auxiliar — usa type="primary" quando o atalho está ativo
-    def _btn_atalho(col, label, delta_days=None, is_max=False):
-        with col:
-            tipo = "primary" if label == preset_atual else "secondary"
-            if st.button(label, use_container_width=True, key=f"btn_{label}", type=tipo):
-                if is_max:
-                    st.session_state["data_ini"] = min_d
-                else:
-                    st.session_state["data_ini"] = max_d - timedelta(days=delta_days)
-                st.session_state["data_fim"] = max_d
-                st.rerun()
-
-    _btn_atalho(p1, "1M", delta_days=30)
-    _btn_atalho(p2, "3M", delta_days=90)
-    _btn_atalho(p3, "6M", delta_days=180)
-    _btn_atalho(p4, "12M", delta_days=365)
-    _btn_atalho(p5, "Máx", is_max=True)
-
-    with pd1:
-        st.date_input(
-            "Data inicial",
-            min_value=min_d,
-            max_value=max_d,
-            key="data_ini",
-        )
-    with pd2:
-        st.date_input(
-            "Data final",
-            min_value=min_d,
-            max_value=max_d,
-            key="data_fim",
-        )
 
     # --- Seletor de submercados (antes do gráfico) ---
     sel_cols = st.columns([1, 1, 1, 1, 1.3, 4])
@@ -1207,6 +1240,253 @@ if aba == "PLD Diário":
         label="Baixar dados filtrados (CSV)",
         data=csv,
         file_name=f"pld_{granularidade}_{data_ini}_{data_fim}.csv",
+        mime="text/csv",
+        use_container_width=False,
+    )
+
+elif aba == "Reservatórios":
+    st.markdown("# RESERVATÓRIOS")
+    st.markdown(
+        '<div style="border-bottom: 2px solid #1A1A1A; '
+        'margin: 0 0 -1.5rem 0;"></div>',
+        unsafe_allow_html=True,
+    )
+
+    # --- Carregar dados ---
+    with st.spinner("Carregando dados do ONS…"):
+        try:
+            df_res = load_reservatorios()
+        except Exception as e:
+            st.error(f"Falha ao carregar dados do ONS: {e}")
+            debug = st.session_state.get("_debug_erros", [])
+            if debug:
+                st.subheader("Detalhes técnicos do erro")
+                for d in debug[:20]:
+                    st.code(d)
+            st.stop()
+
+    if df_res.empty:
+        st.warning("Nenhum dado disponível.")
+        st.stop()
+
+    # --- Controles de data ---
+    min_d = df_res["data"].min().date()
+    max_d = df_res["data"].max().date()
+
+    # Default: últimos 5 anos. Reseta se o dataset mudar (troca de aba, etc.).
+    if (
+        "res_data_ini" not in st.session_state
+        or st.session_state.get("_res_dataset_max") != max_d
+        or st.session_state.get("_res_dataset_min") != min_d
+    ):
+        st.session_state["res_data_ini"] = max(
+            min_d, max_d - timedelta(days=365 * 5)
+        )
+        st.session_state["res_data_fim"] = max_d
+        st.session_state["_res_dataset_max"] = max_d
+        st.session_state["_res_dataset_min"] = min_d
+
+    data_ini = st.session_state["res_data_ini"]
+    data_fim = st.session_state["res_data_fim"]
+
+    if data_ini > data_fim:
+        st.error("A data inicial não pode ser posterior à data final.")
+        st.stop()
+
+    # --- Filtrar por período (antes dos controles, igual ao PLD) ---
+    mask = (df_res["data"].dt.date >= data_ini) & (
+        df_res["data"].dt.date <= data_fim
+    )
+    dff_res = df_res.loc[mask].copy()
+
+    if dff_res.empty:
+        st.warning("Sem dados no intervalo selecionado.")
+        st.stop()
+
+    # --- Período (atalhos + date_inputs) — via helper reusado ---
+    _render_period_controls(
+        presets=[
+            ("1A", 365, False),
+            ("3A", 1095, False),
+            ("5A", 1825, False),
+            ("10A", 3650, False),
+            ("Máx", None, True),
+        ],
+        session_key_ini="res_data_ini",
+        session_key_fim="res_data_fim",
+        key_prefix="btn_res_",
+        min_d=min_d,
+        max_d=max_d,
+    )
+
+    # Caption: última atualização (data mais recente no dataset).
+    # Usa st.markdown com estilo inline em vez de st.caption pra garantir
+    # cor legível (st.caption pode herdar estilos globais que deixam
+    # ela quase invisível em certos contextos do Streamlit 1.56).
+    ultima_data_ds = df_res["data"].max().date()
+    # Duas notas em linhas separadas, mesma tipografia (caption cinza italic).
+    # Renderizadas em uma única chamada st.markdown pra ficarem coladas.
+    st.markdown(
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+        f'margin:0.4rem 0 0 0;">'
+        f'Dados atualizados diariamente pelo ONS. '
+        f'Última atualização no dataset: {ultima_data_ds.strftime("%d/%m/%Y")}.'
+        f'</div>'
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+        f'margin:0 0 0.6rem 0;">'
+        f'Faixas azuis: período úmido hidrológico (1º nov – 30 abr).'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # --- 5 gráficos empilhados ---
+    CORES_SUBSISTEMA = {
+        "SIN": BAUHAUS_GRAY,    # cinza escuro — "o total"
+        "SE":  BAUHAUS_RED,
+        "S":   BAUHAUS_BLUE,
+        "NE":  BAUHAUS_YELLOW,
+        "N":   BAUHAUS_BLACK,
+    }
+    ORDEM_SUBSISTEMA = ["SIN", "SE", "S", "NE", "N"]
+    LABELS_SUBSISTEMA = {
+        "SIN": "SIN",
+        "SE":  "SUDESTE",
+        "S":   "SUL",
+        "NE":  "NORDESTE",
+        "N":   "NORTE",
+    }
+
+    # Último valor por subsistema — do DATASET COMPLETO (não do filtrado).
+    # Fica no título de cada gráfico, sempre refletindo o publicado mais
+    # recente pelo ONS, independente do período selecionado.
+    ultimo_por_sub = (
+        df_res.sort_values("data")
+        .groupby("subsistema_code")
+        .tail(1)
+        .set_index("subsistema_code")["ear_pct"]
+    )
+
+    data_str_ultima = ultima_data_ds.strftime("%d/%m/%Y")
+
+    for code in ORDEM_SUBSISTEMA:
+        cor = CORES_SUBSISTEMA[code]
+        label = LABELS_SUBSISTEMA[code]
+        ultimo = ultimo_por_sub.get(code)
+        pct_str = (
+            f"{ultimo:.1f}%" if ultimo is not None and pd.notna(ultimo) else ""
+        )
+        # Lado direito: "DD/MM/YYYY · X.X%" (data = última do dataset completo)
+        right_side = (
+            f"{data_str_ultima} · {pct_str}" if pct_str else data_str_ultima
+        )
+
+        # Título Bauhaus: nome à esquerda, data+% à direita, mesma linha.
+        # Flex container com space-between distribui os dois extremos
+        # preenchendo a largura disponível acima do gráfico.
+        st.markdown(
+            f'<div style="display:flex; justify-content:space-between; '
+            f'align-items:baseline; '
+            f'font-family:\'Bebas Neue\', sans-serif; '
+            f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
+            f'margin: 1.2rem 0 0.3rem 0; padding-bottom:3px; '
+            f'border-bottom: 2px solid #1A1A1A;">'
+            f'<span>{label}</span>'
+            f'<span>{right_side}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        ds = dff_res[dff_res["subsistema_code"] == code].sort_values("data")
+        if ds.empty:
+            st.caption(f"Sem dados no período para {label}.")
+            continue
+
+        fig = go.Figure()
+        # Faixas azuis de período úmido (atrás das linhas, sobre o range filtrado)
+        _add_wet_season_bands(fig, date_start=data_ini, date_end=data_fim)
+        fig.add_trace(
+            go.Scatter(
+                x=ds["data"],
+                y=ds["ear_pct"],
+                mode="lines",
+                line=dict(color=cor, width=2.5),
+                name=label,
+                hovertemplate=(
+                    f'<span style="color:{cor}; font-weight:700;">{label}</span>'
+                    '&nbsp;&nbsp;'
+                    '<span style="color:#1A1A1A;">EAR %{y:.1f}%</span>'
+                    '<extra></extra>'
+                ),
+            )
+        )
+        fig.update_layout(
+            height=270,
+            margin=dict(l=20, r=20, t=10, b=20),
+            paper_bgcolor=BAUHAUS_CREAM,
+            plot_bgcolor=BAUHAUS_CREAM,
+            hovermode="x unified",
+            hoverlabel=dict(
+                bgcolor=BAUHAUS_CREAM,
+                bordercolor=BAUHAUS_BLACK,
+                font=dict(
+                    family="'IBM Plex Mono', 'Courier New', monospace",
+                    size=12, color=BAUHAUS_BLACK,
+                ),
+            ),
+            showlegend=False,
+            xaxis=dict(
+                title=None, showgrid=False, showline=True,
+                linewidth=2, linecolor=BAUHAUS_BLACK,
+                ticks="outside", tickcolor=BAUHAUS_BLACK,
+                tickfont=dict(
+                    family="Inter, sans-serif",
+                    size=13, color=BAUHAUS_BLACK,
+                ),
+                hoverformat="%d/%m/%Y",
+            ),
+            yaxis=dict(
+                title=None,
+                # Escala 0-110% compartilhada entre os 5 gráficos.
+                # Acomoda picos >100% (raros, ex: N histórico ~103%) sem
+                # esmagar a faixa normal (0-100%). Não usar range fixo 0-100%
+                # porque o ONS publica valores reais que excedem a capacidade
+                # nominal (enchentes, revisões de EARmax).
+                range=[0, 110],
+                showgrid=True, gridcolor=BAUHAUS_LIGHT, gridwidth=1,
+                showline=True, linewidth=2, linecolor=BAUHAUS_BLACK,
+                ticks="outside", tickcolor=BAUHAUS_BLACK,
+                tickfont=dict(
+                    family="Inter, sans-serif",
+                    size=13, color=BAUHAUS_BLACK,
+                ),
+                zeroline=False, ticksuffix="%",
+            ),
+            font=dict(family="Inter, sans-serif", size=12),
+        )
+        st.plotly_chart(
+            fig, use_container_width=True, config={"displaylogo": False},
+        )
+
+    # --- Export CSV ---
+    st.markdown("### Exportar")
+    csv_pivot = dff_res.pivot_table(
+        index="data", columns="subsistema_code", values="ear_pct",
+        aggfunc="mean",
+    )
+    ordem_csv = [c for c in ORDEM_SUBSISTEMA if c in csv_pivot.columns]
+    csv_pivot = csv_pivot[ordem_csv]
+    csv_export = csv_pivot.reset_index()
+    csv_export["data"] = csv_export["data"].dt.strftime("%d/%m/%Y")
+    csv_export = csv_export.rename(columns={"data": "Data"})
+    csv = csv_export.to_csv(
+        index=False, sep=";", decimal=",",
+    ).encode("utf-8-sig")
+    st.download_button(
+        label="Baixar dados filtrados (CSV)",
+        data=csv,
+        file_name=f"reservatorios_{data_ini}_{data_fim}.csv",
         mime="text/csv",
         use_container_width=False,
     )
