@@ -21,6 +21,7 @@ pld-dashboard/
 ├── data_loader.py          # Ingestão CCEE + cache
 ├── config.yaml             # Usuários e cookie (NÃO commitar)
 ├── gen_password.py         # Utilitário para criar hashes de senha
+├── scripts/                # Utilitários de manutenção (ver seção abaixo)
 ├── requirements.txt
 ├── .streamlit/config.toml  # Tema
 └── .github/workflows/update_data.yml
@@ -171,6 +172,14 @@ Para garantir que alguém "aqueça" o cache antes de você acessar de manhã (e 
 1. No repo GitHub: `Settings > Secrets and variables > Actions > New repository secret`.
 2. Adicione `STREAMLIT_APP_URL` = `https://seu-app.streamlit.app`.
 3. O workflow em `.github/workflows/update_data.yml` vai pingar o app todo dia às 04h BRT.
+
+---
+
+## Scripts utilitários
+
+Ficam em `scripts/` e não são executados pelo app — rodar manualmente quando precisar.
+
+- **`discover_ccee_ids.py`** — descobre os UUIDs de recurso CKAN da CCEE (diário/horário/semanal/mensal) por ano. Rodar quando a CCEE publicar novo ano ou se algum `resource_id` do `data_loader.py` quebrar. Uso: `venv/Scripts/python.exe scripts/discover_ccee_ids.py`.
 
 ---
 

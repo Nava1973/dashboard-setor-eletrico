@@ -16,7 +16,28 @@ import plotly.graph_objects as go
 from datetime import timedelta
 
 from auth import require_login, logout_button
-from data_loader import load_pld_media_diaria, clear_cache
+from data_loader import (
+    load_pld_media_diaria,
+    load_pld_horaria,
+    load_pld_media_semanal,
+    load_pld_media_mensal,
+    clear_cache,
+)
+
+# Mapa de granularidade → loader. Usado por get_pld_df().
+# Fase 1: só "diario" é ativado (session_state hardcoded).
+# Fases 2-3 vão trocar a chave via dropdown no título do gráfico.
+GRANULARIDADES = {
+    "horario": load_pld_horaria,
+    "diario":  load_pld_media_diaria,
+    "semanal": load_pld_media_semanal,
+    "mensal":  load_pld_media_mensal,
+}
+
+
+def get_pld_df(granularidade: str):
+    """Retorna o DataFrame PLD da granularidade selecionada."""
+    return GRANULARIDADES[granularidade]()
 
 # =============================================================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -305,7 +326,19 @@ st.markdown(
     /* TRUQUE: aplicamos filter grayscale APENAS no quadradinho (primeiro span do label)
        Isso dessatura qualquer cor rosa/vermelha pra cinza, sem precisar detectar estado */
     [data-testid="stAppViewContainer"] .stCheckbox label > span:first-child {{
-        filter: grayscale(1) contrast(1.3) !important;
+        filter: grayscale(1) brightness(0.6) contrast(5) !important;
+    }}
+
+    /* Alinhamento vertical: centraliza texto do label com o quadradinho */
+    [data-testid="stAppViewContainer"] .stCheckbox label {{
+        display: flex !important;
+        align-items: center !important;
+    }}
+    [data-testid="stAppViewContainer"] .stCheckbox label p {{
+        margin: 0 !important;
+        line-height: 1 !important;
+        position: relative;
+        top: 3px;
     }}
 
     /* Divisor */
@@ -566,9 +599,12 @@ if aba == "PLD Diário":
     )
 
     # --- Carregar dados ---
+    # Fase 1 do feature de granularidade: session_state default "diario".
+    # O dropdown no título do gráfico (Fase 2) vai atualizar essa chave.
+    st.session_state.setdefault("granularidade", "diario")
     with st.spinner("Carregando dados da CCEE…"):
         try:
-            df = load_pld_media_diaria()
+            df = get_pld_df(st.session_state["granularidade"])
         except Exception as e:
             st.error(f"Falha ao carregar dados da CCEE: {e}")
             debug = st.session_state.get("_debug_erros", [])
@@ -721,17 +757,63 @@ if aba == "PLD Diário":
     if not submercados_selecionados and not mostrar_media:
         st.info("Selecione ao menos um submercado ou a Média BR para visualizar.")
     else:
-        # Subtítulo do gráfico — indica periodicidade (futuramente trocável)
-        periodicidade_label = "PLD médio diário"  # por enquanto fixo; vai virar variável
+        # =====================================================================
+        # Título-dropdown (Fase 2 visual — integração ao gráfico é Fase 3).
+        # st.selectbox estilizado como título Bauhaus. Usa testids estáveis
+        # (stSelectbox + data-baseweb="select") pra sobreviver a upgrades do
+        # Streamlit. Menu aberto mantém visual default BaseWeb — preço
+        # pago por robustez. Não renderizamos "· R$/MWh" aqui porque o
+        # eixo Y do gráfico já mostra a unidade.
+        # Valor escolhido atualiza session_state["granularidade_display"];
+        # o gráfico segue lendo session_state["granularidade"] = "diario"
+        # até a Fase 3 conectar.
+        # =====================================================================
+        LABELS_GRAN = {
+            "horario": "PLD HORÁRIO",
+            "diario":  "PLD MÉDIO DIÁRIO",
+            "semanal": "PLD MÉDIO SEMANAL",
+            "mensal":  "PLD MÉDIO MENSAL",
+        }
+        st.session_state.setdefault("granularidade_display", "diario")
+
+        # CSS: flatten do selectbox pra virar título Bauhaus
         st.markdown(
-            f'<div style="font-family:\'Bebas Neue\', sans-serif; '
-            f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
-            f'margin: 0.8rem 0 0.3rem 0; padding-bottom:3px; '
-            f'border-bottom: 2px solid #1A1A1A;">'
-            f'{periodicidade_label.upper()} · R$/MWh'
-            f'</div>',
+            """
+            <style>
+            [data-testid="stSelectbox"] label {
+                display: none !important;
+            }
+            [data-testid="stSelectbox"] [data-baseweb="select"] > div {
+                border: none !important;
+                border-bottom: 2px solid #1A1A1A !important;
+                border-radius: 0 !important;
+                background: transparent !important;
+                font-family: 'Bebas Neue', sans-serif !important;
+                font-size: 1.1rem !important;
+                letter-spacing: 0.08em !important;
+                color: #1A1A1A !important;
+                padding-left: 0 !important;
+                min-height: 0 !important;
+                cursor: pointer !important;
+            }
+            </style>
+            """,
             unsafe_allow_html=True,
         )
+
+        opcoes_ordem = ["horario", "diario", "semanal", "mensal"]
+        idx_atual = opcoes_ordem.index(st.session_state["granularidade_display"])
+        escolha = st.selectbox(
+            "Granularidade do PLD",
+            options=opcoes_ordem,
+            index=idx_atual,
+            format_func=lambda k: LABELS_GRAN[k],
+            label_visibility="collapsed",
+            key="selectbox_granularidade",
+        )
+        if escolha != st.session_state["granularidade_display"]:
+            st.session_state["granularidade_display"] = escolha
+            st.rerun()
 
         # --- Preparar dados ---
         pivot = dff.pivot_table(
