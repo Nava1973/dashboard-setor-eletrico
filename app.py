@@ -626,10 +626,10 @@ if aba == "PLD Diário":
         if df_fim != max_d:
             return None
         delta = (max_d - di).days
-        if delta == 7: return "7d"
-        if delta == 30: return "30d"
-        if delta == 90: return "90d"
-        if delta == 365: return "1A"
+        if delta == 30: return "1M"
+        if delta == 90: return "3M"
+        if delta == 180: return "6M"
+        if delta == 365: return "12M"
         if di == min_d: return "Máx"
         return None
 
@@ -679,10 +679,10 @@ if aba == "PLD Diário":
                 st.session_state["data_fim"] = max_d
                 st.rerun()
 
-    _btn_atalho(p1, "7d", delta_days=7)
-    _btn_atalho(p2, "30d", delta_days=30)
-    _btn_atalho(p3, "90d", delta_days=90)
-    _btn_atalho(p4, "1A", delta_days=365)
+    _btn_atalho(p1, "1M", delta_days=30)
+    _btn_atalho(p2, "3M", delta_days=90)
+    _btn_atalho(p3, "6M", delta_days=180)
+    _btn_atalho(p4, "12M", delta_days=365)
     _btn_atalho(p5, "Máx", is_max=True)
 
     with pd1:

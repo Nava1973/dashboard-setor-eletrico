@@ -1,0 +1,26 @@
+# Python
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Config com credenciais reais — JAMAIS commitar
+config.yaml
+
+# Streamlit secrets (se existirem no futuro)
+.streamlit/secrets.toml
+
+# Claude Code (settings pessoais)
+.claude/settings.local.json
+
+# SO
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/

@@ -28,31 +28,67 @@ pld-dashboard/
 
 ---
 
-## Setup local
+## Setup local (Windows — passo a passo)
 
-```bash
-# 1. Clonar e entrar na pasta
-cd pld-dashboard
+> Instruções voltadas pra quem está começando. Abra o **Prompt de Comando** (cmd) ou **PowerShell** na pasta onde quer guardar o projeto.
 
-# 2. Criar ambiente virtual
-python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-# .venv\Scripts\activate   # Windows
+### 1. Clonar o repositório
 
-# 3. Instalar dependências
+```cmd
+git clone https://github.com/Nava1973/dashboard-setor-eletrico.git
+cd dashboard-setor-eletrico
+```
+
+### 2. Criar o ambiente virtual (venv) e instalar dependências
+
+```cmd
+python -m venv venv
+venv\Scripts\activate
 pip install -r requirements.txt
+```
 
-# 4. Gerar hash da sua senha e colar em config.yaml
+Você deve ver `(venv)` no começo do prompt, indicando que o ambiente está ativo.
+
+### 3. Criar o `config.yaml` a partir do template
+
+O arquivo `config.yaml` (com seu usuário/senha) **não vem no repositório por segurança**. Você precisa criá-lo localmente:
+
+```cmd
+copy config.yaml.example config.yaml
+```
+
+Agora abra o `config.yaml` no editor (VS Code, Notepad++, etc.) e preencha:
+
+**a) Gerar o hash da sua senha:**
+
+```cmd
 python gen_password.py
+```
 
-# 5. Gerar um secret aleatório para o cookie e colar em config.yaml
+Digite a senha desejada e copie o hash gerado (começa com `$2b$12$...`). Cole no campo `password:` do `config.yaml`.
+
+**b) Gerar uma chave secreta para o cookie:**
+
+```cmd
 python -c "import secrets; print(secrets.token_hex(32))"
+```
 
-# 6. Rodar
+Copie a saída (64 caracteres hexadecimais) e cole no campo `cookie.key:` do `config.yaml`.
+
+**c) Trocar `seu_usuario`, `seu_email@example.com` e `Seu Nome`** pelos seus dados.
+
+### 4. Rodar o app
+
+**Opção A — atalho `.bat` (mais fácil):** dê duplo-clique em `abrir_dashboard.bat`. Ele ativa o `venv` e sobe o Streamlit automaticamente.
+
+**Opção B — manualmente no terminal:**
+
+```cmd
+venv\Scripts\activate
 streamlit run app.py
 ```
 
-Abre em `http://localhost:8501`.
+Abre em `http://localhost:8501`. Faça login com o usuário/senha que você configurou.
 
 ---
 

@@ -1,0 +1,25 @@
+# Template do config.yaml
+#
+# COMO USAR:
+# 1. Copie este arquivo para config.yaml:        copy config.yaml.example config.yaml
+# 2. Gere o hash da sua senha:                   python gen_password.py
+# 3. Cole o hash no campo "password" abaixo
+# 4. Troque o campo "cookie.key" por uma string aleatória longa, por exemplo:
+#        python -c "import secrets; print(secrets.token_hex(32))"
+#
+# IMPORTANTE: config.yaml NUNCA deve ir pro GitHub (já está no .gitignore).
+#             Apenas este .example é versionado.
+
+credentials:
+  usernames:
+    seu_usuario:
+      email: seu_email@example.com
+      name: Seu Nome
+      password: COLE_AQUI_O_HASH_BCRYPT_GERADO_POR_gen_password.py
+cookie:
+  name: dashboard_setor_eletrico
+  key: TROCAR_POR_STRING_ALEATORIA_LONGA_E_SECRETA
+  expiry_days: 30
+preauthorized:
+  emails:
+    - seu_email@example.com
