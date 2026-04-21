@@ -1040,11 +1040,235 @@ def load_reservatorios() -> pd.DataFrame:
     return df
 
 
+# =============================================================================
+# ENA / CHUVA (ONS)
+# =============================================================================
+# Dataset: ena-diario-por-subsistema (CKAN ONS, só pra metadata).
+# Origem real dos arquivos: AWS S3 público, virtual-hosted style.
+# URL pattern (XLSX pra todos os anos — parquet só existe 2021+):
+#   https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/ena_subsistema_di/
+#     ENA_DIARIO_SUBSISTEMA_{YYYY}.xlsx
+#
+# Schema do xlsx/parquet ONS (validado na Fase A, ver docs/ena_research.md):
+#   id_subsistema                         (str)  'N','NE','S','SE'
+#   nom_subsistema                        (str)  'NORTE','NORDESTE','SUL','SUDESTE'
+#   ena_data                              (str ISO 'YYYY-MM-DD' ou datetime)
+#   ena_bruta_regiao_mwmed                (float, MWmed)  ← métrica principal
+#   ena_bruta_regiao_percentualmlt        (float, %)
+#   ena_armazenavel_regiao_mwmed          (float, MWmed)  ← armazenável (fio d'água excluído)
+#   ena_armazenavel_regiao_percentualmlt  (float, %)
+#
+# Schema de saída (long-form):
+#   data (datetime), subsistema_code (str), subsistema_nome (str),
+#   ena_mwmed (float), ena_armazenavel_mwmed (float), ena_mlt_pct (float)
+#
+# SIN é CALCULADO por soma simples dos 4 subsistemas (ENA é fluxo — soma faz
+# sentido físico direto, diferente do EAR que usa ponderação por EARmax):
+#   SIN_mwmed(data)            = N + NE + S + SE
+#   SIN_armazenavel_mwmed(data)= N + NE + S + SE (armazenavel)
+#   SIN_mlt_pct(data)          = sum(ena_mwmed) / sum(mlt_absoluta_sub) × 100
+#     onde mlt_absoluta_sub = ena_mwmed_sub / (pct_mlt_sub / 100)
+#   (fórmula equivalente a média ponderada dos pcts pelas MLTs absolutas)
+#
+# Por que XLSX e não PARQUET? ONS só publica parquet pra 2021-2026 — XLSX
+# cobre os 27 anos (2000-2026) com schema idêntico. 27 × ~75KB ≈ 2MB total,
+# irrelevante. Código único pra todos os anos = manutenção simples.
+# =============================================================================
+
+ONS_ENA_SUBSISTEMA_URL = (
+    "https://ons-aws-prod-opendata.s3.amazonaws.com/"
+    "dataset/ena_subsistema_di/ENA_DIARIO_SUBSISTEMA_{ano}.xlsx"
+)
+
+# Anos disponíveis (confirmado Fase A: 2000-2026). Rever anualmente.
+ENA_YEARS_AVAILABLE = list(range(2000, 2027))
+
+
+def _download_ena_xlsx_raw(ano: int) -> pd.DataFrame | None:
+    """Baixa 1 ano de ENA por subsistema em xlsx do S3 ONS. Sem cache."""
+    url = ONS_ENA_SUBSISTEMA_URL.format(ano=ano)
+    try:
+        r = _http_get(url, headers=BROWSER_HEADERS, timeout=60)
+        r.raise_for_status()
+    except Exception as e:
+        errs = st.session_state.setdefault("_debug_erros", [])
+        errs.append(f"ONS ENA {ano} (download): {type(e).__name__}: {e}")
+        return None
+
+    try:
+        return pd.read_excel(io.BytesIO(r.content))
+    except Exception as e:
+        errs = st.session_state.setdefault("_debug_erros", [])
+        errs.append(f"ONS ENA {ano} (parse xlsx): {type(e).__name__}: {e}")
+        return None
+
+
+@st.cache_data(ttl=60 * 60 * 24 * 30, show_spinner=False)
+def _download_ena_xlsx_historico(ano: int) -> pd.DataFrame | None:
+    """Ano fechado — cache de 30 dias. Mesmo padrão do EAR (anos fechados
+    são imutáveis no ONS). clear_cache() não limpa este — invalidar só
+    manualmente se suspeitar de reedição (raro)."""
+    return _download_ena_xlsx_raw(ano)
+
+
+def _normalize_ena(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normaliza schema ONS ENA pra long-form com 3 métricas numéricas.
+      (data, subsistema_code, subsistema_nome,
+       ena_mwmed, ena_armazenavel_mwmed, ena_mlt_pct)
+    """
+    df.columns = [str(c).strip() for c in df.columns]
+
+    col_code = "id_subsistema"
+    col_nome = "nom_subsistema"
+    col_data = "ena_data"
+    col_mwmed      = "ena_bruta_regiao_mwmed"
+    col_armaz      = "ena_armazenavel_regiao_mwmed"
+    col_mlt        = "ena_bruta_regiao_percentualmlt"
+
+    missing = [
+        c for c in (col_code, col_nome, col_data, col_mwmed, col_armaz, col_mlt)
+        if c not in df.columns
+    ]
+    if missing:
+        raise ValueError(
+            f"Colunas ONS ENA faltando: {missing}. Presentes: {list(df.columns)}"
+        )
+
+    out = pd.DataFrame({
+        "data": pd.to_datetime(df[col_data], errors="coerce"),
+        "subsistema_code": df[col_code].astype(str).str.strip().str.upper(),
+        "subsistema_nome": df[col_nome].astype(str).str.strip().str.upper(),
+        "ena_mwmed": pd.to_numeric(df[col_mwmed], errors="coerce"),
+        "ena_armazenavel_mwmed": pd.to_numeric(df[col_armaz], errors="coerce"),
+        "ena_mlt_pct": pd.to_numeric(df[col_mlt], errors="coerce"),
+    })
+    out = out.dropna(subset=["data", "subsistema_code", "ena_mwmed"])
+    out = out[out["subsistema_code"].isin(["SE", "S", "NE", "N"])]
+    return out
+
+
+def _compute_ena_sin_aggregate(subsistema_frames: list[pd.DataFrame]) -> pd.DataFrame:
+    """
+    Calcula série SIN a partir dos frames já normalizados dos 4 subsistemas.
+
+    - ena_mwmed           : soma simples (N+NE+S+SE) — fluxo físico
+    - ena_armazenavel_mwmed: soma simples
+    - ena_mlt_pct         : sum(ena_mwmed) / sum(mlt_absoluta) × 100
+                           onde mlt_abs_sub = ena_mwmed_sub / (pct_mlt_sub / 100)
+
+    Retorna schema idêntico ao normalizer, com code='SIN', nome='SIN'.
+    """
+    if not subsistema_frames:
+        return pd.DataFrame(
+            columns=["data", "subsistema_code", "subsistema_nome",
+                     "ena_mwmed", "ena_armazenavel_mwmed", "ena_mlt_pct"]
+        )
+
+    full = pd.concat(subsistema_frames, ignore_index=True)
+    full = full[full["subsistema_code"].isin(["SE", "S", "NE", "N"])]
+
+    # Derivar MLT absoluta por subsistema/data (revertendo o pct)
+    pct = full["ena_mlt_pct"]
+    full = full.assign(
+        _mlt_abs=np.where(pct > 0, full["ena_mwmed"] / (pct / 100.0), np.nan)
+    )
+
+    agg = (
+        full.groupby("data", as_index=False)
+        .agg(
+            ena_mwmed=("ena_mwmed", "sum"),
+            ena_armazenavel_mwmed=("ena_armazenavel_mwmed", "sum"),
+            _mlt_abs_sum=("_mlt_abs", "sum"),
+        )
+    )
+    agg["ena_mlt_pct"] = np.where(
+        agg["_mlt_abs_sum"] > 0,
+        agg["ena_mwmed"] / agg["_mlt_abs_sum"] * 100.0,
+        np.nan,
+    )
+    agg = agg.drop(columns=["_mlt_abs_sum"])
+
+    agg["subsistema_code"] = "SIN"
+    agg["subsistema_nome"] = "SIN"
+    return agg[[
+        "data", "subsistema_code", "subsistema_nome",
+        "ena_mwmed", "ena_armazenavel_mwmed", "ena_mlt_pct",
+    ]]
+
+
+@st.cache_data(ttl=60 * 60 * 2, show_spinner=False)
+def load_ena() -> pd.DataFrame:
+    """
+    Baixa e consolida ENA por subsistema do ONS + calcula linha SIN agregada.
+
+    Retorna DataFrame long-form:
+      data                    datetime64
+      subsistema_code         str    'SE'|'S'|'NE'|'N'|'SIN'
+      subsistema_nome         str    'SUDESTE'|'SUL'|'NORDESTE'|'NORTE'|'SIN'
+      ena_mwmed               float  ENA bruta (MWmed) — métrica principal
+      ena_armazenavel_mwmed   float  ENA armazenável (MWmed)
+      ena_mlt_pct             float  % da MLT (bruta)
+
+    Fonte: S3 público ONS, 27 anos de XLSX (~2MB total).
+
+    Cache em 2 camadas (mesmo padrão do load_reservatorios):
+      - Externo (esta função): TTL 2h. Captura atualização diária do ONS.
+      - Interno: _download_ena_xlsx_historico(ano) com TTL 30d pra anos
+        fechados → evita re-baixar 26 anos toda vez. Ano corrente é
+        baixado direto (sem cache interno) — refresh a cada 2h.
+
+    clear_cache() limpa só o cache externo. Historic interno sobrevive.
+    """
+    st.session_state["_debug_erros"] = []
+
+    ano_corrente = datetime.now().year
+
+    raw_frames = []
+    erros = []
+    for ano in ENA_YEARS_AVAILABLE:
+        if ano < ano_corrente:
+            df_raw = _download_ena_xlsx_historico(ano)
+        else:
+            df_raw = _download_ena_xlsx_raw(ano)
+        if df_raw is None or df_raw.empty:
+            erros.append(str(ano))
+            continue
+        raw_frames.append(df_raw)
+
+    st.session_state["_erros_carga_ena"] = erros
+
+    if not raw_frames:
+        raise RuntimeError(
+            "Não foi possível baixar dados do ONS "
+            "(ena-diario-por-subsistema) em nenhum ano. "
+            f"Anos com falha: {', '.join(erros)}."
+        )
+
+    subsistema_frames = []
+    for df_raw in raw_frames:
+        try:
+            subsistema_frames.append(_normalize_ena(df_raw))
+        except Exception as e:
+            erros.append(f"parse: {e}")
+
+    sin_df = _compute_ena_sin_aggregate(subsistema_frames)
+
+    if not subsistema_frames and sin_df.empty:
+        raise RuntimeError("Nenhum frame ENA normalizado com sucesso.")
+
+    df = pd.concat(subsistema_frames + [sin_df], ignore_index=True)
+    df = df.drop_duplicates(subset=["data", "subsistema_code"], keep="last")
+    df = df.sort_values(["subsistema_code", "data"]).reset_index(drop=True)
+    return df
+
+
 def clear_cache() -> None:
-    """Força reload no próximo acesso — limpa cache de PLD (4 granularidades)
-    e de reservatórios (ONS)."""
+    """Força reload no próximo acesso — limpa cache de PLD (4 granularidades),
+    reservatórios (ONS EAR) e ENA (ONS)."""
     load_pld_media_diaria.clear()
     load_pld_horaria.clear()
     load_pld_media_semanal.clear()
     load_pld_media_mensal.clear()
     load_reservatorios.clear()
+    load_ena.clear()

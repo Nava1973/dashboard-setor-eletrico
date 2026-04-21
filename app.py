@@ -22,6 +22,7 @@ from data_loader import (
     load_pld_media_semanal,
     load_pld_media_mensal,
     load_reservatorios,
+    load_ena,
     clear_cache,
 )
 
@@ -561,6 +562,64 @@ def _render_period_controls(
         )
 
 
+def _wet_season_window(last_date):
+    """
+    Janela do período úmido relevante pros KPIs da aba ENA.
+    - Se last_date está em 01-nov a 30-abr: úmido ATUAL (01-nov mais
+      recente até last_date).
+    - Caso contrário (mai-out): último úmido COMPLETO (01-nov do ano
+      anterior a 30-abr do ano atual).
+    Retorna (date_start, date_end).
+    """
+    y, m = last_date.year, last_date.month
+    if m >= 11:
+        return pd.Timestamp(year=y, month=11, day=1).date(), last_date
+    if m <= 4:
+        return pd.Timestamp(year=y - 1, month=11, day=1).date(), last_date
+    return (
+        pd.Timestamp(year=y - 1, month=11, day=1).date(),
+        pd.Timestamp(year=y, month=4, day=30).date(),
+    )
+
+
+def _compute_kpi_mlt_pct(df_ena, subsistema_code, date_start, date_end):
+    """
+    KPI ponderado: ENA acumulada / MLT acumulada no período × 100.
+
+    Pra 'SIN' agrega N+NE+S+SE (ignora a linha SIN pré-calculada pra
+    deixar a agregação explícita — matematicamente equivalente).
+
+    MLT absoluta é derivada de ena_mwmed / (ena_mlt_pct/100) por linha.
+    Linhas com pct<=0, NaN em pct ou NaN em mwmed são descartadas
+    (MLT indefinida).
+
+    Retorna float (% MLT) ou NaN se dados insuficientes no período.
+    """
+    mask = (
+        (df_ena["data"].dt.date >= date_start)
+        & (df_ena["data"].dt.date <= date_end)
+    )
+    if subsistema_code == "SIN":
+        sub_filter = df_ena["subsistema_code"].isin(["N", "NE", "S", "SE"])
+    else:
+        sub_filter = df_ena["subsistema_code"] == subsistema_code
+
+    w = df_ena[mask & sub_filter]
+    valid = (
+        (w["ena_mlt_pct"] > 0)
+        & w["ena_mwmed"].notna()
+        & w["ena_mlt_pct"].notna()
+    )
+    w = w[valid]
+    if w.empty:
+        return float("nan")
+    num = w["ena_mwmed"].sum()
+    den = (w["ena_mwmed"] / (w["ena_mlt_pct"] / 100.0)).sum()
+    if den <= 0:
+        return float("nan")
+    return num / den * 100.0
+
+
 def _add_wet_season_bands(fig, *, date_start, date_end):
     """
     Adiciona faixas verticais azul-claras (período úmido hidrológico BR)
@@ -672,7 +731,7 @@ with st.sidebar:
 
     aba = st.radio(
         "NAVEGAÇÃO",
-        ["PLD", "Reservatórios"],
+        ["PLD", "Reservatórios", "ENA/Chuva"],
         label_visibility="collapsed",
     )
 
@@ -1487,6 +1546,346 @@ elif aba == "Reservatórios":
         label="Baixar dados filtrados (CSV)",
         data=csv,
         file_name=f"reservatorios_{data_ini}_{data_fim}.csv",
+        mime="text/csv",
+        use_container_width=False,
+    )
+
+elif aba == "ENA/Chuva":
+    st.markdown("# ENA/Chuva")
+    st.markdown(
+        '<div style="border-bottom: 2px solid #1A1A1A; '
+        'margin: 0 0 -1.5rem 0;"></div>',
+        unsafe_allow_html=True,
+    )
+
+    # --- Carregar dados ---
+    with st.spinner("Carregando dados do ONS…"):
+        try:
+            df_ena = load_ena()
+        except Exception as e:
+            st.error(f"Falha ao carregar dados do ONS: {e}")
+            debug = st.session_state.get("_debug_erros", [])
+            if debug:
+                st.subheader("Detalhes técnicos do erro")
+                for d in debug[:20]:
+                    st.code(d)
+            st.stop()
+
+    if df_ena.empty:
+        st.warning("Nenhum dado disponível.")
+        st.stop()
+
+    # --- Controles de data ---
+    min_d = df_ena["data"].min().date()
+    max_d = df_ena["data"].max().date()
+
+    # Default: últimos 5 anos. Reseta se o dataset mudar.
+    if (
+        "ena_data_ini" not in st.session_state
+        or st.session_state.get("_ena_dataset_max") != max_d
+        or st.session_state.get("_ena_dataset_min") != min_d
+    ):
+        st.session_state["ena_data_ini"] = max(
+            min_d, max_d - timedelta(days=365 * 5)
+        )
+        st.session_state["ena_data_fim"] = max_d
+        st.session_state["_ena_dataset_max"] = max_d
+        st.session_state["_ena_dataset_min"] = min_d
+
+    data_ini = st.session_state["ena_data_ini"]
+    data_fim = st.session_state["ena_data_fim"]
+
+    if data_ini > data_fim:
+        st.error("A data inicial não pode ser posterior à data final.")
+        st.stop()
+
+    mask = (df_ena["data"].dt.date >= data_ini) & (
+        df_ena["data"].dt.date <= data_fim
+    )
+    dff_ena = df_ena.loc[mask].copy()
+
+    if dff_ena.empty:
+        st.warning("Sem dados no intervalo selecionado.")
+        st.stop()
+
+    # --- Período (atalhos + date_inputs) — via helper reusado ---
+    _render_period_controls(
+        presets=[
+            ("1A", 365, False),
+            ("3A", 1095, False),
+            ("5A", 1825, False),
+            ("10A", 3650, False),
+            ("Máx", None, True),
+        ],
+        session_key_ini="ena_data_ini",
+        session_key_fim="ena_data_fim",
+        key_prefix="btn_ena_",
+        min_d=min_d,
+        max_d=max_d,
+    )
+
+    # Notas explicativas (mesma tipografia da aba Reservatórios).
+    ultima_data_ds = df_ena["data"].max().date()
+    st.markdown(
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+        f'margin:0.4rem 0 0 0;">'
+        f'ENA em % da MLT (Média de Longo Termo — ONS). '
+        f'100% indica a média histórica do mês. '
+        f'Dados atualizados diariamente pelo ONS. '
+        f'Última atualização: {ultima_data_ds.strftime("%d/%m/%Y")}.'
+        f'</div>'
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+        f'margin:0 0 0 0;">'
+        f'Faixas azuis: período úmido hidrológico (1º nov – 30 abr).'
+        f'</div>'
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+        f'margin:0 0 0.6rem 0;">'
+        f'Valores acima de 250% aparecem cortados no gráfico — '
+        f'passe o mouse para ver o valor real.'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # --- 5 gráficos empilhados ---
+    CORES_SUBSISTEMA_ENA = {
+        "SIN": BAUHAUS_GRAY,    # cinza escuro — "o total"
+        "SE":  BAUHAUS_RED,
+        "S":   BAUHAUS_BLUE,
+        "NE":  BAUHAUS_YELLOW,
+        "N":   BAUHAUS_BLACK,
+    }
+    ORDEM_SUBSISTEMA_ENA = ["SIN", "SE", "S", "NE", "N"]
+    LABELS_SUBSISTEMA_ENA = {
+        "SIN": "SIN",
+        "SE":  "SUDESTE",
+        "S":   "SUL",
+        "NE":  "NORDESTE",
+        "N":   "NORTE",
+    }
+
+    # Último valor por subsistema — do DATASET COMPLETO (não do filtrado).
+    ultimo_por_sub_ena = (
+        df_ena.sort_values("data")
+        .groupby("subsistema_code")
+        .tail(1)
+        .set_index("subsistema_code")["ena_mlt_pct"]
+    )
+
+    data_str_ultima = ultima_data_ds.strftime("%d/%m/%Y")
+
+    # Eixo Y FIXO 0-250% compartilhado pelos 5 gráficos (decisão 5.7 CLAUDE.md).
+    # Range derivado-do-filtro seria esticado por picos raros (ENA pode chegar
+    # a ~1000% da MLT em eventos hidrológicos excepcionais, achatando toda a
+    # faixa 0-200% que é onde 95% dos dados vivem). Valores acima de 250% NÃO
+    # são filtrados — ficam cortados visualmente e o hover segue mostrando o
+    # valor real (ver 3ª nota explicativa acima).
+    Y_RANGE_ENA = [0, 250]
+
+    # CSS dos KPI cards (injetado uma vez antes do loop). Estilo local à
+    # aba ENA — se precisar reusar noutra aba, mover pro bloco CSS global
+    # do topo do arquivo e renomear as classes.
+    st.markdown(
+        """
+        <style>
+        .ena-kpi-card {
+            text-align: center;
+            padding: 0.15rem 0.3rem;
+        }
+        .ena-kpi-label {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #6B6B6B;
+            font-weight: 600;
+            margin-bottom: 0.15rem;
+            white-space: nowrap;
+            line-height: 1.2;
+        }
+        .ena-kpi-value {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.4rem;
+            color: #1A1A1A;
+            letter-spacing: 0.02em;
+            line-height: 1.1;
+        }
+        .ena-kpi-separator {
+            border-bottom: 1px solid #E0E0E0;
+            margin: 0.2rem 0 0.6rem 0;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Janelas dos KPIs — fixas (referência = última data do dataset, não
+    # o filtro de período). Calculadas 1 vez antes do loop.
+    _kpi_windows = [
+        ("Último mês",
+         ultima_data_ds - timedelta(days=30),  ultima_data_ds),
+        ("Últimos 3 meses",
+         ultima_data_ds - timedelta(days=90),  ultima_data_ds),
+        ("Últimos 12 meses",
+         ultima_data_ds - timedelta(days=365), ultima_data_ds),
+        ("Período úmido atual",
+         *_wet_season_window(ultima_data_ds)),
+    ]
+
+    for code in ORDEM_SUBSISTEMA_ENA:
+        cor = CORES_SUBSISTEMA_ENA[code]
+        label = LABELS_SUBSISTEMA_ENA[code]
+        ultimo = ultimo_por_sub_ena.get(code)
+        if ultimo is not None and pd.notna(ultimo):
+            # Zero decimais na aba ENA (contraste com EAR que usa .1f).
+            val_str = f"{int(round(ultimo))}%"
+        else:
+            val_str = ""
+        right_side = (
+            f"{data_str_ultima} · {val_str}" if val_str
+            else data_str_ultima
+        )
+
+        st.markdown(
+            f'<div style="display:flex; justify-content:space-between; '
+            f'align-items:baseline; '
+            f'font-family:\'Bebas Neue\', sans-serif; '
+            f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
+            f'margin: 1.2rem 0 0.3rem 0; padding-bottom:3px; '
+            f'border-bottom: 2px solid #1A1A1A;">'
+            f'<span>{label}</span>'
+            f'<span>{right_side}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        # 4 KPIs ponderados (ENA acumulada / MLT acumulada × 100) pro
+        # subsistema, entre o título Bauhaus e o gráfico.
+        kpi_cols = st.columns([1, 1, 1, 1])
+        for (kpi_label, d_start, d_end), col in zip(_kpi_windows, kpi_cols):
+            value = _compute_kpi_mlt_pct(df_ena, code, d_start, d_end)
+            kpi_val_str = (
+                f"{int(round(value))}%" if pd.notna(value) else "—"
+            )
+            with col:
+                st.markdown(
+                    f'<div class="ena-kpi-card">'
+                    f'<div class="ena-kpi-label">{kpi_label}</div>'
+                    f'<div class="ena-kpi-value">{kpi_val_str}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+        st.markdown(
+            '<div class="ena-kpi-separator"></div>',
+            unsafe_allow_html=True,
+        )
+
+        ds = dff_ena[dff_ena["subsistema_code"] == code].sort_values("data")
+        if ds.empty:
+            st.caption(f"Sem dados no período para {label}.")
+            continue
+
+        fig = go.Figure()
+        # Faixas azuis de período úmido — mesma função dos Reservatórios
+        _add_wet_season_bands(fig, date_start=data_ini, date_end=data_fim)
+        # Linha de referência em 100% (média histórica MLT). Tracejada cinza
+        # suave — indica "exatamente na média do mês", acima = chuva acima
+        # do normal, abaixo = seco em relação ao histórico.
+        fig.add_hline(
+            y=100,
+            line_dash="dash",
+            line_color="#6B6B6B",
+            line_width=1.2,
+            opacity=0.45,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=ds["data"],
+                y=ds["ena_mlt_pct"],
+                mode="lines",
+                line=dict(color=cor, width=2.5),
+                name=label,
+                hovertemplate=(
+                    f'<span style="color:{cor}; font-weight:700;">{label}</span>'
+                    '&nbsp;&nbsp;'
+                    '<span style="color:#1A1A1A;">ENA %{y:.0f}% MLT</span>'
+                    '<extra></extra>'
+                ),
+            )
+        )
+        fig.update_layout(
+            height=270,
+            margin=dict(l=20, r=20, t=10, b=20),
+            paper_bgcolor=BAUHAUS_CREAM,
+            plot_bgcolor=BAUHAUS_CREAM,
+            # separators=",." → decimal vírgula, milhar ponto (padrão BR).
+            # Aplica aos d3-format strings como %{y:.0f} no hovertemplate/tick.
+            separators=",.",
+            hovermode="x unified",
+            hoverlabel=dict(
+                bgcolor=BAUHAUS_CREAM,
+                bordercolor=BAUHAUS_BLACK,
+                font=dict(
+                    family="'IBM Plex Mono', 'Courier New', monospace",
+                    size=12, color=BAUHAUS_BLACK,
+                ),
+            ),
+            showlegend=False,
+            xaxis=dict(
+                title=None, showgrid=False, showline=True,
+                linewidth=2, linecolor=BAUHAUS_BLACK,
+                ticks="outside", tickcolor=BAUHAUS_BLACK,
+                tickfont=dict(
+                    family="Inter, sans-serif",
+                    size=13, color=BAUHAUS_BLACK,
+                ),
+                hoverformat="%d/%m/%Y",
+            ),
+            yaxis=dict(
+                title=None,
+                # Range fixo 0-250%. Ver bloco Y_RANGE_ENA acima.
+                range=Y_RANGE_ENA,
+                showgrid=True, gridcolor=BAUHAUS_LIGHT, gridwidth=1,
+                showline=True, linewidth=2, linecolor=BAUHAUS_BLACK,
+                ticks="outside", tickcolor=BAUHAUS_BLACK,
+                tickfont=dict(
+                    family="Inter, sans-serif",
+                    size=13, color=BAUHAUS_BLACK,
+                ),
+                zeroline=False,
+                tickformat=".0f",
+                ticksuffix="%",
+            ),
+            font=dict(family="Inter, sans-serif", size=12),
+        )
+        st.plotly_chart(
+            fig, use_container_width=True, config={"displaylogo": False},
+        )
+
+    # --- Export CSV ---
+    # Valores em % MLT (mesma métrica dos gráficos). Colunas mantêm nomes
+    # curtos (SIN/SE/S/NE/N) — unidade fica implícita pelo filename
+    # `ena_*.csv` + pela nota explicativa acima. Documentado no CLAUDE.md.
+    st.markdown("### Exportar")
+    csv_pivot = dff_ena.pivot_table(
+        index="data", columns="subsistema_code", values="ena_mlt_pct",
+        aggfunc="mean",
+    )
+    # Ordem: SIN, SE, S, NE, N (mesma dos gráficos)
+    ordem_csv = [c for c in ORDEM_SUBSISTEMA_ENA if c in csv_pivot.columns]
+    csv_pivot = csv_pivot[ordem_csv]
+    csv_export = csv_pivot.reset_index()
+    csv_export["data"] = csv_export["data"].dt.strftime("%d/%m/%Y")
+    csv_export = csv_export.rename(columns={"data": "Data"})
+    csv = csv_export.to_csv(
+        index=False, sep=";", decimal=",",
+    ).encode("utf-8-sig")
+    st.download_button(
+        label="Baixar dados filtrados (CSV)",
+        data=csv,
+        file_name=f"ena_{data_ini}_{data_fim}.csv",
         mime="text/csv",
         use_container_width=False,
     )

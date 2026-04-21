@@ -83,7 +83,8 @@ Adicional Reservatórios: `#B3D4F1` = azul claro das faixas de período úmido.
 | `load_pld_media_semanal()` | CCEE semanal | 12h | `(data=ini-semana, submercado, pld)` |
 | `load_pld_media_mensal()` | CCEE mensal | 12h | `(data=1º dia mês, submercado, pld)` |
 | `load_reservatorios()` | ONS EAR | 2h (+ 30d interno pros anos fechados) | `(data, subsistema_code, subsistema_nome, ear_pct)` |
-| `clear_cache()` | — | — | Limpa as 5 |
+| `load_ena()` | ONS ENA | 2h (+ 30d interno pros anos fechados) | `(data, subsistema_code, subsistema_nome, ena_mwmed, ena_armazenavel_mwmed, ena_mlt_pct)` |
+| `clear_cache()` | — | — | Limpa as 6 |
 
 **Padrões internos:**
 - `_http_get()` usa curl_cffi se disponível, fallback requests.
@@ -281,6 +282,47 @@ Aceita visual default BaseWeb no menu aberto como preço da robustez.
 Agregado: seta ▾ via `::after`, `width: fit-content` pra encolher ao texto,
 SVG chevron default escondido.
 
+### 5.7 ENA: métrica é % MLT (normalizada), eixo Y compartilhado
+
+**Decisão:** na aba ENA a métrica plotada é **`ena_mlt_pct`** (% da Média de
+Longo Termo — ONS), não MWmed absoluto. Os 5 gráficos compartilham o mesmo
+eixo Y **fixo em 0-250%**. Linha tracejada cinza em **100%** marca a média
+histórica do mês. **Formato: zero casas decimais** (contraste com EAR que
+usa 1 decimal — ENA varia mais bruscamente, decimal em % de MLT agrega
+pouca informação vs. dígitos extras no display).
+
+**Por que range fixo 0-250%:** ENA pode atingir ~1000% da MLT em eventos
+hidrológicos excepcionais (enchentes regionais extremas). Um range
+derivado-do-filtro seria esticado por esses picos raros, achatando a faixa
+0-200% que é onde ~95% dos dados vivem. Range fixo preserva resolução
+visual na faixa informativa. Picos acima de 250% **não são filtrados dos
+dados** — ficam visualmente cortados no topo do gráfico e o hover continua
+mostrando o valor real (ex: 487,3% MLT). A 3ª nota explicativa acima da
+aba avisa o leitor.
+
+**Razão:** % MLT é métrica **normalizada** — todos os subsistemas têm a
+mesma dinâmica (em torno de 100%), comparação direta entre eles faz sentido
+visualmente. Situação análoga ao EAR dos Reservatórios.
+
+**Contraste com MWmed absoluto:** se a métrica fosse MWmed (variante que
+consideramos antes), o gap de até 40× entre subsistemas (SE cheio ~110k
+MWmed vs NE seco ~600) achataria N/NE em escala compartilhada. Nesse caso
+o certo seria eixo independente por gráfico. A escolha de eixo segue a
+natureza da métrica, não o dataset.
+
+**Regra:** escala compartilhada **se** a unidade for intrinsecamente
+comparável (%, fator, índice normalizado). Escala automática por gráfico
+pra unidades absolutas (MW/MWh/MWmed) com gap grande entre séries.
+
+**Exposição no DataFrame:** `ena_mwmed` e `ena_armazenavel_mwmed` continuam
+no schema long-form retornado por `load_ena()` — podem ser expostos no
+futuro via toggle se surgir demanda. Hoje a UI plota apenas `ena_mlt_pct`.
+
+**Export CSV ENA:** colunas com nomes curtos (`SIN`, `SE`, `S`, `NE`, `N`)
+sem sufixo de unidade. **Valores em % MLT** — unidade implícita no filename
+`ena_*.csv` e na primeira nota explicativa acima da aba. Esse é um trade-off
+deliberado pra manter consistência visual com o export dos Reservatórios.
+
 ### 5.6 Refatoração `_render_period_controls()`
 
 PLD tinha atalhos inline com helpers locais (`_preset_ativo`, `_btn_atalho`,
@@ -363,17 +405,47 @@ Utilitários de manutenção, **não executados pelo app**. Rodar manualmente.
    reusável. CSS `primary button` global.
 10. **Renomeação final** — radio "PLD Diário" → "PLD" (granularidade já
     está no dropdown interno).
+11. **Fase A ENA** — descoberta dataset `ena-diario-por-subsistema` no CKAN
+    ONS (análogo ao EAR). Schema validado via `scripts/inspect_ena.py`,
+    doc em `docs/ena_research.md`. Descoberta relevante: parquet só cobre
+    2021-2026 (vs EAR que cobre 2000-2026) → decisão de usar XLSX pra tudo.
+12. **Fase B ENA** — `load_ena()` em `data_loader.py` com schema long-form
+    (ena_mwmed, ena_armazenavel_mwmed, ena_mlt_pct). SIN dos MWmed via
+    **soma simples** (fluxo); SIN do mlt_pct via **reversão da MLT absoluta**
+    (`ena_mwmed / (pct/100)` por subsistema/data, somar, dividir soma-de-ENA
+    por soma-de-MLT, multiplicar por 100). Cache split 30d/2h igual ao EAR.
+    `scripts/validate_ena.py` análogo. 48.030 linhas × 2000-2026.
+13. **Fase C/D ENA** — aba "ENA/Chuva" no radio da sidebar com 5 gráficos
+    (SIN + SE/S/NE/N), eixo Y compartilhado fixo **0-250%** (métrica % MLT,
+    **zero casas decimais**), hline tracejada em 100%, título
+    "SUBSISTEMA · DD/MM/YYYY · XX%", hover em % MLT (mostra valor real
+    mesmo quando ponto sai visualmente do range), export CSV com nomes
+    curtos. Reusa `_render_period_controls` e `_add_wet_season_bands`.
+    Métrica plotada é `ena_mlt_pct` — decisão consolidada em 5.7.
+14. **KPI cards ENA** — acima de cada um dos 5 gráficos: 4 KPIs ponderados
+    (Último mês / 3 meses / 12 meses / Período úmido atual). Cálculo:
+    `sum(ena_mwmed) / sum(mlt_mwmed) × 100` sobre a janela, com MLT absoluta
+    revertida por linha (`ena_mwmed / (ena_mlt_pct/100)`) — mesmo truque do
+    `_compute_ena_sin_aggregate`. Helpers top-level em `app.py`:
+    `_compute_kpi_mlt_pct(df, code, d_start, d_end)` +
+    `_wet_season_window(last_date)`. Janelas são calculadas a partir da
+    **última data do dataset** (não do filtro de período) — KPIs ficam
+    estáveis ao mexer no período. SIN agregado sobre os 4 subsistemas base.
 
 ---
 
 ## 8. Referências Cruzadas
 
-- **`docs/reservatorios_research.md`** — pesquisa detalhada da Fase A
+- **`docs/reservatorios_research.md`** — pesquisa detalhada da Fase A EAR
   (descobertas CKAN ONS, schema observado, validação do loader).
+- **`docs/ena_research.md`** — pesquisa Fase A ENA (schema, URL pattern,
+  4 métricas, fórmula SIN soma simples).
 - **`docs/ons_dicionario_ear_subsistema.pdf`** — dicionário oficial ONS
   pro dataset `ear-diario-por-subsistema`.
 - **`scripts/discover_ccee_ids.py`** — utilitário CKAN CCEE.
-- **`scripts/validate_reservatorios.py`** — utilitário validação ONS.
+- **`scripts/validate_reservatorios.py`** — utilitário validação ONS EAR.
+- **`scripts/validate_ena.py`** — utilitário validação ONS ENA.
+- **`scripts/inspect_ena.py`** — utilitário de descoberta CKAN ENA (Fase A).
 - **`requirements.txt`** — deps Python com versões.
 - **`config.yaml.example`** — template de configuração de auth.
 - **`.streamlit/config.toml`** — tema Streamlit.
