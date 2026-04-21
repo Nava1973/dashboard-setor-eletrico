@@ -213,6 +213,42 @@ caminho fora do OneDrive. Venv especialmente.
   setas `→`, caracteres PT-BR raros) podem crashar. Usar
   `sys.stdout.reconfigure(encoding="utf-8")` no início do script.
 
+### 4.5 Deploy Streamlit Cloud + `requirements.txt`
+
+- **Upper bounds conservadores podem quebrar deploy no Cloud sem quebrar
+  local.**
+
+  Evidência (commits `87c8e72` → `80634b5`): `pyarrow>=15.0,<22.0` rodava
+  normal no venv local (pip resolveu pyarrow 23.0.1 como dep transitiva do
+  Streamlit 1.56 ANTES do constraint ser adicionado na Fase B dos
+  Reservatórios). No Cloud, que faz `pip install -r requirements.txt` do
+  zero, o resolver caiu numa pyarrow <22 sem wheel pra Python 3.13 →
+  "Error installing requirements". Fix: `<24.0`.
+
+  **Regra:** upper bound só se houver incompatibilidade CONHECIDA com versão
+  mais nova. Caso contrário, deixar só lower bound (`>=X`). Se usar upper,
+  manter sincronizado com a versão realmente instalada local.
+
+- **Cache de pip local não re-resolve ao editar constraints.**
+
+  Venv antigo continua rodando versões fora do constraint novo sem
+  reclamar. Pra validar "de verdade", recriar o venv OU
+  `pip install -r requirements.txt --upgrade --force-reinstall`.
+
+  **Checkpoint antes de push que mexe em deps:** comparar
+  `venv\Scripts\pip.exe show <lib>` com o constraint. Se local está fora
+  do range declarado, Cloud vai falhar.
+
+- **Streamlit 1.56 declara só `pyarrow>=7.0`** (verificado via
+  `importlib.metadata.distribution('streamlit').requires`). Nossos upper
+  bounds não estão resolvendo conflito real com Streamlit — são paranoia.
+  Aumentar é barato, diminuir é que gera dor.
+
+- **Como pegar log de deploy falho:** em `https://share.streamlit.io/`,
+  clicar no app → botão **"Manage app"** no canto inferior direito → painel
+  lateral abre com logs em tempo real. Procurar bloco "Building" /
+  "Installing dependencies" com `ERROR:` do pip.
+
 ---
 
 ## 5. Decisões Arquiteturais
@@ -338,6 +374,33 @@ função com presets diferentes (1A/3A/5A/10A/Máx).
 **Regra decorrente:** se uma aba nova precisar de controles de período,
 reusar `_render_period_controls` com próprios presets e prefixos.
 
+### 5.8 KPIs ENA ponderados (não média simples de %)
+
+Cada gráfico da aba ENA/Chuva tem 4 KPIs acima: Último mês, Últimos
+3 meses, Últimos 12 meses, Período úmido atual.
+
+**Fórmula (helper `_compute_kpi_mlt_pct` em `app.py`):**
+```
+KPI(sub, janela) = sum(ena_mwmed[sub, janela]) / sum(mlt_abs[sub, janela]) × 100
+```
+`mlt_abs` é derivada linha a linha: `ena_mwmed / (ena_mlt_pct / 100)` —
+ONS não publica MLT absoluta direto no dataset.
+
+Pra `SIN`: agrega sobre os 4 subsistemas base (N+NE+S+SE). **Não usa** a
+linha SIN pré-calculada nem média simples dos percentuais.
+
+**Por que não média simples:** percentuais não somam/mediam linearmente.
+Um subsistema em 200% e outro em 50% não cancela pra 125%, porque as MLTs
+absolutas dos dois podem ser 10× diferentes. Ponderação pela MLT absoluta
+é matematicamente consistente com a série temporal SIN já calculada em
+`_compute_ena_sin_aggregate` (`data_loader.py`). Mesma lógica do SIN EAR
+(decisão 5.3).
+
+**Janelas ancoradas na ÚLTIMA DATA do dataset**, não no filtro de período.
+Resultado: KPIs ficam estáveis quando o usuário mexe no range dos gráficos
+— KPIs mostram "estado atual" do subsistema, gráfico mostra histórico
+exploratório.
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
@@ -378,6 +441,23 @@ Utilitários de manutenção, **não executados pelo app**. Rodar manualmente.
 - **`validate_reservatorios.py`** — valida schema/integridade do loader ONS.
   Rodar após ONS publicar novo ano ou se suspeitar de mudança no dataset.
   Checa shape, códigos de subsistema, cálculo do SIN com amostras.
+
+### 6.5 Validação de deploy após mexer em `requirements.txt`
+
+Quando adicionar ou editar dependência em `requirements.txt`:
+
+1. **Fazer um push dedicado com só essa mudança** — antes de empilhar
+   features em cima. Se o Cloud falhar, o commit de dep fica isolado e
+   fácil de reverter.
+2. Aguardar 2-3 min e abrir `dashboard-setor-eletrico.streamlit.app`.
+3. Se falhou: pegar log via "Manage app" (ver armadilha 4.5).
+4. **Não seguir desenvolvendo até o deploy estar verde.** Quando vários
+   commits empilham antes de testar deploy, fica custoso isolar qual
+   gerou o break.
+
+Essa regra é especialmente importante porque o venv local **não re-resolve
+constraints automaticamente** (armadilha 4.5) — erro de dep só aparece no
+ambiente fresh do Cloud.
 
 ---
 
@@ -431,6 +511,13 @@ Utilitários de manutenção, **não executados pelo app**. Rodar manualmente.
     `_wet_season_window(last_date)`. Janelas são calculadas a partir da
     **última data do dataset** (não do filtro de período) — KPIs ficam
     estáveis ao mexer no período. SIN agregado sobre os 4 subsistemas base.
+    Doc da fórmula em decisão 5.8.
+15. **Publicação da feature ENA** — commit `87c8e72` consolidou tudo (Fases
+    B+C+D: backend + UI + KPIs + docs, +1.218 linhas em 6 arquivos). Commit
+    seguinte `80634b5` corrigiu upper bound do `pyarrow` no
+    `requirements.txt` de `<22.0` pra `<24.0` — deploy no Streamlit Cloud
+    falhou no 87c8e72 (ver armadilha 4.5). Feature online em
+    `dashboard-setor-eletrico.streamlit.app`.
 
 ---
 
