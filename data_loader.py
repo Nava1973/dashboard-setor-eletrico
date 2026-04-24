@@ -1263,12 +1263,272 @@ def load_ena() -> pd.DataFrame:
     return df
 
 
+# =============================================================================
+# BALANÇO DE ENERGIA NOS SUBSISTEMAS (ONS) — GERAÇÃO POR FONTE + CARGA
+# =============================================================================
+# Dataset: balanco-energia-subsistema (CKAN ONS, só pra metadata).
+# Origem real dos arquivos: AWS S3 público, virtual-hosted style.
+# URL pattern (parquet estável em todos os 27 anos):
+#   https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/
+#     balanco_energia_subsistema_ho/BALANCO_ENERGIA_SUBSISTEMA_{YYYY}.parquet
+#
+# Schema do parquet ONS (validado na Fase A, ver docs/geracao_research.md):
+#   id_subsistema        (str)  'N','NE','S','SE','SIN'  ← SIN já pré-calculado
+#   nom_subsistema       (str)  'NORTE','NORDESTE','SUL',
+#                               'SUDESTE/CENTRO-OESTE','SISTEMA INTERLIGADO NACIONAL'
+#   din_instante         (datetime64, horário)
+#   val_gerhidraulica    (object Decimal string, MWmed)
+#   val_gertermica       (object Decimal string, MWmed) — inclui nuclear + biomassa
+#   val_gereolica        (object Decimal string, MWmed)
+#   val_gersolar         (object Decimal string, MWmed) ← NOTA: 'solar', não 'fotovoltaica'
+#   val_carga            (object Decimal string, MWmed)
+#   val_intercambio      (object Decimal string, MWmed) — balanço físico
+#
+# Schema de saída (long-form):
+#   data_hora (datetime), submercado (str), fonte (str), mwmed (float)
+#
+# IMPORTANTE sobre o esquema 'fonte':
+#   fonte ∈ {'hidro','termica','eolica','solar'}  → fontes de GERAÇÃO
+#                                                   (empilhadas no stacked)
+#   fonte == 'carga'                              → DEMANDA verificada
+#                                                   (série à parte na UI —
+#                                                   renderizada como linha
+#                                                   tracejada sobre o stacked,
+#                                                   NÃO como camada)
+#   fonte == 'intercambio'                        → balanço físico do subsistema
+#                                                   (capturado mas não exposto
+#                                                   na UI inicial — no SIN
+#                                                   representa troca
+#                                                   internacional, ~0)
+#
+# Tudo mora no MESMO DataFrame long-form por conveniência (um único entry
+# point + cache + normalizer). Quem consome filtra por 'fonte' conforme o
+# papel semântico. Isso evita ter 3 funções paralelas pro mesmo download.
+#
+# SIN é usado DIRETO da linha id_subsistema='SIN' (não calculamos por soma).
+# Diferente de EAR e ENA, aqui o ONS publica a linha pronta e ela é
+# numericamente idêntica à soma dos 4 submercados (diff < 0.01 MWmed,
+# validado em 2016). Usar a linha publicada reduz risco de NaN em timestamps
+# com algum submercado faltando e elimina código de agregação.
+#
+# Unidade é SEMPRE MWmed em toda a cadeia (sem conversões).
+# =============================================================================
+
+ONS_BALANCO_SUBSISTEMA_URL = (
+    "https://ons-aws-prod-opendata.s3.amazonaws.com/"
+    "dataset/balanco_energia_subsistema_ho/"
+    "BALANCO_ENERGIA_SUBSISTEMA_{ano}.parquet"
+)
+
+# Anos disponíveis (confirmado Fase A: 2000-2026 em parquet/xlsx/csv).
+# Rever anualmente junto com EAR/ENA.
+BALANCO_YEARS_AVAILABLE = list(range(2000, 2027))
+
+# Submercados válidos (inclui SIN, que vem pré-calculado pelo ONS).
+_BALANCO_SUBS_VALIDOS = ("SE", "S", "NE", "N", "SIN")
+
+# Mapa coluna-do-parquet → rótulo da fonte no schema de saída.
+# Carga e intercâmbio entram no mesmo schema por conveniência (ver cabeçalho).
+_BALANCO_FONTES = {
+    "val_gerhidraulica": "hidro",
+    "val_gertermica":    "termica",
+    "val_gereolica":     "eolica",
+    "val_gersolar":      "solar",
+    "val_carga":         "carga",
+    "val_intercambio":   "intercambio",
+}
+
+
+def _download_balanco_parquet_raw(ano: int) -> pd.DataFrame | None:
+    """Baixa 1 ano de balanço por subsistema em parquet do S3 ONS. Sem cache.
+    Parquet é ~2.1-2.7MB/ano — bem maior que EAR/ENA por ser horário × 27 anos.
+    Total do dataset completo: ~60MB; cache interno de histórico é essencial.
+    """
+    url = ONS_BALANCO_SUBSISTEMA_URL.format(ano=ano)
+    try:
+        r = _http_get(url, headers=BROWSER_HEADERS, timeout=120)
+        r.raise_for_status()
+    except Exception as e:
+        errs = st.session_state.setdefault("_debug_erros", [])
+        errs.append(f"ONS BALANCO {ano} (download): {type(e).__name__}: {e}")
+        return None
+
+    try:
+        return pd.read_parquet(io.BytesIO(r.content))
+    except Exception as e:
+        errs = st.session_state.setdefault("_debug_erros", [])
+        errs.append(
+            f"ONS BALANCO {ano} (parse parquet): {type(e).__name__}: {e}"
+        )
+        return None
+
+
+@st.cache_data(ttl=60 * 60 * 24 * 30, show_spinner=False)
+def _download_balanco_parquet_historico(ano: int) -> pd.DataFrame | None:
+    """Ano fechado — cache de 30 dias. Mesmo padrão de EAR/ENA: anos fechados
+    são imutáveis no ONS (raras reedições). Sem isso, refresh de 2h recarregaria
+    ~60MB por usuário."""
+    return _download_balanco_parquet_raw(ano)
+
+
+def _normalize_balanco(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normaliza schema ONS pra long-form com múltiplas séries no mesmo DataFrame.
+
+    Pivoteia as 6 colunas val_* (hidro, term, eol, sol, carga, intercambio)
+    em linhas, cada uma com rótulo 'fonte' distinto. Valores vêm como string
+    Decimal (ex: '2736.97', '0E-8') — converte via pd.to_numeric.
+
+    Saída: (data_hora, submercado, fonte, mwmed).
+
+    Observação sobre 'fonte': ver cabeçalho da seção. 'carga' e 'intercambio'
+    entram por conveniência; o consumidor decide como tratar cada uma.
+    """
+    df.columns = [str(c).strip() for c in df.columns]
+
+    required = {"id_subsistema", "din_instante"} | set(_BALANCO_FONTES.keys())
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"Colunas ONS balanço faltando: {missing}. "
+            f"Presentes: {list(df.columns)}"
+        )
+
+    # Datetime robusto — já vem datetime64 no parquet, coerce por segurança
+    data_hora = pd.to_datetime(df["din_instante"], errors="coerce")
+    submercado = df["id_subsistema"].astype(str).str.strip().str.upper()
+
+    # Monta long-form: uma linha por (data_hora, submercado, fonte)
+    parts = []
+    for col, fonte in _BALANCO_FONTES.items():
+        mwmed = pd.to_numeric(df[col], errors="coerce")
+        parts.append(pd.DataFrame({
+            "data_hora": data_hora,
+            "submercado": submercado,
+            "fonte": fonte,
+            "mwmed": mwmed,
+        }))
+
+    out = pd.concat(parts, ignore_index=True)
+    out = out.dropna(subset=["data_hora", "submercado", "mwmed"])
+    out = out[out["submercado"].isin(_BALANCO_SUBS_VALIDOS)]
+    return out
+
+
+@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
+def load_balanco_subsistema() -> pd.DataFrame:
+    """
+    Baixa e consolida Balanço de Energia nos Subsistemas do ONS.
+
+    Retorna DataFrame long-form:
+      data_hora   datetime64  timestamp horário (fuso BRT, sem tz)
+      submercado  str         'SE'|'S'|'NE'|'N'|'SIN'
+      fonte       str         'hidro'|'termica'|'eolica'|'solar'
+                              |'carga'|'intercambio'
+      mwmed       float       MWmed (nunca converter pra MWh)
+
+    Sobre o esquema 'fonte' (ver também cabeçalho da seção BALANCO):
+      - 'hidro','termica','eolica','solar' são as 4 fontes de GERAÇÃO;
+        a UI empilha essas num stacked area.
+      - 'carga' é DEMANDA verificada. Mora no mesmo DataFrame por
+        conveniência (mesmo download, mesmo cache, mesma escala MWmed),
+        mas a UI renderiza como linha tracejada SEPARADA, não como camada
+        do stacked.
+      - 'intercambio' é balanço físico do subsistema (importação-exportação).
+        No SIN representa troca internacional (~0 médio). Capturado pelo
+        loader; UI inicial não expõe.
+
+    Fonte: S3 público ONS, 27 anos de parquet (~60MB total, 2.1-2.7MB/ano).
+
+    Cache em 2 camadas (padrão alinhado com EAR e ENA):
+      - Externo (esta função): TTL 6h. ONS atualiza às 12h e 19h BRT;
+        6h captura ambas as atualizações com margem confortável.
+      - Interno: _download_balanco_parquet_historico(ano) com TTL 30d pra
+        anos fechados → evita re-baixar 26 anos a cada refresh. Ano corrente
+        é baixado direto (sem cache interno) — refresh a cada 6h.
+
+    clear_cache() limpa só o cache externo. Histórico interno sobrevive.
+    """
+    st.session_state["_debug_erros"] = []
+
+    ano_corrente = datetime.now().year
+
+    raw_frames = []
+    erros = []
+    for ano in BALANCO_YEARS_AVAILABLE:
+        if ano < ano_corrente:
+            df_raw = _download_balanco_parquet_historico(ano)
+        else:
+            df_raw = _download_balanco_parquet_raw(ano)
+        if df_raw is None or df_raw.empty:
+            erros.append(str(ano))
+            continue
+        raw_frames.append(df_raw)
+
+    st.session_state["_erros_carga_balanco"] = erros
+
+    if not raw_frames:
+        raise RuntimeError(
+            "Não foi possível baixar dados do ONS "
+            "(balanco-energia-subsistema) em nenhum ano. "
+            f"Anos com falha: {', '.join(erros)}."
+        )
+
+    normalized_frames = []
+    for df_raw in raw_frames:
+        try:
+            normalized_frames.append(_normalize_balanco(df_raw))
+        except Exception as e:
+            erros.append(f"parse: {e}")
+
+    if not normalized_frames:
+        raise RuntimeError("Nenhum frame ONS balanço normalizado com sucesso.")
+
+    df = pd.concat(normalized_frames, ignore_index=True)
+    df = df.drop_duplicates(
+        subset=["data_hora", "submercado", "fonte"], keep="last"
+    )
+    df = df.sort_values(
+        ["submercado", "fonte", "data_hora"]
+    ).reset_index(drop=True)
+    return df
+
+
+# =============================================================================
+# GERAÇÃO DISTRIBUÍDA (ONS) — STUB ESTRUTURAL
+# =============================================================================
+# Não implementado nesta entrega. Placeholder pra receber o dataset mensal
+# estimado de MMGD do ONS (spec aba_geracao seção 4). Quando implementado,
+# deve retornar long-form compatível com load_balanco_subsistema (fonte='gd'),
+# pra aba Geração incluir como 5ª camada no topo do stacked sem refactor.
+# =============================================================================
+
+
+def load_gd_ons() -> pd.DataFrame:
+    """Stub — retorna DataFrame vazio com schema compatível.
+
+    Quando implementado, schema esperado:
+      data_hora  datetime64  timestamp (provavelmente 1º do mês, granularidade mensal)
+      submercado str         'SE'|'S'|'NE'|'N'|'SIN'
+      fonte      str         'gd'
+      mwmed      float       MWmed estimado pelo ONS
+
+    TODO: revisitar quebra metodológica da carga em 29/04/2023 quando GD
+    virar realidade — pós essa data, val_carga do balanço já inclui MMGD,
+    então somar GD com carga duplicaria. Decisão a tomar: subtrair GD da
+    carga pós-2023 pra reconstruir série consistente, ou manter ambas
+    visíveis anotando a quebra.
+    """
+    return pd.DataFrame(columns=["data_hora", "submercado", "fonte", "mwmed"])
+
+
 def clear_cache() -> None:
     """Força reload no próximo acesso — limpa cache de PLD (4 granularidades),
-    reservatórios (ONS EAR) e ENA (ONS)."""
+    reservatórios (ONS EAR), ENA (ONS) e balanço de energia (ONS geração)."""
     load_pld_media_diaria.clear()
     load_pld_horaria.clear()
     load_pld_media_semanal.clear()
     load_pld_media_mensal.clear()
     load_reservatorios.clear()
     load_ena.clear()
+    load_balanco_subsistema.clear()
