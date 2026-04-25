@@ -218,6 +218,39 @@ st.markdown(
         color: {BAUHAUS_BLACK} !important;
     }}
 
+    /* Alerts (warning/info/error/success) — tema é dark, texto default
+       branco fica ilegível sobre fundos amarelo/azul. Override Bauhaus
+       em estratégia "container externo dita o visual + descendentes
+       transparentes":
+       - stAlert externo recebe TODO o visual (cream + borda preta
+         sólida + margins). Borda externa virtualmente vira a única.
+       - Descendentes (divs internos, baseweb notification, etc.)
+         ficam com background transparent + border none + shadow none,
+         deixando o cream do parent passar e matando a borda colorida
+         por tipo (azul/amarelo/vermelho) que vinha desses wrappers.
+       - Texto preto cobre p/span/div, mas NÃO seleciona svg/path —
+         preserva a cor do ícone (⚠️/ℹ️/❌) que é a única
+         diferenciação semântica que sobra. */
+    [data-testid="stAlert"] {{
+        margin-top: 0.8rem !important;
+        margin-bottom: 0.4rem !important;
+        background-color: {BAUHAUS_LIGHT} !important;
+        border: 2px solid {BAUHAUS_BLACK} !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        color: {BAUHAUS_BLACK} !important;
+    }}
+    [data-testid="stAlert"] div,
+    [data-testid="stAlert"] p,
+    [data-testid="stAlert"] span,
+    [data-testid="stAlert"] [data-baseweb="notification"],
+    [data-testid="stAlert"] [data-testid="stAlertContainer"] {{
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        color: {BAUHAUS_BLACK} !important;
+    }}
+
     /* Botões principais (fora da sidebar) — altura igual aos date inputs */
     .stButton > button {{
         border-radius: 0 !important;
@@ -620,12 +653,16 @@ _MESES_BR = ["", "jan", "fev", "mar", "abr", "mai", "jun",
 def _format_periodo_br(data_ini, data_fim, granularidade):
     """String do período no formato BR por granularidade.
 
+    Separador de range é en dash (U+2013, '–'), convenção tipográfica
+    pra intervalos.
+
     - Mensal 1 mês:     'abr/2026'
-    - Mensal ≥ 2 meses: 'mai/2025 a abr/2026'
-    - Diária ≥ 2 dias:  '22/03/2026 a 21/04/2026'
+    - Mensal ≥ 2 meses: 'mai/2025 – abr/2026'
+    - Diária ≥ 2 dias:  '22/03/2026 – 21/04/2026'
     - Diária 1 dia:     '21/04/2026'
     - Horária 1D:       '21/04/2026'
-    - Horária ≥ 2D:     '15/04/2026 a 21/04/2026'
+    - Horária ≥ 2D mesmo ano:  '15/04 – 21/04'
+    - Horária ≥ 2D virando ano: '25/12/2025 – 24/03/2026'
 
     strftime('%b') em pt-BR no Windows retorna inglês; por isso a tabela
     _MESES_BR manual pro caso Mensal.
@@ -639,14 +676,30 @@ def _format_periodo_br(data_ini, data_fim, granularidade):
         if meses_no_range <= 1:
             return fim_str
         ini_str = f"{_MESES_BR[data_ini.month]}/{data_ini.year}"
-        return f"{ini_str} a {fim_str}"
+        return f"{ini_str} – {fim_str}"
 
-    # Diária / Horária — formato DD/MM/YYYY
+    if granularidade == "Horária":
+        if data_ini == data_fim:
+            return data_fim.strftime("%d/%m/%Y")
+        # Mesmo ano: formato curto DD/MM – DD/MM. Atravessando virada de
+        # ano (raro, ex: 90D ancorado em jan/fev): mantém ano nos dois
+        # lados pra não ficar ambíguo.
+        if data_ini.year == data_fim.year:
+            return (
+                f"{data_ini.strftime('%d/%m')} – "
+                f"{data_fim.strftime('%d/%m')}"
+            )
+        return (
+            f"{data_ini.strftime('%d/%m/%Y')} – "
+            f"{data_fim.strftime('%d/%m/%Y')}"
+        )
+
+    # Diária — formato DD/MM/YYYY com ano em ambos os lados
     fim_str = data_fim.strftime("%d/%m/%Y")
     if data_ini == data_fim:
         return fim_str
     ini_str = data_ini.strftime("%d/%m/%Y")
-    return f"{ini_str} a {fim_str}"
+    return f"{ini_str} – {fim_str}"
 
 
 def _aplica_default_periodo_gen(granularidade, min_d, max_d):
@@ -2195,6 +2248,12 @@ elif aba == "Geração":
     # 3. Dataset mudou (max ou min ≠ stored)
     # 4. Transição de granularidade (prev_gran != atual, decisão 5.20)
     # 5. Em modo NÃO-Horária: gen_data_ini/gen_data_fim ausentes (5.16/5.19)
+    # 6. Em modo NÃO-Horária: gen_data_ini >= gen_data_fim (range degenerado).
+    #    Cobre o caso de retorno de aba quando o widget cleanup parcial do
+    #    Streamlit descarta gen_data_ini (mas não gen_data_fim) — ao
+    #    re-instanciar o st.date_input, ele cria a key com value clamped pra
+    #    max_d, ficando == gen_data_fim. As 2 keys ficam PRESENTES (a 5ª não
+    #    pega) mas com range inválido. Diagnóstico em runtime na Sessão 1.6.
     #
     # Defaults aplicados (helper top-level _aplica_default_periodo_gen):
     #   Diária  → 1M
@@ -2205,8 +2264,8 @@ elif aba == "Geração":
     # reset de 12M-Diária — todos absorvidos aqui. Decisão 5.14 fica como
     # histórico/superada.
     #
-    # Decisão 5.19: a checagem de keys individuais ausentes EXCLUI a
-    # Horária — lá esses keys são widget-state de Diária/Mensal cujo
+    # Decisão 5.19: a checagem de keys individuais (gatilhos 5 e 6) EXCLUI
+    # a Horária — lá esses keys são widget-state de Diária/Mensal cujo
     # cleanup é normal/esperado.
     em_horaria = (
         st.session_state.get("gen_granularidade") == "Horária"
@@ -2230,6 +2289,13 @@ elif aba == "Geração":
                 "gen_data_ini" not in st.session_state
                 or "gen_data_fim" not in st.session_state
             )
+        )
+        or (
+            not em_horaria
+            and "gen_data_ini" in st.session_state
+            and "gen_data_fim" in st.session_state
+            and st.session_state["gen_data_ini"]
+                >= st.session_state["gen_data_fim"]
         )
     ):
         _aplica_default_periodo_gen(granularidade_gen, min_d_gen, max_d_gen)
@@ -2372,6 +2438,21 @@ elif aba == "Geração":
     else:
         data_ini_efetivo_gen = data_ini_gen
 
+    # --- Guard: Mensal precisa de pelo menos 2 meses ---
+    # Resample 'MS' em < 60 dias gera ≤ 1 ponto. Bloqueio educativo:
+    # warning + st.stop(). A decisão 5.14 (auto-ajuste silencioso) foi
+    # superada pela 5.20 nas TRANSIÇÕES de granularidade; este guard
+    # cobre o caso de seleção MANUAL curta dentro do modo Mensal.
+    if (
+        granularidade_gen == "Mensal"
+        and (data_fim_gen - data_ini_efetivo_gen).days < 60
+    ):
+        st.warning(
+            "Mensal precisa de pelo menos 2 meses. Selecione um período "
+            "maior ou troque pra Diária."
+        )
+        st.stop()
+
     # --- Agregação temporal ---
     # Resample MEAN (MWmed é potência média, não soma).
     # Horária: sem resample (já vem horário).
@@ -2432,18 +2513,41 @@ elif aba == "Geração":
         )
         st.stop()
 
-    # --- Caption: última atualização + nota granularidade + nota GD + nota
-    # condicional 29/04/2023 ---
+    # --- Guard: mínimo de 2 pontos pra fazer sentido o gráfico ---
+    # Posicionado ANTES dos KPIs/notas/export pra bloquear tudo via
+    # st.stop() — KPIs sem 2+ pontos não são informativos. Botão "Ver
+    # curva horária" preservado pro caso Diária 1 dia (uso comum).
+    if len(pivot_sel) < 2:
+        st.info(
+            "Selecione pelo menos 2 pontos para visualizar o gráfico "
+            "de geração. Para ver a curva intra-diária de um dia "
+            "específico, mude a granularidade para Horária."
+        )
+        if granularidade_gen == "Diária" and len(pivot_sel) == 1:
+            # Ancora data_base no dia selecionado + window=1D
+            # explicitamente pra não herdar state de visita anterior à
+            # Horária. Flag _gen_force_horaria é consumida no topo do
+            # bloco antes do selectbox ser instanciado (Streamlit não
+            # deixa modificar a key dele aqui).
+            if st.button("Ver curva horária deste dia"):
+                st.session_state["_gen_force_horaria"] = True
+                st.session_state["gen_data_base"] = data_fim_gen
+                st.session_state["gen_horaria_window_dias"] = 1
+                st.rerun()
+        st.stop()
+
+    # --- Caption: última atualização + nota intercâmbio + nota GD + nota
+    # condicional 29/04/2023. Tag de granularidade renderizada perto do
+    # gráfico (entre título Bauhaus e plot), não aqui.
     ultima_data_gen = df_gen["data_hora"].max()
-    nota_granularidade_gen = {
-        "Mensal":  "Cada ponto representa a média mensal em MWmed.",
-        "Diária":  "Cada ponto representa a média diária em MWmed.",
-        "Horária": "Cada ponto representa o valor horário em MWmed.",
+    tag_granularidade_gen = {
+        "Mensal":  "Média mensal · MWmed",
+        "Diária":  "Média diária · MWmed",
+        "Horária": "Valor horário · MWmed",
     }[granularidade_gen]
     notas_gen = [
         f'Dados atualizados diariamente pelo ONS. Última atualização no '
         f'dataset: {ultima_data_gen.strftime("%d/%m/%Y %H:%M")}.',
-        nota_granularidade_gen,
         "A diferença entre a linha de carga e o total de geração "
         "corresponde ao intercâmbio líquido com outros subsistemas "
         "(importação/exportação) e perdas técnicas.",
@@ -2501,15 +2605,95 @@ elif aba == "Geração":
         f'</div>',
         unsafe_allow_html=True,
     )
+
+    # KPIs da Geração: HTML custom (não st.metric) porque Bebas Neue é
+    # all-caps por design — "MWmed" no value de st.metric renderiza como
+    # "MWMED". Solução: número em Bebas Neue + unidade em Inter mixed-case.
+    st.markdown(
+        """
+        <style>
+        .gen-kpi-card {
+            background: #F5F1E8;
+            border: 2px solid #1A1A1A;
+            padding: 8px 12px;
+            border-radius: 0;
+        }
+        .gen-kpi-label {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.16em;
+            color: #1A1A1A;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+        .gen-kpi-value {
+            display: flex;
+            align-items: baseline;
+            margin-top: 0.15rem;
+        }
+        .gen-kpi-value-num {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.45rem;
+            color: #1A1A1A;
+            letter-spacing: 0.02em;
+            line-height: 1.1;
+        }
+        .gen-kpi-value-unit {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
+            color: #1A1A1A;
+            font-weight: 600;
+            margin-left: 0.4rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    def _render_kpi_gen(label: str, num: str, unit: str = "") -> str:
+        unit_html = (
+            f'<span class="gen-kpi-value-unit">{unit}</span>' if unit else ""
+        )
+        return (
+            f'<div class="gen-kpi-card">'
+            f'<div class="gen-kpi-label">{label}</div>'
+            f'<div class="gen-kpi-value">'
+            f'<span class="gen-kpi-value-num">{num}</span>{unit_html}'
+            f'</div>'
+            f'</div>'
+        )
+
     kpi_cols = st.columns(4)
     with kpi_cols[0]:
-        st.metric("GERAÇÃO TOTAL", f"{_fmt_br_gen(ger_total_media)} MWmed")
+        st.markdown(
+            _render_kpi_gen(
+                "GERAÇÃO TOTAL", _fmt_br_gen(ger_total_media), "MWmed"
+            ),
+            unsafe_allow_html=True,
+        )
     with kpi_cols[1]:
-        st.metric("% RENOV VARIÁVEL", f"{_fmt_br_gen(pct_renov_var, casas=1)}%")
+        # "%" colado no número — não passa por gen-kpi-value-unit.
+        st.markdown(
+            _render_kpi_gen(
+                "% RENOV VARIÁVEL", f"{_fmt_br_gen(pct_renov_var, casas=1)}%"
+            ),
+            unsafe_allow_html=True,
+        )
     with kpi_cols[2]:
-        st.metric("TÉRMICA", f"{_fmt_br_gen(termica_media)} MWmed")
+        st.markdown(
+            _render_kpi_gen(
+                "TÉRMICA", _fmt_br_gen(termica_media), "MWmed"
+            ),
+            unsafe_allow_html=True,
+        )
     with kpi_cols[3]:
-        st.metric("CARGA", f"{_fmt_br_gen(carga_media)} MWmed")
+        st.markdown(
+            _render_kpi_gen(
+                "CARGA", _fmt_br_gen(carga_media), "MWmed"
+            ),
+            unsafe_allow_html=True,
+        )
 
     # =======================================================================
     # GRÁFICO — stacked area do submercado selecionado no dropdown.
@@ -2538,18 +2722,6 @@ elif aba == "Geração":
     }
     ORDEM_STACKED_GEN = ["termica", "hidro", "eolica", "solar"]
 
-    # Última geração total por submercado (dataset COMPLETO, não filtrado) —
-    # usada no lado direito do título Bauhaus. Padrão Reservatórios/ENA.
-    ultimo_ts_gen = df_gen["data_hora"].max()
-    ultimas_geracoes_gen = (
-        df_gen[
-            (df_gen["data_hora"] == ultimo_ts_gen)
-            & (df_gen["fonte"].isin(["hidro", "termica", "eolica", "solar"]))
-        ]
-        .groupby("submercado")["mwmed"].sum()
-    )
-    data_str_ultima_gen = ultimo_ts_gen.strftime("%d/%m/%Y")
-
     periodo_str_gen = _format_periodo_br(
         data_ini_efetivo_gen, data_fim_gen, granularidade_gen,
     )
@@ -2566,91 +2738,47 @@ elif aba == "Geração":
         "Mensal":  "%b %Y",
     }[granularidade_gen]
 
-    if len(pivot_sel) < 2:
-        st.info(
-            "Selecione pelo menos 2 pontos para visualizar o gráfico "
-            "de geração. Para ver a curva intra-diária de um dia "
-            "específico, mude a granularidade para Horária."
-        )
-        if granularidade_gen == "Diária" and len(pivot_sel) == 1:
-            # Ancora data_base no dia selecionado + window=1D explicitamente
-            # pra não herdar state de visita anterior à Horária. Flag
-            # _gen_force_horaria é consumido no topo do bloco antes do
-            # selectbox ser instanciado (Streamlit não deixa modificar a
-            # key dele aqui).
-            if st.button("Ver curva horária deste dia"):
-                st.session_state["_gen_force_horaria"] = True
-                st.session_state["gen_data_base"] = data_fim_gen
-                st.session_state["gen_horaria_window_dias"] = 1
-                st.rerun()
-    else:
-        label_sub = LABELS_SUBSISTEMA_GEN[submercado_gen]
-        ultimo_val = ultimas_geracoes_gen.get(submercado_gen)
-        if ultimo_val is not None and pd.notna(ultimo_val):
-            right_side = (
-                f"{data_str_ultima_gen} · "
-                f"{_fmt_br_gen(ultimo_val)} MWmed"
-            )
-        else:
-            right_side = data_str_ultima_gen
+    label_sub = LABELS_SUBSISTEMA_GEN[submercado_gen]
 
-        st.markdown(
-            f'<div style="display:flex; justify-content:space-between; '
-            f'align-items:baseline; '
-            f'font-family:\'Bebas Neue\', sans-serif; '
-            f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
-            f'margin: 1.2rem 0 0.3rem 0; padding-bottom:3px; '
-            f'border-bottom: 2px solid #1A1A1A;">'
-            f'<span>{label_sub}</span>'
-            f'<span>{right_side}</span>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            f'<div style="font-family:\'Inter\', sans-serif; '
-            f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-            f'margin:0 0 0.4rem 0;">'
-            f'Período: {periodo_str_gen}.'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+    st.markdown(
+        f'<div style="display:flex; justify-content:space-between; '
+        f'align-items:baseline; '
+        f'font-family:\'Bebas Neue\', sans-serif; '
+        f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
+        f'margin: 1.2rem 0 0.3rem 0; padding-bottom:3px; '
+        f'border-bottom: 2px solid #1A1A1A;">'
+        f'<span>{label_sub}</span>'
+        f'<span>{periodo_str_gen}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:#4A4A4A; '
+        f'letter-spacing:0.04em; margin:0 0 0.5rem 0;">'
+        f'{tag_granularidade_gen}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
-        fig_c = go.Figure()
+    fig_c = go.Figure()
 
-        for fonte_col in ORDEM_STACKED_GEN:
-            label = LABELS_FONTE_GEN[fonte_col]
-            cor = CORES_FONTE_GEN[fonte_col]
-            label_fix = label.ljust(10).replace(" ", "&nbsp;")
-            fig_c.add_trace(
-                go.Scatter(
-                    x=pivot_sel.index,
-                    y=pivot_sel[fonte_col],
-                    name=NOMES_LEGENDA_GEN[fonte_col],
-                    mode="lines",
-                    stackgroup="ger",
-                    line=dict(color=cor, width=0.8),
-                    fillcolor=cor,
-                    hovertemplate=(
-                        f'<span style="color:{cor}; font-weight:700;">'
-                        f'{label_fix}</span>'
-                        '&nbsp;&nbsp;'
-                        '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
-                        '<extra></extra>'
-                    ),
-                )
-            )
-
-        carga_label_fix = "Carga".ljust(10).replace(" ", "&nbsp;")
+    for fonte_col in ORDEM_STACKED_GEN:
+        label = LABELS_FONTE_GEN[fonte_col]
+        cor = CORES_FONTE_GEN[fonte_col]
+        label_fix = label.ljust(10).replace(" ", "&nbsp;")
         fig_c.add_trace(
             go.Scatter(
                 x=pivot_sel.index,
-                y=pivot_sel["carga"],
-                name="Carga",
+                y=pivot_sel[fonte_col],
+                name=NOMES_LEGENDA_GEN[fonte_col],
                 mode="lines",
-                line=dict(dash="dash", width=2.5, color=BAUHAUS_BLACK),
+                stackgroup="ger",
+                line=dict(color=cor, width=0.8),
+                fillcolor=cor,
                 hovertemplate=(
-                    f'<span style="color:{BAUHAUS_BLACK}; font-weight:700;">'
-                    f'{carga_label_fix}</span>'
+                    f'<span style="color:{cor}; font-weight:700;">'
+                    f'{label_fix}</span>'
                     '&nbsp;&nbsp;'
                     '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
                     '<extra></extra>'
@@ -2658,82 +2786,100 @@ elif aba == "Geração":
             )
         )
 
-        if data_ini_efetivo_gen <= quebra_data.date() <= data_fim_gen:
-            fig_c.add_vline(
-                x=quebra_data,
-                line_dash="dot",
-                line_color=BAUHAUS_GRAY,
-                line_width=1.2,
-            )
-            fig_c.add_annotation(
-                x=quebra_data,
-                y=1.02,
-                yref="paper",
-                text="ONS passa a incluir MMGD na carga",
-                showarrow=False,
-                font=dict(
-                    family="Inter, sans-serif",
-                    size=10,
-                    color=BAUHAUS_GRAY,
-                ),
-                align="center",
-            )
+    carga_label_fix = "Carga".ljust(10).replace(" ", "&nbsp;")
+    fig_c.add_trace(
+        go.Scatter(
+            x=pivot_sel.index,
+            y=pivot_sel["carga"],
+            name="Carga",
+            mode="lines",
+            line=dict(dash="dash", width=2.5, color=BAUHAUS_BLACK),
+            hovertemplate=(
+                f'<span style="color:{BAUHAUS_BLACK}; font-weight:700;">'
+                f'{carga_label_fix}</span>'
+                '&nbsp;&nbsp;'
+                '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
+                '<extra></extra>'
+            ),
+        )
+    )
 
-        fig_c.update_layout(
-            height=450,
-            margin=dict(l=20, r=20, t=40, b=20),
-            paper_bgcolor=BAUHAUS_CREAM,
-            plot_bgcolor=BAUHAUS_CREAM,
-            separators=",.",
-            hovermode="x unified",
-            hoverlabel=dict(
-                bgcolor=BAUHAUS_CREAM,
-                bordercolor=BAUHAUS_BLACK,
-                font=dict(
-                    family="'IBM Plex Mono', 'Courier New', monospace",
-                    size=12, color=BAUHAUS_BLACK,
-                ),
+    if data_ini_efetivo_gen <= quebra_data.date() <= data_fim_gen:
+        fig_c.add_vline(
+            x=quebra_data,
+            line_dash="dot",
+            line_color=BAUHAUS_GRAY,
+            line_width=1.2,
+        )
+        fig_c.add_annotation(
+            x=quebra_data,
+            y=1.02,
+            yref="paper",
+            text="ONS passa a incluir MMGD na carga",
+            showarrow=False,
+            font=dict(
+                family="Inter, sans-serif",
+                size=10,
+                color=BAUHAUS_GRAY,
             ),
-            showlegend=True,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom", y=1.02,
-                xanchor="left", x=0,
-                bgcolor="rgba(0,0,0,0)",
-                font=dict(
-                    family="Bebas Neue, sans-serif",
-                    size=17, color=BAUHAUS_BLACK,
-                ),
-            ),
-            xaxis=dict(
-                title=None, showgrid=False, showline=True,
-                linewidth=2, linecolor=BAUHAUS_BLACK,
-                ticks="outside", tickcolor=BAUHAUS_BLACK,
-                tickfont=dict(
-                    family="Inter, sans-serif",
-                    size=13, color=BAUHAUS_BLACK,
-                ),
-                hoverformat=hover_fmt_gen,
-            ),
-            yaxis=dict(
-                title=None,
-                showgrid=True, gridcolor=BAUHAUS_LIGHT, gridwidth=1,
-                showline=True, linewidth=2, linecolor=BAUHAUS_BLACK,
-                ticks="outside", tickcolor=BAUHAUS_BLACK,
-                tickfont=dict(
-                    family="Inter, sans-serif",
-                    size=13, color=BAUHAUS_BLACK,
-                ),
-                zeroline=False,
-                tickformat=",.0f",
-            ),
-            font=dict(family="Inter, sans-serif", size=12),
+            align="center",
         )
 
-        st.plotly_chart(
-            fig_c, use_container_width=True,
-            config={"displaylogo": False},
-        )
+    fig_c.update_layout(
+        height=450,
+        margin=dict(l=20, r=20, t=40, b=20),
+        paper_bgcolor=BAUHAUS_CREAM,
+        plot_bgcolor=BAUHAUS_CREAM,
+        separators=",.",
+        hovermode="x unified",
+        hoverlabel=dict(
+            bgcolor=BAUHAUS_CREAM,
+            bordercolor=BAUHAUS_BLACK,
+            font=dict(
+                family="'IBM Plex Mono', 'Courier New', monospace",
+                size=12, color=BAUHAUS_BLACK,
+            ),
+        ),
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom", y=1.02,
+            xanchor="left", x=0,
+            bgcolor="rgba(0,0,0,0)",
+            font=dict(
+                family="Bebas Neue, sans-serif",
+                size=17, color=BAUHAUS_BLACK,
+            ),
+        ),
+        xaxis=dict(
+            title=None, showgrid=False, showline=True,
+            linewidth=2, linecolor=BAUHAUS_BLACK,
+            ticks="outside", tickcolor=BAUHAUS_BLACK,
+            tickfont=dict(
+                family="Inter, sans-serif",
+                size=13, color=BAUHAUS_BLACK,
+            ),
+            hoverformat=hover_fmt_gen,
+        ),
+        yaxis=dict(
+            title=None,
+            showgrid=True, gridcolor=BAUHAUS_LIGHT, gridwidth=1,
+            showline=True, linewidth=2, linecolor=BAUHAUS_BLACK,
+            ticks="outside", tickcolor=BAUHAUS_BLACK,
+            tickfont=dict(
+                family="Inter, sans-serif",
+                size=13, color=BAUHAUS_BLACK,
+            ),
+            zeroline=False,
+            tickformat=",.0f",
+        ),
+        font=dict(family="Inter, sans-serif", size=12),
+    )
+
+    st.plotly_chart(
+        fig_c, use_container_width=True,
+        config={"displaylogo": False},
+    )
 
     # --- Export CSV ---
     # Formato long-wide híbrido: 5 subsistemas empilhados verticalmente.

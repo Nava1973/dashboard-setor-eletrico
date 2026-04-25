@@ -1,22 +1,23 @@
 # Status da sessão — Aba Geração (ONS Balanço de Energia)
 
-> **Sessão 1.5b (Performance global + default 15a) FECHADA + PUSHED em
-> 2026-04-25.** Escopo expandido pra disk-cache em Reservatórios e ENA +
-> default histórico 15a com expansão sob demanda na Geração. 4 decisões
-> arquiteturais novas (5.17-5.20) + 1 marcada como superada (5.14). 3
-> bugs encontrados/fixados durante implementação. 12 testes ✅.
+> **Sessão 1.6 (Ajustes estéticos & UX) FECHADA em 2026-04-25.** 7
+> ajustes pequenos (1 bug + tipografia + UX) + 3 bonus aplicados durante
+> implementação + 1 bug grave de retorno de aba descoberto e fixado
+> via debug runtime. 4 decisões novas (5.21-5.24) + 5.16 estendida com
+> 6º gatilho + 5.19 atualizada + 5.14 reconfirmada superada. Sintaxe
+> validada após cada mudança; 3 cenários de retorno de aba testados ✅.
 >
-> Branch local: **em sync com `origin/main`** (4 commits pushed):
+> Branch local: **5 commits no main** (4 pushed + 1 a pushar):
 > - `87a1eb1` — 5 gráficos empilhados (pré-reversão)
 > - `e7db917` — Sessão 1 (reversão pra gráfico único + fixes)
 > - `efc7c38` — Sessão 1.5 (performance: disk-cache + filter sem dt.date)
 > - `9142e9c` — Sessão 1.5b (perf global + default 15a + UX dois eixos)
+> - **(pendente)** Sessão 1.6 (ajustes estéticos + bonus + bug retorno)
 >
-> Push: `4be9f33..9142e9c main -> main` em 2026-04-25. Streamlit Cloud
-> redeployando em `dashboard-setor-eletrico.streamlit.app`.
+> Push da Sessão 1.6: pendente, aguardando review da mensagem.
 >
-> Próxima sessão é a **1.6 (ajustes estéticos)** ou **2 (Dia Típico)** —
-> ordem flexível. Ver §0.
+> Próxima sessão é a **2 (Dia Típico)** ou **3 (GD)** — ordem flexível.
+> Ver §0.
 
 ---
 
@@ -241,118 +242,140 @@ por sentinela (1ª visita) ou mudança de dataset, mas não pelos keys
 | 11 | Botões 7D/30D/90D em Horária | ✅ funcionam (5.19 cobriu regressão) |
 | 12 | Datas completas nos date_inputs (Diária 7 presets) | ✅ `dd/mm/yyyy` sem corte (5.20+ratio 1.8) |
 
-### Sessão 1.6 — Ajustes estéticos & UX
+### Sessão 1.6 — Ajustes estéticos & UX · ✅ CONCLUÍDA (2026-04-25)
 
-Observações coletadas pelo user testando a aba ao final da Sessão 1.
-Mistura **1 bug**, decisões de tipografia/hierarquia e pequenos
-refinos de UX. Tarefas pequenas, mas afetam a percepção de polimento.
+**Escopo:** os 7 ajustes da observação do user (1 bug + tipografia + UX),
+sem mudança de escopo no meio. Sessão pequena/direta — sem refator
+estrutural, só estética e consistência. 4 decisões arquiteturais novas
++ 5.16/5.19 estendidas + 1 bug grave descoberto e fixado pós-implementação
+via debug runtime.
 
-#### 1. [BUG] Data do canto superior direito do gráfico está incorreta
+**Resultado por ajuste:**
 
-**Sintoma:** o lado direito do título Bauhaus mostra
-`DD/MM/YYYY · X.XXX MWmed`, mas a data é **sempre a última do dataset**
-(ex: 22/04/2026), não a do período visualizado. Não atualiza ao mudar
-preset, data_base ou granularidade. Acontece em todas as granularidades.
+| # | Item | Resultado |
+|---|---|---|
+| 1 | Remover lado direito errado do título | ✅ User pediu pra unir com #6 — lado direito reaproveita o espaço pra linha "Período" (uniformizado com Reservatórios/ENA) |
+| 2 | Default Horária = `max_d_gen` 1ª entrada | ✅ Já coberto pela 5.20 da 1.5b — confirmado por user em runtime sem trabalho |
+| 3 | Bloqueio educativo Mensal < 2 meses | ✅ `st.warning + st.stop` quando manual < 60d (decisão 5.24) |
+| 4 | MWmed virando MWMED nos KPIs | ✅ Refator pra HTML custom: `gen-kpi-value-num` Bebas + `gen-kpi-value-unit` Inter mixed-case (decisão 5.21). **Causa raiz NÃO era `text-transform`** — era a fonte Bebas Neue all-caps por design |
+| 5 | Tipografia comprimida nos KPIs | ✅ Resolvido implicitamente pelo refator do #4 (margin-left 0.4rem entre número e unidade) |
+| 6 | Linha "Período" mais visível | ✅ Movida pro lado direito do título Bauhaus (mesmo padrão Reservatórios/ENA: Bebas Neue herdado, sem "Período:" prefix) |
+| 7 | Realocar nota "Cada ponto representa..." | ✅ Tag compacta entre título e gráfico ("Média mensal · MWmed", decisão 5.22), removida do bloco geral de notas |
 
-**Decisão:** **remover totalmente o lado direito** do título Bauhaus
-na aba Geração. A linha "Período: X a Y" abaixo do título já comunica
-o período. Duas datas (uma errada) polui mais que ajuda.
+**Bonus aplicados durante a sessão (não estavam na lista original):**
 
-**Onde mexer:** bloco do título em `app.py` (~linha 2380, dentro do
-ramo `else` do guard `<2 pontos`). Remover a montagem de `right_side`
-e o segundo `<span>` no `st.markdown` do título flex.
+1. **Travessão `–` no `_format_periodo_br`** — substituído ` a ` por
+   ` – ` (en dash, U+2013) em todos os ramos. Convenção tipográfica
+   pra ranges. Branch novo Horária ≥2D mesmo ano: formato curto
+   `DD/MM – DD/MM` sem ano (com fallback pra ano em ambos lados se
+   atravessa virada de ano — caso raro mas real em 90D ancorado em
+   jan/fev).
 
-#### 2. Default da Horária = data mais recente do dataset
+2. **Override Bauhaus em `st.alert` (decisão 5.23)** — tema dark
+   (`textColor: #f2f2f2`) deixava warning Mensal <60d com texto branco
+   sobre fundo amarelo, ilegível. Override em camadas: container externo
+   `[data-testid="stAlert"]` recebe TODO o visual (BAUHAUS_LIGHT + borda
+   preta 2px sólida + box-shadow none + margins), descendentes ficam
+   transparentes. Aplica a warning/info/error/success — diferenciação
+   semântica preservada via ícone do Streamlit. Cor `BAUHAUS_LIGHT`
+   (`#E8E3D4`, "elementos sutis" do sistema de cores §3.1) escolhida
+   após teste com `BAUHAUS_CREAM` (igual ao fundo da página) que
+   "transparentizava" o alert.
 
-**Comportamento atual:** ao entrar em Horária pela 1ª vez (ou após
-reset), `data_base` herda da seleção anterior (ex: `data_ini` da
-Diária — pode ser arbitrária).
+3. **Reposicionamento do guard `<2 pontos` + st.stop (decisão 5.24)** —
+   guard estava DEPOIS dos KPIs/export, então KPIs apareciam com 1
+   ponto (calculados sobre `pivot_sel.mean()` de 1 valor) + botão de
+   export ficava ativo. Movido pra ANTES dos KPIs com `st.stop()`
+   final. Refator de 18 linhas removidas + 143 linhas desindentadas
+   (todo o conteúdo do antigo `else` do `if/else` legacy desindentado
+   4 espaços) via script Python pra evitar erros manuais. Coerência
+   total com o guard Mensal <60d (decisão 5.24).
 
-**Desejado:** ao entrar em Horária, abrir sempre com
-`data_base = max_d_gen` + `window = 1D`. Usuário casual quer ver "como
-foi ontem", não uma data aleatória que ele tinha selecionado antes.
+**Iterações visuais durante a sessão (5 trocas de feedback):**
 
-**Onde mexer:** init de Horária em `app.py:~2099-2113`. Trocar o
-`min(max_d_gen, get("gen_data_fim") or max_d_gen)` por
-`max_d_gen` direto.
+1. Fix #1 → user pediu pra unir com #6 (lado direito vira período em
+   vez de remover totalmente).
+2. Fix #1+#6 v1 (Inter italic 1rem com prefix "Período:") → user pediu
+   uniformizar 100% com Reservatórios/ENA (Bebas Neue herdado, sem
+   italic, sem prefix).
+3. Tag granularidade v1 (0.78rem `#6B6B6B`) → discreta demais, ajustada
+   pra 0.85rem `#4A4A4A`.
+4. Override stAlert v1 (só externo) → borda azul interna persistia,
+   ampliado pra cobrir wrappers internos (`[data-baseweb="notification"]`,
+   `[data-testid="stAlertContainer"]`).
+5. Override stAlert v2 (cream BAUHAUS_CREAM) → fundo igual ao da
+   página, trocado pra BAUHAUS_LIGHT pra diferenciação.
 
-**Cuidado:** se o user manualmente escolheu uma data no `date_input`
-"Data base" e depois trocou de aba/granularidade e voltou pra Horária,
-ele vai perder a escolha. Avaliar se a regra "sempre `max_d_gen` no
-init" é boa o suficiente, ou se vale uma flag tipo `_gen_data_base_user_set`
-pra preservar escolha explícita.
+**Bug grave descoberto e fixado pós-implementação — retorno de aba:**
 
-#### 3. Mensal com período < 2 meses — fragilidade UX
+Sintoma reproduzido pelo user em Mensal E em Diária:
+1. Aplica período válido (Mensal 3M ou Diária 7D).
+2. Sai pra outra aba (PLD).
+3. Volta pra Geração.
+4. Date_inputs mostram `data_ini == data_fim == max_d` (0 dias) →
+   guard ativa (warning Mensal <60d ou info Diária <2 pontos).
 
-**Problema atual:** o auto-ajuste implementado na Sessão 1 (decisão
-5.14 do CLAUDE.md) dispara **silenciosamente** quando o user seleciona
-< 60 dias em Mensal — força volta pra 3M sem avisar. Confuso para o
-user ("escolhi 45 dias e o sistema mudou pra 90 sem explicar").
+**Diagnóstico em runtime:** debug `st.write` em 3 pontos do flow
+(antes do backup paralelo, após reset block, após helper de período)
+revelou que ao retornar:
+- `gen_granularidade` e `gen_submercado` foram cleanup'ed (restaurados
+  pelo backup paralelo da 5.18 — funcionou).
+- `_gen_dataset_max`, `_gen_dataset_min`, `_gen_last_gran` sobreviveram
+  (não-widget-state).
+- `gen_data_fim` sobreviveu, mas `gen_data_ini` foi cleanup'ed.
+- Quando o `st.date_input("Data inicial", key="gen_data_ini",
+  min_value=..., max_value=max_d)` foi re-instanciado SEM `value=`,
+  Streamlit recriou a key com value clamped pra `max_value` (= `max_d`).
+- Resultado: `gen_data_ini == gen_data_fim == max_d`. Ambas keys
+  PRESENTES, mas range degenerado.
+- A sentinela 5.16 (que checa só ausência das keys) **não pegou** —
+  ambas estavam em state.
 
-**Soluções a considerar (escolher na Sessão 1.6):**
+**Fix:** 6º gatilho no reset block (`app.py:2261-2266`):
 
-a) **Validar + mensagem clara:** mostrar `st.warning` explicando
-   *"Mensal requer pelo menos 2 meses. Selecione período maior ou
-   troque pra Diária."*. Não auto-ajusta — bloqueia render do gráfico
-   até user decidir.
-b) **Converter automaticamente pra Diária** com `st.info` visível
-   *"Período curto demais pra Mensal — exibindo em Diária."*
-c) **Impedir a seleção:** limitar `min_value` do `date_input` em
-   Mensal pra `max_d_gen - 60 dias` (não é escolha do user — proativo).
+```python
+or (
+    not em_horaria
+    and "gen_data_ini" in st.session_state
+    and "gen_data_fim" in st.session_state
+    and st.session_state["gen_data_ini"]
+        >= st.session_state["gen_data_fim"]
+)
+```
 
-(a) preserva a intenção do user mas pede ação. (c) é preventivo
-(impede o estado inválido). (b) é o auto-ajuste atual com aviso.
+Mesmo padrão `not em_horaria` da 5.19 — em Horária 1D, `data_ini ==
+data_fim` é estado legítimo (window=1 + `data_base + 0 dias`), não bug.
 
-#### 4. Unidade `MWmed` (não `MWMED`)
+**Validação de não-regressão (3 cenários ✅):**
 
-**Padronização:** unidade escrita como `MWmed` (M e W maiúsculos, "med"
-minúsculo) em **todos** os lugares — KPIs, hover do gráfico, eixo Y,
-coluna do export CSV, notas explicativas.
+| # | Cenário | Resultado |
+|---|---|---|
+| 1 | Mensal: aplica 3M → PLD → volta | ✅ vai pro default Mensal 12M (reset disparou via gatilho 6) |
+| 2 | Diária: aplica 7D → PLD → volta | ✅ vai pro default Diária 1M (reset disparou via gatilho 6) |
+| 3 | Horária: aplica 7D → PLD → volta | ✅ window 7D preservada (gatilho 6 EXCLUI Horária) |
 
-**Bug visual atual:** nos KPIs, `MWmed` aparece como `MWMED` por causa
-do `text-transform: uppercase` global do CSS Bauhaus aplicado a labels
-de `st.metric`.
+**Decisões arquiteturais consolidadas no CLAUDE.md (4 novas + 2 estendidas):**
 
-**Fix:** override CSS específico que remove `text-transform` da unidade
-DENTRO dos cards de KPI, mantendo `uppercase` no rótulo
-("GERAÇÃO TOTAL" / "TÉRMICA" / "% RENOV VARIÁVEL" / "CARGA").
-
-#### 5. Tipografia comprimida nos KPIs
-
-Os 4 cards estão com texto comprimido — número e unidade colados, sem
-respiração. Revisar tipografia do componente KPI:
-
-- Aumentar espaçamento entre número e unidade.
-- Considerar aumentar tamanho da unidade.
-- Avaliar peso visual geral dos cards (talvez número maior).
-
-Tarefa de afinamento visual — comparar lado a lado com KPIs do PLD/ENA.
-
-#### 6. Linha "Período" muito discreta
-
-A linha `Período: DD/MM/YYYY a DD/MM/YYYY` abaixo do título está em
-fonte pequena (~0.85rem) e cinza italic — quase invisível.
-
-Sendo a **informação mais importante** da tela (qual período está
-sendo visualizado), deveria ter peso visual maior.
-
-**Sugestões:**
-- Aumentar fonte (1rem ou 1.05rem).
-- Trocar cinza claro por preto (pode manter italic).
-- Negrito leve no número das datas.
-
-#### 7. Realocar nota "Cada ponto representa..." pra perto do gráfico
-
-**Atual:** a nota `Cada ponto representa a média X em MWmed` está no
-bloco de notas do topo, junto com 4 outras notas (atualização ONS,
-intercâmbio, GD, ...).
-
-**Desejado:** mover essa nota pra **perto do gráfico** — à direita do
-título do submercado, ou outra posição visualmente próxima.
-
-**Princípio:** informação que descreve o gráfico fica perto do gráfico.
-O bloco de notas do topo deve ficar reservado para contexto geral da
-aba (data de atualização, intercâmbio, GD).
+- **5.21** KPIs em HTML custom quando o value tem letras mixed-case.
+  Bebas Neue all-caps por design — incompatível com `MWmed`.
+- **5.22** Tag compacta de granularidade entre título e gráfico.
+  Padrão reusável pra qualquer aba com modo/granularidade variável.
+- **5.23** Override Bauhaus de st.alert em estratégia "container externo
+  dita visual + descendentes transparentes". Resolve incompatibilidade
+  do tema dark com fundos coloridos do alert padrão Streamlit.
+- **5.24** st.stop após guards que invalidam o gráfico. KPIs/export
+  bloqueiam junto. Coerência entre guards Mensal <60d e Diária <2 pontos.
+- **5.16 (estendida)** "Sentinela de reset estendida com keys individuais"
+  ganha 6º gatilho na nova seção "Extensão posterior (Sessão 1.6)" —
+  detecta `gen_data_ini >= gen_data_fim` (range degenerado), cobre o
+  caso "keys presentes com valor degenerado" que a checagem de
+  ausência pura não pegava.
+- **5.19 (estendida)** ganha nota "Aplicação ao 6º gatilho (Sessão 1.6)" —
+  o `not em_horaria` da exclusão por modo se aplica ao gatilho 6 pelo
+  mesmo motivo da 5.16: em Horária 1D, `data_ini == data_fim` é estado
+  válido derivado de `data_base + 0`, não bug.
+- **5.14 reconfirmada como SUPERADA** — agora pelas 5.20 (transições)
+  + 5.24 (seleção manual curta com warning educativo).
 
 ### Sessão 2 — Dia Típico
 
@@ -646,11 +669,16 @@ Próxima sessão é a **Sessão 1.6 (ajustes estéticos & UX)** ou
 - `docs/aba_geracao_spec.md` — spec original.
 - `docs/geracao_research.md` — Fase A (descoberta CKAN, schema, números).
 - `CLAUDE.md` — guia geral do projeto (atualizado com decisões
-  5.15 disk-cache, 5.16 widget-state cleanup, 5.17 dois eixos
-  range vs período visível, 5.18 backup paralelo selectbox, 5.19
-  exceção por modo no reset, 5.20 defaults por granularidade +
-  reset block unificado; 5.14 marcada como SUPERADA pela 5.20).
-- Commits relevantes (todos em `origin/main` após push em 2026-04-25):
+  5.15 disk-cache, 5.16 widget-state cleanup + 6º gatilho range
+  degenerado (Sessão 1.6), 5.17 dois eixos range vs período visível,
+  5.18 backup paralelo selectbox, 5.19 exceção por modo no reset +
+  aplicação ao 6º gatilho (Sessão 1.6), 5.20 defaults por
+  granularidade + reset block unificado, **5.21 KPIs HTML custom
+  (Bauhaus all-caps), 5.22 tag compacta granularidade, 5.23 override
+  Bauhaus de st.alert, 5.24 st.stop pós-guard**; 5.14 marcada como
+  SUPERADA pela 5.20 + 5.24).
+- Commits relevantes (4 em `origin/main` após push em 2026-04-25 +
+  1 pendente da Sessão 1.6):
   - `87a1eb1` (2026-04-23) — Geração 1ª versão (5 gráficos empilhados,
     antes da reversão).
   - `e7db917` (2026-04-24) — Sessão 1: reversão pra gráfico único +
@@ -663,6 +691,8 @@ Próxima sessão é a **Sessão 1.6 (ajustes estéticos & UX)** ou
     expansão + presets revisados + 3 bugs fixados (datas cortadas,
     dessincronia granularidade, regressão botões Horária) + decisões
     5.17-5.20.
+  - **(pendente)** Sessão 1.6: 7 ajustes estéticos + 3 bonus +
+    bug retorno de aba + decisões 5.21-5.24 + 5.16/5.19 estendidas.
   - Anteriores (já estavam em `origin/main`): `4be9f33`, `80634b5`,
     `87c8e72`.
 - Disk-caches dos datasets ONS (Sessão 1.5b):

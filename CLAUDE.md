@@ -543,14 +543,20 @@ Bonus: usar `not get()` (cobre ausência E `None`) na key que pode ser
 escrita pelo widget; usar `"X" not in state` (só ausência) na key que
 só é escrita por código nosso.
 
-### 5.14 Auto-ajuste de período ao trocar pra granularidade incompatível ⚠ SUPERADA pela 5.20
+### 5.14 Auto-ajuste de período ao trocar pra granularidade incompatível ⚠ SUPERADA pela 5.20 + 5.24
 
-> **Status:** histórico/superada. A 5.20 (defaults por granularidade
-> via reset block unificado) cobre TODAS as transições com defaults
-> intencionais — Mensal default 12M já evita o caso < 2 pontos sem
-> precisar de workaround pontual. Código antigo (auto-ajuste Mensal
-> linhas 2243-2252) removido na Sessão 1.5b. Mantida aqui como
-> referência da decisão original.
+> **Status:** histórico/superada. Cobertura distribuída em 2 decisões
+> sucessoras:
+> - **5.20** (defaults por granularidade via reset block unificado)
+>   cobre TODAS as TRANSIÇÕES com defaults intencionais — Mensal
+>   default 12M já evita o caso < 2 pontos sem workaround pontual.
+> - **5.24** (st.stop educativo) cobre o caso de SELEÇÃO MANUAL
+>   curta DENTRO do modo Mensal (date_inputs editados pra <60d),
+>   que a 5.20 não pega — guard com warning + stop em vez de
+>   auto-ajuste silencioso.
+>
+> Código antigo (auto-ajuste Mensal linhas 2243-2252) removido na
+> Sessão 1.5b. Mantida aqui como referência da decisão original.
 
 **Decisão original:** ao trocar pra uma granularidade onde o período
 herdado geraria <2 pontos no resample, **auto-ajustar** o período pra
@@ -697,6 +703,44 @@ modos onde widgets diferentes ocupam o mesmo papel (Diária/Mensal usa
 keys), a sentinela estendida precisa **EXCLUIR o modo onde o cleanup
 é normal**. Sem isso, o reset dispara em todo rerun do modo
 alternativo. Ver 5.19 abaixo.
+
+**Extensão posterior (Sessão 1.6) — keys PRESENTES com valor inválido:**
+A checagem de "ausência" da sentinela 5.16 cobre cleanup TOTAL
+(ambas keys descartadas) ou PARCIAL (uma ou outra). Mas Streamlit
+também tem um modo de falha mais sutil: descarta `gen_data_ini`,
+mantém `gen_data_fim`, e quando o `st.date_input("Data inicial",
+key="gen_data_ini")` é re-instanciado SEM `value=`, recria a key com
+default clamped pra `max_value` (= `max_d_gen`). Resultado:
+`gen_data_ini` reaparece no state com valor `== gen_data_fim`. As 2
+keys ficam **PRESENTES**, mas o range é DEGENERADO. A 5.16 (que checa
+só ausência) não pega.
+
+**Diagnóstico em runtime (Sessão 1.6):** debug `st.write` injetado
+em 3 pontos do flow comparando state antes/depois da navegação
+mostrou: `gen_data_ini` mudava de `2026-01-23` (3M aplicado) pra
+`2026-04-23` (max_d) ao voltar de outra aba; `gen_data_fim` ficava
+estável em `2026-04-23`. Ambas presentes → reset não disparava →
+guard `<2 pontos` (Diária) ou `<60d` (Mensal) ativava de novo.
+
+**6º gatilho do reset block (`app.py:2261-2266`):**
+
+```python
+or (
+    not em_horaria
+    and "gen_data_ini" in st.session_state
+    and "gen_data_fim" in st.session_state
+    and st.session_state["gen_data_ini"]
+        >= st.session_state["gen_data_fim"]
+)
+```
+
+**Por que `>=` (não só `==`):** cobre `data_ini == data_fim` (caso
+reportado) e `data_ini > data_fim` (defesa adicional, embora
+improvável dado os widgets validarem).
+
+**Por que mantém `not em_horaria`:** em Horária, `gen_data_ini ==
+gen_data_fim` é LEGÍTIMO quando window=1 (data_base + 0 dias). Ver
+5.19 — mesmo padrão de exclusão por modo.
 
 ### 5.17 Dois eixos: range do dataset vs período visível
 
@@ -875,6 +919,14 @@ Nem sempre é — em modos alternativos pode ser comportamento normal.
 Quando o reset tem efeitos colaterais (popa outras keys), uma falsa
 detecção custa caro.
 
+**Aplicação ao 6º gatilho (Sessão 1.6):** a checagem
+`gen_data_ini >= gen_data_fim` (range degenerado, extensão da 5.16)
+herda o mesmo padrão `not em_horaria` — em Horária com window=1,
+`data_ini == data_fim` é estado válido derivado de `data_base + 0`,
+não bug. Sem a exceção, o reset disparava em todo render Horária 1D
+e popava `gen_horaria_window_dias` (mesma classe de regressão do bug
+do Cenário 3 da Sessão 1.5).
+
 **Padrão genérico aplicável:**
 
 ```python
@@ -967,6 +1019,248 @@ controles de período diferentes. PLD tem 4 granularidades mas presets
 similares (`_render_period_controls` em todas). Reservatórios e ENA
 têm 1 modo só. Padrão fica reservado pra Geração por enquanto, mas
 a estrutura é generalizável se aparecer caso similar.
+
+### 5.21 KPIs em HTML custom quando o value tem letras mixed-case
+
+**Decisão:** quando o value de um card de KPI precisa exibir uma
+string com letras lowercase (ex: `MWmed`, `MWh`, `kWh`), **NÃO usar
+`st.metric`** — refatorar pra HTML custom com 2 spans
+(`.kpi-value-num` em Bebas Neue pro número, `.kpi-value-unit` em
+Inter mixed-case pra unidade).
+
+**Bug que motivou (Sessão 1.6 #4):** os 4 KPIs da aba Geração
+(`st.metric("GERAÇÃO TOTAL", f"{...} MWmed")`) renderizavam "MWmed"
+como "MWMED". Diagnóstico inicial errado: hipótese era
+`text-transform: uppercase` global. Verificação no CSS (`app.py`
+linhas 208-219) mostrou que `text-transform: uppercase` está SÓ no
+LABEL do `st.metric`, não no VALUE. **Causa raiz:** o CSS Bauhaus
+aplica `font-family: 'Bebas Neue'` no VALUE (linha 202), e Bebas
+Neue é uma fonte **all-caps por design** — não tem glifos lowercase.
+Letras lowercase renderizam como uppercase glyphs visualmente,
+independente de qualquer override de `text-transform`.
+
+**Padrão de implementação** (`app.py:2520-2566` na Geração; padrão
+análogo já existia na ENA `app.py:1845-1873` por outro motivo):
+
+```python
+# CSS: 4 classes (card / label / value-flex / value-num / value-unit)
+.gen-kpi-card { background: ...; border: 2px solid #1A1A1A; ... }
+.gen-kpi-label { font-family: 'Inter'; uppercase; ... }
+.gen-kpi-value { display: flex; align-items: baseline; ... }
+.gen-kpi-value-num { font-family: 'Bebas Neue'; font-size: 1.45rem; ... }
+.gen-kpi-value-unit {
+    font-family: 'Inter';  /* mixed-case OK */
+    margin-left: 0.4rem;
+    ...
+}
+
+# Helper local pra evitar repetir HTML 4×:
+def _render_kpi_gen(label, num, unit=""):
+    unit_html = (
+        f'<span class="gen-kpi-value-unit">{unit}</span>' if unit else ""
+    )
+    return (
+        f'<div class="gen-kpi-card">'
+        f'<div class="gen-kpi-label">{label}</div>'
+        f'<div class="gen-kpi-value">'
+        f'<span class="gen-kpi-value-num">{num}</span>{unit_html}'
+        f'</div></div>'
+    )
+
+# Uso:
+st.markdown(
+    _render_kpi_gen("GERAÇÃO TOTAL", "67.890", "MWmed"),
+    unsafe_allow_html=True,
+)
+
+# Caso especial: % colado no número (sem unit separada):
+st.markdown(
+    _render_kpi_gen("% RENOV VARIÁVEL", "18,5%"),
+    unsafe_allow_html=True,
+)
+```
+
+**Quando aplicar:**
+- KPI com unidade contendo letras lowercase (`MWmed`, `kWh`, `MWh`)
+  → HTML custom obrigatório.
+- KPI com unidade só símbolo/número (`%`, `°C`, `R$`, números puros)
+  → `st.metric` continua OK (Bebas all-caps preserva a aparência).
+
+**Trade-off:** ~30 linhas extras por bloco de KPIs (CSS + helper) vs
+`st.metric` puro de 1 linha por card. Aceitável quando há restrição
+tipográfica genuína — não aplicar preventivamente em bloco que não
+sofre o problema.
+
+### 5.22 Tag compacta de granularidade entre título e gráfico
+
+**Decisão:** quando uma aba tem múltiplos modos (granularidades) que
+mudam o significado da unidade ("cada ponto representa X"), renderizar
+uma **tag compacta** IMEDIATAMENTE entre o título Bauhaus do gráfico
+e o `fig`/`st.plotly_chart`. **NÃO** no bloco geral de notas no topo
+da aba.
+
+**Razão:** princípio "informação que descreve o gráfico fica perto do
+gráfico". O bloco geral de notas é pra contexto da aba toda
+(atualização da fonte, decisões de cálculo, breakpoints históricos).
+Texto que muda dinamicamente com a granularidade do gráfico
+("Média mensal · MWmed" vs "Média diária · MWmed" vs "Valor horário ·
+MWmed") interage visualmente com o gráfico, não com a aba.
+
+**Padrão de implementação** (`app.py:2742-2749` na Geração):
+
+```python
+# Definição perto da escolha de granularidade:
+tag_granularidade_gen = {
+    "Mensal":  "Média mensal · MWmed",
+    "Diária":  "Média diária · MWmed",
+    "Horária": "Valor horário · MWmed",
+}[granularidade_gen]
+
+# Renderização ENTRE título Bauhaus e fig:
+st.markdown(título_bauhaus, unsafe_allow_html=True)
+st.markdown(
+    f'<div style="font-family:\'Inter\', sans-serif; '
+    f'font-size:0.85rem; color:#4A4A4A; '
+    f'letter-spacing:0.04em; margin:0 0 0.5rem 0;">'
+    f'{tag_granularidade_gen}'
+    f'</div>',
+    unsafe_allow_html=True,
+)
+fig_c = go.Figure()
+```
+
+**Estilo:**
+- Inter 0.85rem cinza escuro `#4A4A4A` (BAUHAUS_GRAY).
+- **Sem italic** (italic em corpo pequeno fica difícil de ler).
+- Letter-spacing 0.04em (leve respiração).
+- Texto compacto: `Sujeito · Unidade` (ex: "Média diária · MWmed"),
+  não a frase longa "Cada ponto representa o valor X em UNIDADE".
+- Margin: 0 acima (cola no título), 0.5rem abaixo (respira antes
+  do gráfico).
+
+**Quando aplicar:** abas com modo/granularidade variável que altera
+a interpretação dos pontos. PLD (4 granularidades), Geração (3),
+candidatos futuros. Reservatórios e ENA têm 1 modo só, não precisam.
+
+### 5.23 Override Bauhaus de st.alert — container externo dita visual
+
+**Decisão:** quando o tema do projeto for **dark**
+(`textColor: "#f2f2f2"` em `.streamlit/config.toml`), o
+`st.warning`/`st.info`/`st.error`/`st.success` ficam ilegíveis com
+seus fundos coloridos default. Override CSS em estratégia
+"**container externo dita o visual + descendentes transparentes**".
+
+**Bug que motivou (Sessão 1.6 bonus):** warning de "Mensal precisa de
+pelo menos 2 meses" tinha texto branco (do `textColor: #f2f2f2` do
+tema) sobre fundo amarelo do warning Streamlit — quase ilegível.
+
+**Padrão de implementação** (`app.py:225-256`):
+
+```css
+/* Container externo recebe TODO o visual + margins */
+[data-testid="stAlert"] {
+    margin-top: 0.8rem !important;
+    margin-bottom: 0.4rem !important;
+    background-color: #E8E3D4 !important;  /* BAUHAUS_LIGHT */
+    border: 2px solid #1A1A1A !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    color: #1A1A1A !important;
+}
+
+/* Descendentes ficam TRANSPARENTES — deixam o cream do parent
+   passar e matam border/shadow coloridos por tipo (warning amarelo,
+   info azul, error vermelho) que vêm dos wrappers internos. */
+[data-testid="stAlert"] div,
+[data-testid="stAlert"] p,
+[data-testid="stAlert"] span,
+[data-testid="stAlert"] [data-baseweb="notification"],
+[data-testid="stAlert"] [data-testid="stAlertContainer"] {
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    color: #1A1A1A !important;
+}
+```
+
+**Por que estratégia "externo + transparente":**
+- Streamlit aninha alerts em wrappers internos
+  (`[data-baseweb="notification"]`, `[data-testid="stAlertContainer"]`)
+  e a borda/sombra colorida por tipo vem **desses** wrappers, não do
+  `stAlert` externo. Ataque só ao externo deixa a borda interna
+  visível.
+- Atacar wrappers internos individualmente é frágil (estrutura DOM
+  varia entre versões Streamlit).
+- "Externo dita visual + internos transparentes" funciona INDEPENDENTE
+  da estrutura — qualquer borda/sombra interna é zerada, qualquer
+  fundo interno é transparente, deixando o cream do parent vazar.
+
+**Cor `BAUHAUS_LIGHT` (não BAUHAUS_CREAM):**
+- BAUHAUS_CREAM (`#F5F1E8`) é o fundo da página inteira → alert com
+  o mesmo tom não destaca, fica "transparente" visualmente.
+- BAUHAUS_LIGHT (`#E8E3D4`) é "elementos sutis" no sistema de cores
+  do projeto (§3.1) — diferenciação visual sem agredir Bauhaus.
+
+**SVGs/icons preservados:** seletor não inclui `svg`/`path`, então
+o ícone do Streamlit (⚠️/ℹ️/❌/✅) mantém cor própria — única
+diferenciação semântica que sobra entre tipos de alert.
+
+**Trade-off:** todos os tipos de alert ficam visualmente uniformes.
+Diferenciação semântica passa a depender SÓ do ícone. Aceitável
+porque (a) alerts são raros no app, (b) consistência > sinalização
+forte por cor (não é UI de produção crítica).
+
+### 5.24 st.stop após guards que invalidam o gráfico
+
+**Decisão:** quando um guard mostra `st.warning`/`st.info` em vez do
+gráfico, **sempre** seguir com `st.stop()` pra bloquear KPIs e export
+CSV junto. Coerência: gráfico inválido = KPIs/export também inválidos.
+
+**Bug que motivou (Sessão 1.6 bonus):** guard `<2 pontos` em Diária
+1 dia mostrava `st.info("Selecione pelo menos 2 pontos...")` no lugar
+do gráfico, mas KPIs (calculados sobre `pivot_sel.mean()` com 1
+ponto) e botão de export CSV continuavam aparecendo. Inconsistente
+com o guard Mensal <60d (também na Sessão 1.6) que tem `st.stop()`.
+
+**Razão semântica:** se o gráfico não faz sentido com a seleção
+atual, KPIs calculados com a mesma seleção também não fazem.
+Export CSV com 1 ponto é tecnicamente válido mas user-confuso —
+download de 1 linha não é o uso esperado da aba.
+
+**Padrão de implementação:**
+
+```python
+# Pattern: guard ANTES dos KPIs com st.stop() final.
+if condicao_invalida:
+    st.warning("...")  # ou st.info(...)
+    # Opcionalmente: botões alternativos (ex: "Ver curva horária")
+    if outro_caso:
+        if st.button("..."):
+            # ações + rerun (rerun bypassa o stop, OK)
+            st.rerun()
+    st.stop()  # impede KPIs / gráfico / export
+
+# A partir daqui, render assume condição válida — pode acessar
+# pivot_sel.mean() etc. sem checks defensivos.
+```
+
+**Onde colocar o guard:**
+- ANTES do bloco dos KPIs (não depois). Ordem certa: pivots → guard
+  → KPIs → gráfico → export.
+- Botões alternativos (ex: "Ver curva horária deste dia" pra Diária
+  1 dia) ficam DENTRO do branch do guard, ANTES do `st.stop()`. O
+  `st.rerun()` do botão dispara antes do stop ser alcançado.
+
+**Casos atuais com esse pattern (Geração):**
+- Mensal `(data_fim - data_ini).days < 60`: warning + stop.
+- Diária `len(pivot_sel) == 1`: info + botão "Ver curva horária" + stop.
+- Sub sem dados (`pivot_sel is None`): warning + stop (já era assim
+  antes da Sessão 1.6, decisão tornou padrão explícito).
+
+**Quando NÃO aplicar:** guards informativos que NÃO invalidam o
+gráfico (ex: caption "Granularidade horária com janela longa —
+renderização pode levar alguns segundos" em Horária ≥30D). Esses
+são avisos de UX, não bloqueios — não levam stop.
 
 ---
 
@@ -1143,6 +1437,43 @@ ambiente fresh do Cloud.
     Mensal ganha 10A + 15A. `clear_cache()` estendido pra unlinkar 4
     parquets + resetar `gen_historico_completo` (Atualizar = começar do
     zero).
+20. **Sessão 1.6 — Ajustes estéticos & UX** — 5º commit em 2026-04-25.
+    7 ajustes pequenos (1 bug + tipografia + UX) sem refator estrutural,
+    com 3 bugs descobertos durante implementação que viraram fixes
+    cirúrgicos. **Mudanças:** (#1+#6) lado direito errado do título
+    Bauhaus removido + linha "Período" reaproveita o espaço (uniformizado
+    com Reservatórios/ENA: Bebas Neue herdado, sem "Período:" prefix);
+    (#3) bloqueio educativo Mensal <60d com `st.warning + st.stop`
+    (decisão 5.24); (#4) refator dos 4 KPIs de `st.metric` pra HTML
+    custom porque Bebas Neue é all-caps por design — "MWmed" virava
+    "MWMED" (decisão 5.21, helper `_render_kpi_gen` com 4 classes
+    `.gen-kpi-*`); (#5) resolvido implicitamente pelo refator do #4
+    (margin-left 0.4rem entre número e unidade); (#7) tag compacta de
+    granularidade entre título e gráfico ("Média mensal · MWmed" etc.,
+    decisão 5.22), removida do bloco geral de notas. **#2 já era coberto
+    pela 5.20 da 1.5b — confirmado em runtime sem trabalho.** **Bonus:**
+    (a) helper `_format_periodo_br` ganha en dash `–` no lugar de ` a `
+    + branch novo Horária ≥2D mesmo ano `DD/MM – DD/MM` sem ano (com
+    fallback pra ano em ambos lados se atravessa virada); (b) override
+    Bauhaus de `[data-testid="stAlert"]` em estratégia "container externo
+    dita visual + descendentes transparentes" (decisão 5.23) — texto
+    branco do tema dark sobre fundo amarelo do warning era ilegível,
+    fundo passou pra `BAUHAUS_LIGHT` pra destacar da página; (c) guard
+    `<2 pontos` movido pra ANTES dos KPIs com `st.stop()` final —
+    coerência com guard Mensal <60d, KPIs/export bloqueiam junto com
+    gráfico (decisão 5.24). **Bug grave descoberto pós-implementação:**
+    ao sair de Geração + voltar de outra aba, `gen_data_ini` vira igual
+    a `gen_data_fim` (0 dias) → guard ativa de novo. Diagnóstico em
+    runtime via debug `st.write` em 3 pontos: cleanup parcial do
+    Streamlit descarta `gen_data_ini`, preserva `gen_data_fim`. Widget
+    re-instanciado sem session_state recria a key clamped pra `max_d`
+    → fica `== gen_data_fim`. Sentinela 5.16 (que checa só ausência)
+    não pega "presença com valor degenerado". Fix: 6ª condição no reset
+    block detecta `gen_data_ini >= gen_data_fim` (range degenerado),
+    com mesma exclusão `not em_horaria` da 5.19 (porque em Horária 1D
+    isso é estado legítimo). Decisão 5.16 atualizada com "Extensão
+    posterior (Sessão 1.6)" + 5.19 atualizada com aplicação ao 6º
+    gatilho.
 
 ---
 
