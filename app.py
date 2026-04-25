@@ -2001,8 +2001,31 @@ elif aba == "Geração":
         st.warning("Nenhum dado disponível.")
         st.stop()
 
-    # --- Controle: só granularidade (submercado virou loop dos 5 gráficos) ---
-    ctrl_cols = st.columns([1.2, 5])
+    ORDEM_SUBSISTEMA_GEN = ["SIN", "SE", "S", "NE", "N"]
+    LABELS_SUBSISTEMA_GEN = {
+        "SIN": "SIN",
+        "SE":  "SUDESTE",
+        "S":   "SUL",
+        "NE":  "NORDESTE",
+        "N":   "NORTE",
+    }
+    NOME_SUB_LONGO = {
+        "SIN": "SIN",
+        "SE":  "Sudeste/Centro-Oeste",
+        "S":   "Sul",
+        "NE":  "Nordeste",
+        "N":   "Norte",
+    }
+
+    # Consome flag setado pelo botão "Ver curva horária deste dia" do guard
+    # <2 pontos. Streamlit proíbe modificar a key de um widget já
+    # instanciado no mesmo run, então o botão seta o flag + rerun, e aqui
+    # (antes do selectbox abaixo ser instanciado) movemos gen_granularidade.
+    if st.session_state.pop("_gen_force_horaria", False):
+        st.session_state["gen_granularidade"] = "Horária"
+
+    # --- Controles: granularidade + submercado ---
+    ctrl_cols = st.columns([1.2, 1.8, 3.2])
     with ctrl_cols[0]:
         granularidade_gen = st.selectbox(
             "Granularidade",
@@ -2010,15 +2033,37 @@ elif aba == "Geração":
             index=1,  # default diária
             key="gen_granularidade",
         )
+    with ctrl_cols[1]:
+        submercado_gen = st.selectbox(
+            "Submercado",
+            ORDEM_SUBSISTEMA_GEN,
+            index=0,  # default SIN
+            key="gen_submercado",
+            format_func=lambda c: NOME_SUB_LONGO[c],
+        )
+
+    # Ao sair de Horária, limpa keys do modo "Data base + janela" — evita
+    # widget órfão no Streamlit 1.56 quando a key persiste em session_state
+    # após o widget não ser mais re-renderizado. Horária re-inicializa as
+    # keys na entrada.
+    prev_gran_gen = st.session_state.get("_gen_last_gran")
+    if prev_gran_gen == "Horária" and granularidade_gen != "Horária":
+        st.session_state.pop("gen_data_base", None)
+        st.session_state.pop("gen_horaria_window_dias", None)
+    st.session_state["_gen_last_gran"] = granularidade_gen
 
     # --- Range disponível no dataset (baseado em data_hora) ---
     min_d_gen = df_gen["data_hora"].min().date()
     max_d_gen = df_gen["data_hora"].max().date()
 
-    # Default: últimos 12 meses. Reseta se dataset mudar (novo ano ONS
-    # invalida também data_base/window do modo Horária).
+    # Default: últimos 12 meses. Sentinela `_gen_dataset_max` é setada SÓ
+    # por este bloco — sua ausência prova "1ª visita absoluta na sessão".
+    # Não usar "gen_data_ini not in state" como heurística: em Horária,
+    # gen_data_ini é derivado pós-helper de gen_data_base/window — usar
+    # essa key faria o reset disparar em todo render no modo Horária e
+    # popar gen_data_base/gen_horaria_window_dias, voltando window pra 1.
     if (
-        "gen_data_ini" not in st.session_state
+        "_gen_dataset_max" not in st.session_state
         or st.session_state.get("_gen_dataset_max") != max_d_gen
         or st.session_state.get("_gen_dataset_min") != min_d_gen
     ):
@@ -2036,11 +2081,22 @@ elif aba == "Geração":
     # Horária: 1 date_input (Data base) + presets de "janela de N dias
     # terminando na data base". data_ini/data_fim são derivados.
     if granularidade_gen == "Horária":
-        # Inicializa estado da Horária se 1ª visita (ou após reset de dataset)
-        if "gen_data_base" not in st.session_state:
+        # Inicializa estado da Horária se 1ª visita (ou após reset de
+        # dataset). Inits SEPARADOS por key: gen_data_base pode virar None
+        # (st.date_input retorna None se o campo for limpado), e
+        # reinicializar gen_data_base nesse caso NÃO deve ressetar window,
+        # senão apagaria o preset 7D/30D/90D recém-clicado.
+        #
+        # - gen_data_base: trata ausente E None (`not get()`). Fallback de
+        #   gen_data_fim também protegido com `or` pra tratar None.
+        # - window: só seta default=1 se a key é ausente (1ª visita
+        #   absoluta no modo Horária).
+        if not st.session_state.get("gen_data_base"):
             st.session_state["gen_data_base"] = min(
-                max_d_gen, st.session_state["gen_data_fim"]
+                max_d_gen,
+                st.session_state.get("gen_data_fim") or max_d_gen,
             )
+        if "gen_horaria_window_dias" not in st.session_state:
             st.session_state["gen_horaria_window_dias"] = 1
 
         presets_hora = [
@@ -2071,6 +2127,22 @@ elif aba == "Geração":
     else:
         data_ini_gen = st.session_state["gen_data_ini"]
         data_fim_gen = st.session_state["gen_data_fim"]
+
+        # Mensal precisa de pelo menos ~2 meses pra render >= 2 pontos
+        # (resample MS = 1 ponto por mês). Se o período herdado for menor
+        # — caso típico ao vir de Horária 1D, onde data_ini==data_fim ==
+        # data_base — auto-ajusta pra 3M ancorado em max_d_gen, equivalente
+        # ao preset 3M. Sem isso, Mensal cai no guard <2 pontos sempre.
+        if (
+            granularidade_gen == "Mensal"
+            and (data_fim_gen - data_ini_gen).days < 60
+        ):
+            st.session_state["gen_data_ini"] = max(
+                min_d_gen, max_d_gen - timedelta(days=90)
+            )
+            st.session_state["gen_data_fim"] = max_d_gen
+            data_ini_gen = st.session_state["gen_data_ini"]
+            data_fim_gen = st.session_state["gen_data_fim"]
 
         if data_ini_gen > data_fim_gen:
             st.error("A data inicial não pode ser posterior à data final.")
@@ -2154,9 +2226,21 @@ elif aba == "Geração":
         )
         return pivot
 
-    pivot_sin = _build_pivot_submercado("SIN")
-    if pivot_sin is None:
-        st.warning("Sem dados do SIN no intervalo selecionado.")
+    # Popula os 5 pivots de uma vez (1× por render) — alimenta KPIs do
+    # submercado selecionado, gráfico único e export CSV dos 5. Troca de
+    # dropdown vira instantânea (só muda a referência, não recomputa).
+    pivots_por_sub = {}
+    for code in ORDEM_SUBSISTEMA_GEN:
+        pv = _build_pivot_submercado(code)
+        if pv is not None:
+            pivots_por_sub[code] = pv
+
+    pivot_sel = pivots_por_sub.get(submercado_gen)
+    if pivot_sel is None:
+        st.warning(
+            f"Sem dados de {NOME_SUB_LONGO[submercado_gen]} "
+            "no intervalo selecionado."
+        )
         st.stop()
 
     # --- Caption: última atualização + nota granularidade + nota GD + nota
@@ -2171,6 +2255,9 @@ elif aba == "Geração":
         f'Dados atualizados diariamente pelo ONS. Última atualização no '
         f'dataset: {ultima_data_gen.strftime("%d/%m/%Y %H:%M")}.',
         nota_granularidade_gen,
+        "A diferença entre a linha de carga e o total de geração "
+        "corresponde ao intercâmbio líquido com outros subsistemas "
+        "(importação/exportação) e perdas técnicas.",
         "Solar inclui apenas geração centralizada (usinas). Geração "
         "distribuída (MMGD, telhados/fachadas) será adicionada em etapa "
         "futura.",
@@ -2191,11 +2278,10 @@ elif aba == "Geração":
         unsafe_allow_html=True,
     )
 
-    # --- KPIs do SIN (4 cards, no topo) ---
-    # Métricas da janela visível sobre o SIN (o total sistêmico). Convenções:
-    #   - Geração total: soma das 4 fontes → média MWmed no período
-    #   - % renov var: (eólica + solar) / geração total
-    #   - Térmica / carga: média da janela
+    # --- KPIs do submercado selecionado (4 cards) ---
+    # Médias da janela visível, recalculadas ao trocar submercado. %renov
+    # var = (eólica + solar) / geração total. Em Norte aparece ~0% (sem
+    # eólica/solar expressivos), em NE ~80% — é informação correta.
     def _fmt_br_gen(v, casas=0):
         """Número BR: 1.234 (milhar ponto, decimal vírgula). Sem unidade."""
         if v is None or (hasattr(v, "__float__") and not (v == v)):
@@ -2204,14 +2290,14 @@ elif aba == "Geração":
         return fmt.format(v).replace(",", "X").replace(".", ",").replace("X", ".")
 
     ger_total_series = (
-        pivot_sin["hidro"] + pivot_sin["termica"]
-        + pivot_sin["eolica"] + pivot_sin["solar"]
+        pivot_sel["hidro"] + pivot_sel["termica"]
+        + pivot_sel["eolica"] + pivot_sel["solar"]
     )
     ger_total_media = ger_total_series.mean()
-    termica_media = pivot_sin["termica"].mean()
-    carga_media = pivot_sin["carga"].mean()
+    termica_media = pivot_sel["termica"].mean()
+    carga_media = pivot_sel["carga"].mean()
     renov_var_media = (
-        pivot_sin["eolica"].mean() + pivot_sin["solar"].mean()
+        pivot_sel["eolica"].mean() + pivot_sel["solar"].mean()
     )
     pct_renov_var = (
         renov_var_media / ger_total_media * 100
@@ -2219,11 +2305,11 @@ elif aba == "Geração":
     )
 
     st.markdown(
-        '<div style="font-family:\'Inter\', sans-serif; '
-        'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-        'margin:0.6rem 0 0.2rem 0;">'
-        'Médias do período selecionado (SIN).'
-        '</div>',
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+        f'margin:0.6rem 0 0.2rem 0;">'
+        f'Médias do período selecionado ({NOME_SUB_LONGO[submercado_gen]}).'
+        f'</div>',
         unsafe_allow_html=True,
     )
     kpi_cols = st.columns(4)
@@ -2237,25 +2323,20 @@ elif aba == "Geração":
         st.metric("CARGA", f"{_fmt_br_gen(carga_media)} MWmed")
 
     # =======================================================================
-    # GRÁFICOS — 5 stacked areas empilhados verticalmente (SIN + 4 submercados).
-    # Mesmo padrão visual das abas Reservatórios e ENA/Chuva: título Bauhaus
-    # flex com label à esquerda e data+valor à direita, linha de período
-    # abaixo, gráfico altura 270px. Eixo Y independente por gráfico (decisão
-    # 5.7 pra MWmed absoluto com gap grande entre subsistemas). Legenda só
-    # no 1º gráfico (SIN) — cores se repetem nos 4 seguintes.
+    # GRÁFICO — stacked area do submercado selecionado no dropdown.
+    # Título Bauhaus flex (label à esquerda, data+valor à direita), linha de
+    # período abaixo, legenda sempre visível. Altura 450px (meio termo entre
+    # PLD/500 e layout empilhado anterior/270).
     # =======================================================================
 
-    # Paleta das fontes — reusa BAUHAUS_BLUE pra hidro (decisão B) pra manter
-    # consistência visual com o resto do dashboard.
     CORES_FONTE_GEN = {
-        "termica": BAUHAUS_BLACK,   # base — estabilidade visual
-        "hidro":   BAUHAUS_BLUE,    # reuso da paleta do projeto (decisão B)
+        "termica": BAUHAUS_BLACK,
+        "hidro":   BAUHAUS_BLUE,
         "eolica":  "#8FA31E",       # verde-oliva
-        "solar":   BAUHAUS_YELLOW,  # topo — destaque
+        "solar":   BAUHAUS_YELLOW,
     }
     # Labels no HOVER são curtos (até 10 chars) pra alinhamento em monospace.
-    # Label na LEGENDA pode ser mais descritivo — "Solar centralizada" deixa
-    # explícito que GD distribuída não está incluída (ver caption).
+    # "Solar centralizada" na legenda deixa explícito que GD não está incluída.
     LABELS_FONTE_GEN = {
         "termica": "Térmica",
         "hidro":   "Hidráulica",
@@ -2268,18 +2349,8 @@ elif aba == "Geração":
     }
     ORDEM_STACKED_GEN = ["termica", "hidro", "eolica", "solar"]
 
-    ORDEM_SUBSISTEMA_GEN = ["SIN", "SE", "S", "NE", "N"]
-    LABELS_SUBSISTEMA_GEN = {
-        "SIN": "SIN",
-        "SE":  "SUDESTE",
-        "S":   "SUL",
-        "NE":  "NORDESTE",
-        "N":   "NORTE",
-    }
-
     # Última geração total por submercado (dataset COMPLETO, não filtrado) —
-    # soma das 4 fontes no último timestamp publicado. Mostrada à direita do
-    # título Bauhaus de cada gráfico, igual padrão Reservatórios/ENA.
+    # usada no lado direito do título Bauhaus. Padrão Reservatórios/ENA.
     ultimo_ts_gen = df_gen["data_hora"].max()
     ultimas_geracoes_gen = (
         df_gen[
@@ -2290,136 +2361,89 @@ elif aba == "Geração":
     )
     data_str_ultima_gen = ultimo_ts_gen.strftime("%d/%m/%Y")
 
-    # String de período (mesma pra todos os 5 gráficos)
     periodo_str_gen = _format_periodo_br(
         data_ini_efetivo_gen, data_fim_gen, granularidade_gen,
     )
 
-    # Caption de performance pra horária com janela longa (1 vez antes
-    # do loop, não 5× repetido).
-    is_slow_hora = (
-        granularidade_gen == "Horária" and periodo_dias_gen >= 30
-    )
-    if is_slow_hora:
+    if granularidade_gen == "Horária" and periodo_dias_gen >= 30:
         st.caption(
             "Granularidade horária com janela longa — "
             "renderização pode levar alguns segundos."
         )
 
-    # Cache dos pivots calculados (reusado no export CSV no fim do bloco)
-    pivots_por_sub = {"SIN": pivot_sin}
-
-    # hoverformat do eixo X por granularidade — mesmo padrão do PLD
     hover_fmt_gen = {
         "Horária": "%d/%m/%Y %H:%M",
         "Diária":  "%d/%m/%Y",
         "Mensal":  "%b %Y",
     }[granularidade_gen]
 
-    # Guard <2 pontos: decidido 1 vez pelo SIN (todos os subs têm mesma
-    # contagem após resample). Se dispara, emite 1 st.info + 1 botão
-    # opcional, pula o loop de gráficos mas ainda popula pivots_por_sub
-    # pro export CSV rodar.
-    render_charts = len(pivot_sin) >= 2
-    if not render_charts:
+    if len(pivot_sel) < 2:
         st.info(
-            "Selecione pelo menos 2 pontos para visualizar os gráficos "
+            "Selecione pelo menos 2 pontos para visualizar o gráfico "
             "de geração. Para ver a curva intra-diária de um dia "
             "específico, mude a granularidade para Horária."
         )
-        if granularidade_gen == "Diária" and len(pivot_sin) == 1:
+        if granularidade_gen == "Diária" and len(pivot_sel) == 1:
             # Ancora data_base no dia selecionado + window=1D explicitamente
-            # pra não herdar state de visita anterior à Horária.
+            # pra não herdar state de visita anterior à Horária. Flag
+            # _gen_force_horaria é consumido no topo do bloco antes do
+            # selectbox ser instanciado (Streamlit não deixa modificar a
+            # key dele aqui).
             if st.button("Ver curva horária deste dia"):
-                st.session_state["gen_granularidade"] = "Horária"
+                st.session_state["_gen_force_horaria"] = True
                 st.session_state["gen_data_base"] = data_fim_gen
                 st.session_state["gen_horaria_window_dias"] = 1
                 st.rerun()
-        for code in ["SE", "S", "NE", "N"]:
-            pv = _build_pivot_submercado(code)
-            if pv is not None:
-                pivots_por_sub[code] = pv
     else:
-        for i, code in enumerate(ORDEM_SUBSISTEMA_GEN):
-            label_sub = LABELS_SUBSISTEMA_GEN[code]
-            if code == "SIN":
-                pivot_c = pivot_sin
-            else:
-                pivot_c = _build_pivot_submercado(code)
-                if pivot_c is None:
-                    st.caption(f"Sem dados no período para {label_sub}.")
-                    continue
-                pivots_por_sub[code] = pivot_c
-
-            # Lado direito do título: "DD/MM/YYYY · X.XXX MWmed"
-            ultimo_val = ultimas_geracoes_gen.get(code)
-            if ultimo_val is not None and pd.notna(ultimo_val):
-                right_side = (
-                    f"{data_str_ultima_gen} · "
-                    f"{_fmt_br_gen(ultimo_val)} MWmed"
-                )
-            else:
-                right_side = data_str_ultima_gen
-
-            # Título Bauhaus (flex space-between, padrão Reservatórios/ENA)
-            st.markdown(
-                f'<div style="display:flex; justify-content:space-between; '
-                f'align-items:baseline; '
-                f'font-family:\'Bebas Neue\', sans-serif; '
-                f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
-                f'margin: 1.2rem 0 0.3rem 0; padding-bottom:3px; '
-                f'border-bottom: 2px solid #1A1A1A;">'
-                f'<span>{label_sub}</span>'
-                f'<span>{right_side}</span>'
-                f'</div>',
-                unsafe_allow_html=True,
+        label_sub = LABELS_SUBSISTEMA_GEN[submercado_gen]
+        ultimo_val = ultimas_geracoes_gen.get(submercado_gen)
+        if ultimo_val is not None and pd.notna(ultimo_val):
+            right_side = (
+                f"{data_str_ultima_gen} · "
+                f"{_fmt_br_gen(ultimo_val)} MWmed"
             )
-            # Linha de período abaixo do título (replicada em todos os 5)
-            st.markdown(
-                f'<div style="font-family:\'Inter\', sans-serif; '
-                f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-                f'margin:0 0 0.4rem 0;">'
-                f'Período: {periodo_str_gen}.'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
+        else:
+            right_side = data_str_ultima_gen
 
-            fig_c = go.Figure()
+        st.markdown(
+            f'<div style="display:flex; justify-content:space-between; '
+            f'align-items:baseline; '
+            f'font-family:\'Bebas Neue\', sans-serif; '
+            f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
+            f'margin: 1.2rem 0 0.3rem 0; padding-bottom:3px; '
+            f'border-bottom: 2px solid #1A1A1A;">'
+            f'<span>{label_sub}</span>'
+            f'<span>{right_side}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f'<div style="font-family:\'Inter\', sans-serif; '
+            f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+            f'margin:0 0 0.4rem 0;">'
+            f'Período: {periodo_str_gen}.'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
-            for fonte_col in ORDEM_STACKED_GEN:
-                label = LABELS_FONTE_GEN[fonte_col]
-                cor = CORES_FONTE_GEN[fonte_col]
-                label_fix = label.ljust(10).replace(" ", "&nbsp;")
-                fig_c.add_trace(
-                    go.Scatter(
-                        x=pivot_c.index,
-                        y=pivot_c[fonte_col],
-                        name=NOMES_LEGENDA_GEN[fonte_col],
-                        mode="lines",
-                        stackgroup="ger",
-                        line=dict(color=cor, width=0.8),
-                        fillcolor=cor,
-                        hovertemplate=(
-                            f'<span style="color:{cor}; font-weight:700;">'
-                            f'{label_fix}</span>'
-                            '&nbsp;&nbsp;'
-                            '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
-                            '<extra></extra>'
-                        ),
-                    )
-                )
+        fig_c = go.Figure()
 
-            carga_label_fix = "Carga".ljust(10).replace(" ", "&nbsp;")
+        for fonte_col in ORDEM_STACKED_GEN:
+            label = LABELS_FONTE_GEN[fonte_col]
+            cor = CORES_FONTE_GEN[fonte_col]
+            label_fix = label.ljust(10).replace(" ", "&nbsp;")
             fig_c.add_trace(
                 go.Scatter(
-                    x=pivot_c.index,
-                    y=pivot_c["carga"],
-                    name="Carga",
+                    x=pivot_sel.index,
+                    y=pivot_sel[fonte_col],
+                    name=NOMES_LEGENDA_GEN[fonte_col],
                     mode="lines",
-                    line=dict(dash="dash", width=2.5, color=BAUHAUS_BLACK),
+                    stackgroup="ger",
+                    line=dict(color=cor, width=0.8),
+                    fillcolor=cor,
                     hovertemplate=(
-                        f'<span style="color:{BAUHAUS_BLACK}; font-weight:700;">'
-                        f'{carga_label_fix}</span>'
+                        f'<span style="color:{cor}; font-weight:700;">'
+                        f'{label_fix}</span>'
                         '&nbsp;&nbsp;'
                         '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
                         '<extra></extra>'
@@ -2427,104 +2451,106 @@ elif aba == "Geração":
                 )
             )
 
-            # Anotação 29/04/2023 — em cada gráfico (se período atravessa)
-            if data_ini_efetivo_gen <= quebra_data.date() <= data_fim_gen:
-                fig_c.add_vline(
-                    x=quebra_data,
-                    line_dash="dot",
-                    line_color=BAUHAUS_GRAY,
-                    line_width=1.2,
-                )
-                fig_c.add_annotation(
-                    x=quebra_data,
-                    y=1.02,
-                    yref="paper",
-                    text="ONS passa a incluir MMGD na carga",
-                    showarrow=False,
-                    font=dict(
-                        family="Inter, sans-serif",
-                        size=10,
-                        color=BAUHAUS_GRAY,
-                    ),
-                    align="center",
-                )
+        carga_label_fix = "Carga".ljust(10).replace(" ", "&nbsp;")
+        fig_c.add_trace(
+            go.Scatter(
+                x=pivot_sel.index,
+                y=pivot_sel["carga"],
+                name="Carga",
+                mode="lines",
+                line=dict(dash="dash", width=2.5, color=BAUHAUS_BLACK),
+                hovertemplate=(
+                    f'<span style="color:{BAUHAUS_BLACK}; font-weight:700;">'
+                    f'{carga_label_fix}</span>'
+                    '&nbsp;&nbsp;'
+                    '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
+                    '<extra></extra>'
+                ),
+            )
+        )
 
-            # Legenda só no SIN (i == 0). Top margin maior no SIN pra
-            # acomodar a legenda acima do gráfico; nos outros reduzido.
-            show_legend = (i == 0)
-            fig_c.update_layout(
-                height=270,
-                margin=dict(
-                    l=20, r=20,
-                    t=40 if show_legend else 10,
-                    b=20,
+        if data_ini_efetivo_gen <= quebra_data.date() <= data_fim_gen:
+            fig_c.add_vline(
+                x=quebra_data,
+                line_dash="dot",
+                line_color=BAUHAUS_GRAY,
+                line_width=1.2,
+            )
+            fig_c.add_annotation(
+                x=quebra_data,
+                y=1.02,
+                yref="paper",
+                text="ONS passa a incluir MMGD na carga",
+                showarrow=False,
+                font=dict(
+                    family="Inter, sans-serif",
+                    size=10,
+                    color=BAUHAUS_GRAY,
                 ),
-                paper_bgcolor=BAUHAUS_CREAM,
-                plot_bgcolor=BAUHAUS_CREAM,
-                separators=",.",
-                hovermode="x unified",
-                hoverlabel=dict(
-                    bgcolor=BAUHAUS_CREAM,
-                    bordercolor=BAUHAUS_BLACK,
-                    font=dict(
-                        family="'IBM Plex Mono', 'Courier New', monospace",
-                        size=12, color=BAUHAUS_BLACK,
-                    ),
-                ),
-                showlegend=show_legend,
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom", y=1.02,
-                    xanchor="left", x=0,
-                    bgcolor="rgba(0,0,0,0)",
-                    font=dict(
-                        family="Bebas Neue, sans-serif",
-                        size=17, color=BAUHAUS_BLACK,
-                    ),
-                ),
-                xaxis=dict(
-                    title=None, showgrid=False, showline=True,
-                    linewidth=2, linecolor=BAUHAUS_BLACK,
-                    ticks="outside", tickcolor=BAUHAUS_BLACK,
-                    tickfont=dict(
-                        family="Inter, sans-serif",
-                        size=13, color=BAUHAUS_BLACK,
-                    ),
-                    hoverformat=hover_fmt_gen,
-                ),
-                yaxis=dict(
-                    title=None,
-                    # Sem range fixo — eixo Y independente por gráfico.
-                    showgrid=True, gridcolor=BAUHAUS_LIGHT, gridwidth=1,
-                    showline=True, linewidth=2, linecolor=BAUHAUS_BLACK,
-                    ticks="outside", tickcolor=BAUHAUS_BLACK,
-                    tickfont=dict(
-                        family="Inter, sans-serif",
-                        size=13, color=BAUHAUS_BLACK,
-                    ),
-                    zeroline=False,
-                    tickformat=",.0f",
-                ),
-                font=dict(family="Inter, sans-serif", size=12),
+                align="center",
             )
 
-            # Spinner defensivo por gráfico em horária longa
-            if is_slow_hora:
-                with st.spinner("Renderizando gráfico…"):
-                    st.plotly_chart(
-                        fig_c, use_container_width=True,
-                        config={"displaylogo": False},
-                    )
-            else:
-                st.plotly_chart(
-                    fig_c, use_container_width=True,
-                    config={"displaylogo": False},
-                )
+        fig_c.update_layout(
+            height=450,
+            margin=dict(l=20, r=20, t=40, b=20),
+            paper_bgcolor=BAUHAUS_CREAM,
+            plot_bgcolor=BAUHAUS_CREAM,
+            separators=",.",
+            hovermode="x unified",
+            hoverlabel=dict(
+                bgcolor=BAUHAUS_CREAM,
+                bordercolor=BAUHAUS_BLACK,
+                font=dict(
+                    family="'IBM Plex Mono', 'Courier New', monospace",
+                    size=12, color=BAUHAUS_BLACK,
+                ),
+            ),
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom", y=1.02,
+                xanchor="left", x=0,
+                bgcolor="rgba(0,0,0,0)",
+                font=dict(
+                    family="Bebas Neue, sans-serif",
+                    size=17, color=BAUHAUS_BLACK,
+                ),
+            ),
+            xaxis=dict(
+                title=None, showgrid=False, showline=True,
+                linewidth=2, linecolor=BAUHAUS_BLACK,
+                ticks="outside", tickcolor=BAUHAUS_BLACK,
+                tickfont=dict(
+                    family="Inter, sans-serif",
+                    size=13, color=BAUHAUS_BLACK,
+                ),
+                hoverformat=hover_fmt_gen,
+            ),
+            yaxis=dict(
+                title=None,
+                showgrid=True, gridcolor=BAUHAUS_LIGHT, gridwidth=1,
+                showline=True, linewidth=2, linecolor=BAUHAUS_BLACK,
+                ticks="outside", tickcolor=BAUHAUS_BLACK,
+                tickfont=dict(
+                    family="Inter, sans-serif",
+                    size=13, color=BAUHAUS_BLACK,
+                ),
+                zeroline=False,
+                tickformat=",.0f",
+            ),
+            font=dict(family="Inter, sans-serif", size=12),
+        )
+
+        st.plotly_chart(
+            fig_c, use_container_width=True,
+            config={"displaylogo": False},
+        )
 
     # --- Export CSV ---
     # Formato long-wide híbrido: 5 subsistemas empilhados verticalmente.
     # Colunas: Data | Subsistema | fonte1 | fonte2 | ... | Carga.
-    # Reusa os pivots cacheados do loop (pivots_por_sub).
+    # Tela ≠ CSV por design: dropdown controla o que é exibido, CSV mantém
+    # os 5 submercados pra research. Reusa pivots_por_sub pré-populado.
     st.markdown("### Exportar")
     csv_cols_ord = ["hidro", "termica", "eolica", "solar", "carga"]
     csv_cols_labels = {

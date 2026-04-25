@@ -92,10 +92,11 @@ Adicional Reservatórios: `#B3D4F1` = azul claro das faixas de período úmido.
 - `_normalize_*()` por dataset, usa `_identify_column()` tolerante a nomes.
 - Erros vão pra `st.session_state["_debug_erros"]`, nunca silenciados.
 
-### 3.4 Controles de Período — `_render_period_controls()`
+### 3.4 Controles de Período — `_render_period_controls()` e variante
 
-Helper compartilhado em `app.py` (antes do bloco SIDEBAR). Usado por PLD e
-Reservatórios. Assinatura:
+**`_render_period_controls`** — helper compartilhado em `app.py` (antes
+do bloco SIDEBAR). Usado por PLD, Reservatórios, ENA e Geração
+(Diária/Mensal). Assinatura:
 
 ```python
 _render_period_controls(
@@ -109,6 +110,22 @@ _render_period_controls(
 - Layout: N botões + spacer 0.3 + 2 date_inputs, proporções `[1]*N + [0.3, 1.4, 1.4]`.
 - Preset ativo tem `type="primary"` (fundo amarelo via CSS global).
 - Detecção automática: `delta_days` ou `is_max=True` + `data_ini == min_d`.
+
+**`_render_period_controls_horaria`** — variante pro modo "data base +
+janela" usado em Geração quando granularidade=Horária. 1 `date_input`
+"Data base" + presets como **window de N dias terminando em data_base**
+(não "últimos N dias ancorados em max_d"). Razão: em Horária, ver "1
+dia específico" no PLD/Reservatórios exige setar `data_ini == data_fim`,
+fricção desnecessária. Layout idêntico ao gêmeo (mesmas proporções de
+coluna), com a 3ª coluna vazia preservada pra alinhar largura do campo
+"Data base" com os date_inputs das outras abas. Ver decisão 5.9.
+
+**`_format_periodo_br(data_ini, data_fim, granularidade)`** — string de
+período em formato BR sob o título Bauhaus de cada gráfico. Formato
+varia por granularidade: `abr/2026` (Mensal 1 mês) /
+`mai/2025 a abr/2026` (Mensal ≥ 2) / `21/04/2026` (Horária 1D) /
+`15/04/2026 a 21/04/2026` (Horária ≥ 2D ou Diária ≥ 2). Helper
+top-level reusável.
 
 ### 3.5 Tipografia e Layout
 
@@ -401,6 +418,152 @@ Resultado: KPIs ficam estáveis quando o usuário mexe no range dos gráficos
 — KPIs mostram "estado atual" do subsistema, gráfico mostra histórico
 exploratório.
 
+### 5.9 Modo "Data base + janela" na Horária (Geração)
+
+**Decisão:** em Geração com granularidade=Horária, usar 1 `date_input`
+"Data base" + presets de janela (1D/7D/30D/90D), em vez dos 2
+`date_input` (data_ini, data_fim) usados nas outras granularidades.
+
+**Razão:** em Horária, "ver 1 dia específico" exigia setar
+`data_ini == data_fim` no modo range — fricção desnecessária. "Data
+base + janela" é a operação natural do usuário ("ver as últimas N
+horas terminando em X").
+
+**Implementação:** helper `_render_period_controls_horaria` (gêmeo de
+`_render_period_controls`). Keys session_state: `gen_data_base` (date)
++ `gen_horaria_window_dias` (int). Pós-helper, o caller deriva
+`data_ini = data_base - (window-1) days` e `data_fim = data_base`,
+espelhando em `gen_data_ini`/`gen_data_fim` pra preservar coerência ao
+voltar pra Diária/Mensal.
+
+### 5.10 Geração: gráfico único com dropdown vs. 5 gráficos empilhados
+
+**Decisão:** aba Geração usa **1 gráfico único** com dropdown de
+submercado (default SIN). KPIs e gráfico seguem o dropdown; export CSV
+mantém os 5 subsistemas.
+
+**Razão:** versão inicial usava 5 gráficos empilhados (padrão
+Reservatórios/ENA). Em Horária/90D = 8.640 pontos × 5 stacks → render
+muito lento. Reverter pra 1 gráfico reduz custo em ~5×. **Tela ≠ CSV
+por design**: tela mostra o que o usuário está olhando, CSV mantém os
+5 pra research/análise externa.
+
+**Regra decorrente:** granularidades temporais densas
+(horária/diária/mensal × anos) usam gráfico único com dropdown.
+Granularidades agregadas leves (ex: "Dia Típico" = 24 pontos × 5
+subsistemas = 120 pts total) podem usar 5 empilhados sem reintroduzir
+lentidão (ver Sessão 2 do roadmap em `docs/sessao_geracao_status.md`).
+
+### 5.11 Sentinela `_gen_dataset_max` (não `gen_data_ini`) como heurística de "1ª visita"
+
+**Decisão:** em blocos que precisam saber "esse código já rodou pelo
+menos 1× na sessão" (ex: reset de defaults), usar uma sentinela
+**setada SÓ por aquele bloco** — não uma key gerenciada por widget ou
+derivada.
+
+**Bug que motivou:** o reset block da Geração usava
+`"gen_data_ini" not in st.session_state` como sentinela. Mas em
+Horária, `gen_data_ini` é DERIVADO pós-helper de
+`gen_data_base`/`window`. No INÍCIO de cada render Horária, a key
+ainda não existia → reset disparava → popava `gen_data_base` →
+preset clicado revertia pra default. Bug invisível na análise estática,
+descoberto via debug `st.write` em runtime.
+
+**Fix:** trocar pra `"_gen_dataset_max" not in st.session_state`.
+`_gen_dataset_max` é setada SÓ pelo próprio reset block, no MESMO
+momento em que ele faz seu trabalho. Sentinela confiável.
+
+**Regra:** uma sentinela boa atende a 3 critérios:
+1. Setada SÓ pelo bloco que ela protege.
+2. Setada na MESMA execução em que o resto do bloco roda (atomicidade).
+3. Nome distinto (prefixo `_` ou similar) pra não colidir com keys de
+   widget/usuário.
+
+### 5.12 Flag intermediário pra modificar session_state de widget instanciado
+
+**Decisão:** quando um botão (ou outro evento) precisa alterar a key
+de um **widget já instanciado** no mesmo render (ex: trocar
+`gen_granularidade` a partir do botão "Ver curva horária deste dia"),
+usar **flag intermediário** consumido no início do próximo render —
+nunca tentar setar a key direto.
+
+**Bug que motivou:** o botão tentava `session_state["gen_granularidade"] = "Horária"`
+direto. Streamlit lança `StreamlitAPIException`: "session_state.X
+cannot be modified after the widget with key X is instantiated."
+
+**Padrão correto:**
+
+```python
+# Topo do bloco da aba (ANTES do selectbox ser instanciado):
+if st.session_state.pop("_gen_force_horaria", False):
+    st.session_state["gen_granularidade"] = "Horária"
+
+# selectbox renderizado depois — lê o valor já atualizado.
+granularidade_gen = st.selectbox(..., key="gen_granularidade")
+
+# ... bloco com botão (depois do selectbox):
+if st.button("Ver curva horária"):
+    st.session_state["_gen_force_horaria"] = True
+    # Outras keys NÃO bound a widgets podem ser setadas direto:
+    st.session_state["gen_data_base"] = data_fim_gen
+    st.rerun()
+```
+
+`pop()` consome o flag de forma atômica (lê + remove). A key do flag
+deve ter prefixo `_` pra distinguir de state "real".
+
+### 5.13 Inits separados quando widget pode escrever `None` na key
+
+**Decisão:** quando múltiplas keys são inicializadas juntas no mesmo
+bloco (ex: `gen_data_base` e `gen_horaria_window_dias` no init de
+Horária), separar em `if`s independentes — pra que reinicializar uma
+não destrua o valor da outra.
+
+**Bug que motivou:** `st.date_input` em Streamlit 1.56 pode escrever
+`None` em `session_state[key]` durante alguns reruns. Quando o init
+detectava `gen_data_base` ausente (ou `None` com `not get(...)`)
+e RESETAVA AMBAS as keys juntas, o `gen_horaria_window_dias` recém
+clicado (ex: 7) era zerado pra 1.
+
+**Fix:**
+```python
+# Antes (errado — reinicializa ambos juntos):
+if not st.session_state.get("gen_data_base"):
+    st.session_state["gen_data_base"] = ...
+    st.session_state["gen_horaria_window_dias"] = 1
+
+# Depois (certo — checks independentes):
+if not st.session_state.get("gen_data_base"):
+    st.session_state["gen_data_base"] = ...
+if "gen_horaria_window_dias" not in st.session_state:
+    st.session_state["gen_horaria_window_dias"] = 1
+```
+
+Bonus: usar `not get()` (cobre ausência E `None`) na key que pode ser
+escrita pelo widget; usar `"X" not in state` (só ausência) na key que
+só é escrita por código nosso.
+
+### 5.14 Auto-ajuste de período ao trocar pra granularidade incompatível
+
+**Decisão:** ao trocar pra uma granularidade onde o período herdado
+geraria <2 pontos no resample, **auto-ajustar** o período pra um
+default razoável da nova granularidade.
+
+**Caso concreto:** trocar de Horária 1D pra Mensal mantém
+`data_ini == data_fim` (1 dia). Mensal resample MS = 1 ponto → guard
+`<2 pontos` dispara. UX ruim — usuário não entende por que Mensal
+"não funciona".
+
+**Implementação** (Geração):
+```python
+if granularidade_gen == "Mensal" and (data_fim - data_ini).days < 60:
+    st.session_state["gen_data_ini"] = max_d_gen - timedelta(days=90)
+    st.session_state["gen_data_fim"] = max_d_gen
+```
+
+Aplicado **ANTES** do `_render_period_controls` ser chamado, pra
+respeitar a regra 5.12 (não modificar key de widget instanciado).
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
@@ -518,11 +681,38 @@ ambiente fresh do Cloud.
     `requirements.txt` de `<22.0` pra `<24.0` — deploy no Streamlit Cloud
     falhou no 87c8e72 (ver armadilha 4.5). Feature online em
     `dashboard-setor-eletrico.streamlit.app`.
+16. **Aba Geração — primeira versão (5 gráficos empilhados)** — commit
+    `87a1eb1` (2026-04-23). Loader `load_balanco_subsistema()` (parquet
+    2000-2026, SIN nativo do ONS), aba com 3 granularidades + 5 gráficos
+    empilhados (SIN + SE/S/NE/N), modo "Data base + janela" na Horária
+    (5.9), cor eólica verde-oliva `#8FA31E`, helpers
+    `_render_period_controls_horaria` e `_format_periodo_br`, scripts
+    `inspect_balanco`/`validate_balanco`. Doc `docs/aba_geracao_spec.md` +
+    `docs/geracao_research.md`.
+17. **Aba Geração — Sessão 1 (reversão pra gráfico único)** — 2º commit
+    pendente em 2026-04-24. Reversão do layout dos 5 gráficos pra **1
+    gráfico único com dropdown de submercado** (decisão 5.10) por causa
+    de lentidão de render. KPIs e texto "Médias do período (X)" passam
+    a seguir o submercado do dropdown (export CSV mantém os 5).
+    Adicionada nota explicativa de intercâmbio. **Auto-ajuste de período
+    ao trocar pra Mensal** (5.14). 5 bugs descobertos e corrigidos via
+    debug `st.write` em runtime, viraram decisões: **5.11** (sentinela
+    `_gen_dataset_max`), **5.12** (flag intermediário pra widget
+    instanciado), **5.13** (inits separados quando widget pode escrever
+    `None`). Detalhes em `docs/sessao_geracao_status.md` §3. Sessão 1.5
+    (Performance) inserida no roadmap após user reportar lentidão geral
+    da aba — ver mesmo doc.
 
 ---
 
 ## 8. Referências Cruzadas
 
+- **`docs/sessao_geracao_status.md`** — status da aba Geração: roadmap
+  de 3+1 sessões, histórico das mudanças, bugs descobertos/corrigidos
+  na Sessão 1 (referenciados pelas decisões 5.11-5.13).
+- **`docs/aba_geracao_spec.md`** — spec da aba Geração.
+- **`docs/geracao_research.md`** — pesquisa Fase A Balanço de Energia
+  (descoberta CKAN, schema parquet, smoke tests dos números 2024).
 - **`docs/reservatorios_research.md`** — pesquisa detalhada da Fase A EAR
   (descobertas CKAN ONS, schema observado, validação do loader).
 - **`docs/ena_research.md`** — pesquisa Fase A ENA (schema, URL pattern,
