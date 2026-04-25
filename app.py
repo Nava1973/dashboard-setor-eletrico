@@ -706,13 +706,15 @@ def _aplica_default_periodo_gen(granularidade, min_d, max_d):
     """Aplica default de período conforme granularidade (decisão 5.20).
 
     Defaults:
-        Diária  → 1M  (max_d - 30 dias até max_d)
-        Mensal  → 12M (max_d - 365 dias até max_d)
-        Horária → 1D + data_base = max_d
+        Diária     → 1M  (max_d - 30 dias até max_d)
+        Mensal     → 12M (max_d - 365 dias até max_d)
+        Horária    → 1D + data_base = max_d
+        Dia Típico → 30D (max_d - 30 dias até max_d) — sweet spot UX:
+                     captura padrão semanal e dilui anomalias diárias.
 
     Pop das keys da granularidade alternativa (Horária pop quando vai
-    pra Diária/Mensal e vice-versa) — evita state stale no widget cleanup
-    do Streamlit (decisões 5.16, 5.18, 5.19).
+    pra Diária/Mensal/Dia Típico e vice-versa) — evita state stale no
+    widget cleanup do Streamlit (decisões 5.16, 5.18, 5.19).
 
     Em Horária: gen_data_ini/gen_data_fim são DERIVADOS pós-helper Horária
     (linhas que espelham base/window). Não setamos aqui — eles são
@@ -728,6 +730,13 @@ def _aplica_default_periodo_gen(granularidade, min_d, max_d):
     elif granularidade == "Mensal":
         st.session_state["gen_data_ini"] = max(
             min_d, max_d - timedelta(days=365)
+        )
+        st.session_state["gen_data_fim"] = max_d
+        st.session_state.pop("gen_data_base", None)
+        st.session_state.pop("gen_horaria_window_dias", None)
+    elif granularidade == "Dia Típico":
+        st.session_state["gen_data_ini"] = max(
+            min_d, max_d - timedelta(days=30)
         )
         st.session_state["gen_data_fim"] = max_d
         st.session_state.pop("gen_data_base", None)
@@ -2216,7 +2225,7 @@ elif aba == "Geração":
     with ctrl_cols[0]:
         granularidade_gen = st.selectbox(
             "Granularidade",
-            ["Mensal", "Diária", "Horária"],
+            ["Mensal", "Diária", "Horária", "Dia Típico"],
             index=1,  # default diária
             key="gen_granularidade",
         )
@@ -2256,9 +2265,10 @@ elif aba == "Geração":
     #    pega) mas com range inválido. Diagnóstico em runtime na Sessão 1.6.
     #
     # Defaults aplicados (helper top-level _aplica_default_periodo_gen):
-    #   Diária  → 1M
-    #   Mensal  → 12M
-    #   Horária → 1D + data_base = max_d
+    #   Diária     → 1M
+    #   Mensal     → 12M
+    #   Horária    → 1D + data_base = max_d
+    #   Dia Típico → 30D (Sessão 2, decisão 5.25)
     #
     # Substitui bloco "ao sair de Horária" + auto-ajuste Mensal +
     # reset de 12M-Diária — todos absorvidos aqui. Decisão 5.14 fica como
@@ -2380,6 +2390,19 @@ elif aba == "Geração":
                 ("15A", 5475, False),
                 ("Máx", None, True),
             ]
+        elif granularidade_gen == "Dia Típico":
+            # Sem "Máx" — descontinuidade estrutural pré-2010 (matriz
+            # mudou) torna 25a sem sentido como "perfil típico". 7D é
+            # o mínimo prático (cobre weekday/weekend); guard <7d
+            # bloqueia seleção manual menor (decisão 5.25).
+            presets_gen = [
+                ("7D",  7,    False),
+                ("30D", 30,   False),
+                ("90D", 90,   False),
+                ("6M",  180,  False),
+                ("12M", 365,  False),
+                ("5A",  1825, False),
+            ]
         else:
             presets_gen = [
                 ("1M",  30,  False),
@@ -2453,12 +2476,34 @@ elif aba == "Geração":
         )
         st.stop()
 
+    # --- Guard: Dia Típico precisa de pelo menos 7 dias ---
+    # Mesmo padrão da 5.24: warning educativo + st.stop. < 7 dias não
+    # captura padrão weekday/weekend, perfil deixa de ser "típico" e vira
+    # "média de poucos dias específicos". Decisão 5.25.
+    if (
+        granularidade_gen == "Dia Típico"
+        and (data_fim_gen - data_ini_efetivo_gen).days < 7
+    ):
+        st.warning(
+            "Dia típico precisa de pelo menos 7 dias pra ser "
+            "representativo. Selecione um período maior ou troque pra "
+            "Diária pra ver dia específico."
+        )
+        st.stop()
+
     # --- Agregação temporal ---
     # Resample MEAN (MWmed é potência média, não soma).
-    # Horária: sem resample (já vem horário).
-    # Diária: 'D' (1 valor por dia).
-    # Mensal: 'MS' (1 valor no 1º dia do mês, alinha com PLD mensal do CCEE).
-    freq_map = {"Horária": None, "Diária": "D", "Mensal": "MS"}
+    # Horária:    sem resample (já vem horário).
+    # Diária:     'D' (1 valor por dia).
+    # Mensal:     'MS' (1 valor no 1º dia do mês, alinha com PLD mensal do CCEE).
+    # Dia Típico: sem resample temporal — _build_dia_tipico_submercado
+    #             reagrega o pivot horário por hora-do-dia (24 linhas).
+    freq_map = {
+        "Horária":    None,
+        "Diária":     "D",
+        "Mensal":     "MS",
+        "Dia Típico": None,
+    }
     freq = freq_map[granularidade_gen]
 
     # Helper local: filtra df_gen por submercado + período, pivota (fontes em
@@ -2496,12 +2541,37 @@ elif aba == "Geração":
         )
         return pivot
 
+    def _build_dia_tipico_submercado(code):
+        """Pivot agregado por hora-do-dia (24 linhas, index "00:00".."23:00").
+
+        Reaproveita _build_pivot_submercado (que retorna pivot horário
+        quando freq=None, garantido pelo freq_map["Dia Típico"]=None) e
+        aplica groupby(index.hour).mean() — média de cada fonte em cada
+        hora-do-dia ao longo do período selecionado. Index final é
+        string "HH:00" pra Plotly tratar X como categorial (preserva
+        ordem 00→23, hover unified mostra a hora direta sem precisar
+        de hoverformat). Decisão 5.25.
+        """
+        pivot_horario = _build_pivot_submercado(code)
+        if pivot_horario is None or pivot_horario.empty:
+            return None
+        pivot = pivot_horario.groupby(pivot_horario.index.hour).mean()
+        pivot.index = [f"{h:02d}:00" for h in pivot.index]
+        pivot.index.name = "Hora"  # vira coluna no reset_index do export
+        return pivot
+
     # Popula os 5 pivots de uma vez (1× por render) — alimenta KPIs do
     # submercado selecionado, gráfico único e export CSV dos 5. Troca de
     # dropdown vira instantânea (só muda a referência, não recomputa).
+    # Em Dia Típico, despacha pro helper que reagrega por hora-do-dia.
     pivots_por_sub = {}
+    _build_pivot = (
+        _build_dia_tipico_submercado
+        if granularidade_gen == "Dia Típico"
+        else _build_pivot_submercado
+    )
     for code in ORDEM_SUBSISTEMA_GEN:
-        pv = _build_pivot_submercado(code)
+        pv = _build_pivot(code)
         if pv is not None:
             pivots_por_sub[code] = pv
 
@@ -2541,9 +2611,12 @@ elif aba == "Geração":
     # gráfico (entre título Bauhaus e plot), não aqui.
     ultima_data_gen = df_gen["data_hora"].max()
     tag_granularidade_gen = {
-        "Mensal":  "Média mensal · MWmed",
-        "Diária":  "Média diária · MWmed",
-        "Horária": "Valor horário · MWmed",
+        "Mensal":     "Média mensal · MWmed",
+        "Diária":     "Média diária · MWmed",
+        "Horária":    "Valor horário · MWmed",
+        "Dia Típico": (
+            "Dia típico (média horária do período selecionado) · MWmed"
+        ),
     }[granularidade_gen]
     notas_gen = [
         f'Dados atualizados diariamente pelo ONS. Última atualização no '
@@ -2733,9 +2806,10 @@ elif aba == "Geração":
         )
 
     hover_fmt_gen = {
-        "Horária": "%d/%m/%Y %H:%M",
-        "Diária":  "%d/%m/%Y",
-        "Mensal":  "%b %Y",
+        "Horária":    "%d/%m/%Y %H:%M",
+        "Diária":     "%d/%m/%Y",
+        "Mensal":     "%b %Y",
+        "Dia Típico": None,  # eixo X categorial — hoverformat não aplica
     }[granularidade_gen]
 
     label_sub = LABELS_SUBSISTEMA_GEN[submercado_gen]
@@ -2804,7 +2878,13 @@ elif aba == "Geração":
         )
     )
 
-    if data_ini_efetivo_gen <= quebra_data.date() <= data_fim_gen:
+    # Vline da quebra metodológica 29/04/2023 só faz sentido no eixo
+    # temporal (Diária/Mensal/Horária) — em Dia Típico o eixo X é
+    # categorial (00:00..23:00), data não bate.
+    if (
+        granularidade_gen != "Dia Típico"
+        and data_ini_efetivo_gen <= quebra_data.date() <= data_fim_gen
+    ):
         fig_c.add_vline(
             x=quebra_data,
             line_dash="dot",
@@ -2824,6 +2904,23 @@ elif aba == "Geração":
             ),
             align="center",
         )
+
+    # Eixo X varia por granularidade: temporal (datetime, hoverformat
+    # depende da granularidade) vs categorial em Dia Típico (24 strings
+    # "HH:00", hovermode unified mostra a string direto).
+    _xaxis_gen_dict = dict(
+        title=None, showgrid=False, showline=True,
+        linewidth=2, linecolor=BAUHAUS_BLACK,
+        ticks="outside", tickcolor=BAUHAUS_BLACK,
+        tickfont=dict(
+            family="Inter, sans-serif",
+            size=13, color=BAUHAUS_BLACK,
+        ),
+    )
+    if granularidade_gen == "Dia Típico":
+        _xaxis_gen_dict["type"] = "category"
+    else:
+        _xaxis_gen_dict["hoverformat"] = hover_fmt_gen
 
     fig_c.update_layout(
         height=450,
@@ -2851,16 +2948,7 @@ elif aba == "Geração":
                 size=17, color=BAUHAUS_BLACK,
             ),
         ),
-        xaxis=dict(
-            title=None, showgrid=False, showline=True,
-            linewidth=2, linecolor=BAUHAUS_BLACK,
-            ticks="outside", tickcolor=BAUHAUS_BLACK,
-            tickfont=dict(
-                family="Inter, sans-serif",
-                size=13, color=BAUHAUS_BLACK,
-            ),
-            hoverformat=hover_fmt_gen,
-        ),
+        xaxis=_xaxis_gen_dict,
         yaxis=dict(
             title=None,
             showgrid=True, gridcolor=BAUHAUS_LIGHT, gridwidth=1,
@@ -2906,28 +2994,42 @@ elif aba == "Geração":
         csv_frames.append(block)
 
     if csv_frames:
-        csv_all = (
-            pd.concat(csv_frames)
-            .reset_index()
-            .rename(columns={"data_hora": "Data", **csv_cols_labels})
-        )
-        # Formato de data por granularidade — alinhado com o eixo X
-        data_fmt = {
-            "Horária": "%d/%m/%Y %H:%M",
-            "Diária":  "%d/%m/%Y",
-            "Mensal":  "%m/%Y",
-        }[granularidade_gen]
-        csv_all["Data"] = pd.to_datetime(csv_all["Data"]).dt.strftime(data_fmt)
-        # Ordem final das colunas
-        csv_all = csv_all[
-            ["Data", "Subsistema"] + list(csv_cols_labels.values())
-        ]
+        if granularidade_gen == "Dia Típico":
+            # Index é string "HH:00" (categorial) — sem conversão datetime.
+            # Coluna chave é "Hora", não "Data".
+            csv_all = (
+                pd.concat(csv_frames)
+                .reset_index()
+                .rename(columns=csv_cols_labels)
+            )
+            csv_all = csv_all[
+                ["Hora", "Subsistema"] + list(csv_cols_labels.values())
+            ]
+        else:
+            csv_all = (
+                pd.concat(csv_frames)
+                .reset_index()
+                .rename(columns={"data_hora": "Data", **csv_cols_labels})
+            )
+            # Formato de data por granularidade — alinhado com o eixo X
+            data_fmt = {
+                "Horária": "%d/%m/%Y %H:%M",
+                "Diária":  "%d/%m/%Y",
+                "Mensal":  "%m/%Y",
+            }[granularidade_gen]
+            csv_all["Data"] = pd.to_datetime(csv_all["Data"]).dt.strftime(data_fmt)
+            csv_all = csv_all[
+                ["Data", "Subsistema"] + list(csv_cols_labels.values())
+            ]
         csv = csv_all.to_csv(
             index=False, sep=";", decimal=",",
         ).encode("utf-8-sig")
 
         gran_slug = {
-            "Horária": "horaria", "Diária": "diaria", "Mensal": "mensal",
+            "Horária":    "horaria",
+            "Diária":     "diaria",
+            "Mensal":     "mensal",
+            "Dia Típico": "dia_tipico",
         }[granularidade_gen]
         st.download_button(
             label="Baixar dados filtrados (CSV)",

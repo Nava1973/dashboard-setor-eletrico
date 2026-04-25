@@ -1,23 +1,23 @@
 # Status da sessão — Aba Geração (ONS Balanço de Energia)
 
-> **Sessão 1.6 (Ajustes estéticos & UX) FECHADA em 2026-04-25.** 7
-> ajustes pequenos (1 bug + tipografia + UX) + 3 bonus aplicados durante
-> implementação + 1 bug grave de retorno de aba descoberto e fixado
-> via debug runtime. 4 decisões novas (5.21-5.24) + 5.16 estendida com
-> 6º gatilho + 5.19 atualizada + 5.14 reconfirmada superada. Sintaxe
-> validada após cada mudança; 3 cenários de retorno de aba testados ✅.
+> **Sessão 2 (Dia Típico) FECHADA em 2026-04-25.** Nova granularidade
+> "Dia Típico" implementada: stacked area com 24 ticks `00:00...23:00`
+> mostrando média horária ao longo do período selecionado (curva de
+> pato canônica). 1 decisão arquitetural nova (5.25) + 5.20 estendida
+> com default 30D pra Dia Típico. Sintaxe ✅ após cada mudança;
+> testes de ponta a ponta validados pelo user.
 >
-> Branch local: **5 commits no main** (4 pushed + 1 a pushar):
+> Branch local: **6 commits no main** (5 pushed + 1 a pushar):
 > - `87a1eb1` — 5 gráficos empilhados (pré-reversão)
 > - `e7db917` — Sessão 1 (reversão pra gráfico único + fixes)
 > - `efc7c38` — Sessão 1.5 (performance: disk-cache + filter sem dt.date)
 > - `9142e9c` — Sessão 1.5b (perf global + default 15a + UX dois eixos)
-> - **(pendente)** Sessão 1.6 (ajustes estéticos + bonus + bug retorno)
+> - `1d58509` — Sessão 1.6 (ajustes estéticos + bug retorno de aba)
+> - **(pendente)** Sessão 2 (Dia Típico — perfil 24h)
 >
-> Push da Sessão 1.6: pendente, aguardando review da mensagem.
+> Push da Sessão 2: pendente, aguardando review da mensagem.
 >
-> Próxima sessão é a **2 (Dia Típico)** ou **3 (GD)** — ordem flexível.
-> Ver §0.
+> Próxima sessão é a **3 (GD)** — última do roadmap original. Ver §0.
 
 ---
 
@@ -377,15 +377,115 @@ data_fim` é estado legítimo (window=1 + `data_base + 0 dias`), não bug.
 - **5.14 reconfirmada como SUPERADA** — agora pelas 5.20 (transições)
   + 5.24 (seleção manual curta com warning educativo).
 
-### Sessão 2 — Dia Típico
+### Sessão 2 — Dia Típico · ✅ CONCLUÍDA (2026-04-25)
 
-Nova granularidade **"Dia Típico"** — média por hora-do-dia ao longo do
-período selecionado (24 pontos: 00h, 01h, ..., 23h). Útil pra visualizar
-curva de pato (rampa térmica no fim de tarde).
+**Escopo:** nova granularidade "Dia Típico" na aba Geração — stacked
+area com 24 ticks `00:00...23:00` mostrando média de cada fonte em
+cada hora-do-dia ao longo do período selecionado. Curva de pato
+canônica do setor elétrico (rampa térmica no fim de tarde, pico solar
+ao meio-dia, perfil eólico noturno em alguns subsistemas).
 
-**Considerar:** mostrar Dia Típico como **5 gráficos empilhados** (SIN +
-SE/S/NE/N) — leve por ser só 24 pontos, não reintroduz a lentidão do
-layout de 5 gráficos que motivou a reversão na Sessão 1.
+**Notas de mudança de escopo durante o planejamento:**
+
+- A versão original do roadmap considerava "5 gráficos empilhados (SIN +
+  SE/S/NE/N)" pra Dia Típico — leve por ser só 24 pontos. **Descartado**
+  durante o planejamento: mantém o pattern de gráfico único + dropdown
+  de submercado (decisão 5.10) por consistência com o resto da aba.
+  User explora um submercado de cada vez, igual nas outras granularidades.
+
+**Decisões da spec (10 itens, todos confirmados pelo user no plano):**
+
+| # | Item | Decisão |
+|---|---|---|
+| 1 | UI selectbox | 4ª opção "Dia Típico" (ordem: Mensal/Diária/Horária/Dia Típico) |
+| 2 | Cálculo | `groupby(index.hour).mean()` sobre o pivot horário do período |
+| 3 | Presets | `7D / 30D / 90D / 6M / 12M / 5A` (sem Máx — descontinuidade pré-2010) |
+| 4 | Eixo X | Categorial 24 strings `"00:00".."23:00"` |
+| 5 | Visual | Stacked area Bauhaus + linha carga tracejada (igual outras gran.) |
+| 6 | Submercado | Mesmo dropdown SIN/SE/S/NE/N |
+| 7 | Tag | "Dia típico (média horária do período selecionado) · MWmed" (estendida) |
+| 8 | KPIs | Mantém os 4 cards (médias do período, conceito útil) |
+| 9 | Lado direito do título | `DD/MM/YYYY – DD/MM/YYYY` (período sobre o qual a média foi calculada) |
+| 10 | Hover | Mostra hora + fontes + carga, formato consistente com Plotly hover atual |
+
+**Implementação em 7 passos (ordem):**
+
+1. **Selectbox + presets + default 30D na 5.20** —
+   `["Mensal", "Diária", "Horária", "Dia Típico"]` no selectbox; branch
+   novo `"Dia Típico"` em `_aplica_default_periodo_gen` (max_d - 30d
+   até max_d + pop horária keys); branch novo nos presets do
+   `_render_period_controls` com 6 entradas sem Máx; comentário do
+   reset block (5.20) atualizado com Dia Típico → 30D.
+
+2. **Helper `_build_dia_tipico_submercado`** — 5 linhas, reusa
+   `_build_pivot_submercado` (que retorna pivot horário quando
+   `freq_map["Dia Típico"]=None`) + `groupby(index.hour).mean()` +
+   `index = ["00:00",...,"23:00"]` + `index.name = "Hora"` (vira
+   coluna no `reset_index` do export).
+
+3. **Despacho elegante no loop dos 5 subsistemas** — variável local
+   `_build_pivot = _build_dia_tipico_submercado if granularidade==X
+   else _build_pivot_submercado`. 1 linha vs `if/else` espalhado.
+
+4. **Guard `<7 dias`** com `st.warning + st.stop` (mesmo padrão da
+   5.24): texto `"Dia típico precisa de pelo menos 7 dias pra ser
+   representativo. Selecione um período maior ou troque pra Diária pra
+   ver dia específico."`.
+
+5. **Eixo X custom no Plotly** — `_xaxis_gen_dict` montado
+   condicionalmente: `type="category"` em Dia Típico (preserva ordem
+   00→23, hovermode unified mostra a string direto sem precisar de
+   `hoverformat`); `hoverformat=hover_fmt_gen` nas outras
+   granularidades. Vline 29/04/2023 pulada em Dia Típico (eixo é
+   categorial, Timestamp não bate). `hover_fmt_gen` ganha entrada
+   `"Dia Típico": None` (não-usado mas evita KeyError).
+
+6. **Tag "Dia típico (média horária do período selecionado) · MWmed"**
+   no dict `tag_granularidade_gen`. Outras 3 tags (Mensal/Diária/
+   Horária) preservadas — só Dia Típico estende a explicação porque o
+   conceito não é universal.
+
+7. **Validação de sintaxe** + ajustes do export CSV descobertos
+   durante o passo 6: branch novo Dia Típico no export — coluna
+   `"Hora"` string (`"00:00".."23:00"`) em vez de `"Data"` datetime,
+   sem `pd.to_datetime` (já é string), `gran_slug = "dia_tipico"` no
+   filename.
+
+**Tag final adotada:** `"Dia típico (média horária do período
+selecionado) · MWmed"` — única das 4 tags que estende explicação,
+porque "dia típico" exige glossário inline (Mensal/Diária/Horária são
+autoexplicativos).
+
+**Resultado dos testes (validados pelo user):**
+
+| # | Cenário | Resultado |
+|---|---|---|
+| 1 | Sanity: Diária/Mensal/Horária continuam funcionando | ✅ não-regressão |
+| 2 | Trocar pra Dia Típico → reset aplica 30D | ✅ |
+| 3 | Tag mostra texto explicativo estendido | ✅ |
+| 4 | Gráfico com 24 ticks "00:00..23:00" no eixo X | ✅ |
+| 5 | Hover unified mostra hora + 4 fontes + carga | ✅ |
+| 6 | KPIs: médias do período (mesmo conceito das outras gran.) | ✅ |
+| 7 | Lado direito do título: período BR `DD/MM/YYYY – DD/MM/YYYY` | ✅ |
+| 8 | 6 presets sem Máx | ✅ |
+| 9 | Guard <7 dias dispara com warning Bauhaus + bloqueio | ✅ |
+| 10 | Transições aplicam defaults corretos (Diária 1M, Mensal 12M, Horária 1D, Dia Típico 30D) | ✅ |
+| 11 | Submercados mostram perfis distintivos (SIN curva de pato, NE eólica/solar dominantes, N hidro plana) | ✅ |
+| 12 | Bug retorno de aba (5.16 estendida): volta pro 30D default | ✅ |
+| 13 | Export CSV em Dia Típico: coluna `Hora` string, 120 linhas (24 × 5 subs), filename `geracao_dia_tipico_*.csv` | ✅ |
+| 14 | Vline 29/04/2023 NÃO aparece em Dia Típico (correto, eixo categorial) | ✅ |
+
+**Decisão arquitetural consolidada no CLAUDE.md (1 nova + 1 estendida):**
+
+- **5.25** "Dia Típico" como granularidade não-temporal via reagregação
+  por hora-do-dia. Pattern de 6 pontos (freq_map, helper paralelo,
+  despacho elegante, eixo categorial, default no reset, guard mínimo).
+  Reusa filter+pivot+disk-cache da 1.5/1.5b sem refator. Apenas 3
+  pontos divergem do flow tradicional: eixo X, vline 29/04/2023, formato
+  do export CSV. Pattern aplicável a futuros candidatos: "Mês típico"
+  em Reservatórios/ENA, "Hora útil vs FDS" em PLD.
+- **5.20 estendida** com default Dia Típico → 30D (sweet spot UX:
+  captura padrão weekday/weekend, dilui anomalias diárias).
 
 ### Sessão 3 — GD (Geração Distribuída)
 
@@ -673,12 +773,14 @@ Próxima sessão é a **Sessão 1.6 (ajustes estéticos & UX)** ou
   degenerado (Sessão 1.6), 5.17 dois eixos range vs período visível,
   5.18 backup paralelo selectbox, 5.19 exceção por modo no reset +
   aplicação ao 6º gatilho (Sessão 1.6), 5.20 defaults por
-  granularidade + reset block unificado, **5.21 KPIs HTML custom
-  (Bauhaus all-caps), 5.22 tag compacta granularidade, 5.23 override
-  Bauhaus de st.alert, 5.24 st.stop pós-guard**; 5.14 marcada como
-  SUPERADA pela 5.20 + 5.24).
-- Commits relevantes (4 em `origin/main` após push em 2026-04-25 +
-  1 pendente da Sessão 1.6):
+  granularidade + reset block unificado + Dia Típico 30D (Sessão 2),
+  5.21 KPIs HTML custom (Bauhaus all-caps), 5.22 tag compacta
+  granularidade, 5.23 override Bauhaus de st.alert, 5.24 st.stop
+  pós-guard, **5.25 "Dia Típico" como granularidade não-temporal via
+  reagregação por hora-do-dia (Sessão 2)**; 5.14 marcada como SUPERADA
+  pela 5.20 + 5.24).
+- Commits relevantes (5 em `origin/main` após push em 2026-04-25 +
+  1 pendente da Sessão 2):
   - `87a1eb1` (2026-04-23) — Geração 1ª versão (5 gráficos empilhados,
     antes da reversão).
   - `e7db917` (2026-04-24) — Sessão 1: reversão pra gráfico único +
@@ -691,8 +793,12 @@ Próxima sessão é a **Sessão 1.6 (ajustes estéticos & UX)** ou
     expansão + presets revisados + 3 bugs fixados (datas cortadas,
     dessincronia granularidade, regressão botões Horária) + decisões
     5.17-5.20.
-  - **(pendente)** Sessão 1.6: 7 ajustes estéticos + 3 bonus +
-    bug retorno de aba + decisões 5.21-5.24 + 5.16/5.19 estendidas.
+  - `1d58509` (2026-04-25) — Sessão 1.6: 7 ajustes estéticos + 3
+    bonus + bug retorno de aba + decisões 5.21-5.24 + 5.16/5.19
+    estendidas.
+  - **(pendente)** Sessão 2: nova granularidade Dia Típico (perfil
+    24h por hora-do-dia) + decisão 5.25 + 5.20 estendida com default
+    30D.
   - Anteriores (já estavam em `origin/main`): `4be9f33`, `80634b5`,
     `87c8e72`.
 - Disk-caches dos datasets ONS (Sessão 1.5b):

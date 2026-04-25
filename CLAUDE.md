@@ -1262,6 +1262,130 @@ gráfico (ex: caption "Granularidade horária com janela longa —
 renderização pode levar alguns segundos" em Horária ≥30D). Esses
 são avisos de UX, não bloqueios — não levam stop.
 
+### 5.25 "Dia Típico" — granularidade não-temporal via reagregação por hora-do-dia
+
+**Decisão:** quando uma aba precisa expor uma "granularidade" que NÃO
+é uma agregação temporal canônica (D/MS/H), mas sim uma reagregação
+por dimensão derivada (ex: hora-do-dia), **tratar como modo extra que
+reusa a infraestrutura existente**, não como pipeline paralelo.
+
+**Pattern (6 pontos):**
+
+1. `freq_map` ganha entrada apontando pra `None` (mantém o pivot
+   horário sem resample temporal).
+2. Helper paralelo `_build_<modo>_submercado` que **chama**
+   `_build_pivot_submercado` e aplica reagregação extra
+   (`groupby(<dimensão>).mean()`).
+3. Despacho elegante via variável local antes do loop:
+   `_build_pivot = _build_<modo>_submercado if granularidade==X
+   else _build_pivot_submercado` — 1 linha vs `if/else` espalhado.
+4. Eixo X **categorial** (`xaxis.type="category"`) — preserva ordem
+   natural do agrupamento, hovermode unified mostra a string direto
+   sem precisar de `hoverformat`.
+5. Reset block (5.20) ganha branch novo no `_aplica_default_periodo_gen`
+   com default representativo do conceito.
+6. Guard mínimo de período via `st.warning + st.stop` (padrão 5.24)
+   — proteção contra "média de poucos pontos vira não-típica".
+
+**Implementação Sessão 2 (Dia Típico):**
+
+```python
+# 1. freq_map
+freq_map = {
+    "Horária":    None,
+    "Diária":     "D",
+    "Mensal":     "MS",
+    "Dia Típico": None,
+}
+
+# 2. Helper novo (5 linhas)
+def _build_dia_tipico_submercado(code):
+    pivot_horario = _build_pivot_submercado(code)  # reusa filter+pivot
+    if pivot_horario is None or pivot_horario.empty:
+        return None
+    pivot = pivot_horario.groupby(pivot_horario.index.hour).mean()
+    pivot.index = [f"{h:02d}:00" for h in pivot.index]
+    pivot.index.name = "Hora"  # vira coluna no reset_index do export
+    return pivot
+
+# 3. Despacho elegante
+_build_pivot = (
+    _build_dia_tipico_submercado
+    if granularidade_gen == "Dia Típico"
+    else _build_pivot_submercado
+)
+for code in ORDEM_SUBSISTEMA_GEN:
+    pv = _build_pivot(code)
+    ...
+
+# 4. Eixo X condicional
+_xaxis_gen_dict = dict(title=None, ...)
+if granularidade_gen == "Dia Típico":
+    _xaxis_gen_dict["type"] = "category"
+else:
+    _xaxis_gen_dict["hoverformat"] = hover_fmt_gen
+
+# 5. Default no reset block (5.20 estendida)
+elif granularidade == "Dia Típico":
+    st.session_state["gen_data_ini"] = max(min_d, max_d - timedelta(days=30))
+    st.session_state["gen_data_fim"] = max_d
+    # pop horária keys
+
+# 6. Guard <7 dias
+if (
+    granularidade_gen == "Dia Típico"
+    and (data_fim_gen - data_ini_efetivo_gen).days < 7
+):
+    st.warning("Dia típico precisa de pelo menos 7 dias...")
+    st.stop()
+```
+
+**Default 30D — sweet spot UX:**
+- 7D = mínimo defensivo (cobre weekday/weekend).
+- **30D = sweet spot** — captura padrão semanal + dilui anomalias de
+  1-2 dias específicos.
+- 12M = perfil anual (mistura sazonalidade — média de verão+inverno).
+
+**Presets sem "Máx":** descontinuidade estrutural pré-2010 da matriz
+elétrica torna 25 anos sem sentido como "perfil típico" — eólica/solar
+explodiram pós-2015. Lista: `7D, 30D, 90D, 6M, 12M, 5A`.
+
+**Tag explicativa estendida:** `"Dia típico (média horária do período
+selecionado) · MWmed"` — única das 4 tags da Geração que estende a
+explicação, porque o conceito não é universal (Mensal/Diária/Horária
+são óbvios; "Dia Típico" exige glossário inline).
+
+**O que diverge do flow tradicional (apenas 3 pontos):**
+- Eixo X categorial vs temporal.
+- vline 29/04/2023 não aplicável (Timestamp não bate em eixo
+  categorial — pulada via `if granularidade_gen != "Dia Típico"`).
+- Export CSV usa coluna `"Hora"` (string `"00:00"..."23:00"`) em vez
+  de `"Data"` (datetime), `gran_slug = "dia_tipico"` no filename.
+
+**O que reusa (sem refator):**
+- Filter+pivot+fillna otimizado da Sessão 1.5 (Fix #1, 50× speedup).
+- Disk-cache de balanço da 1.5 (5.15) — sem cold-start dobrado.
+- KPIs (`pivot_sel.mean()`), tag de granularidade, título Bauhaus,
+  lado direito (`_format_periodo_br` cai no branch Diária por
+  fallthrough), legenda Plotly, hover dos traces, estrutura geral.
+
+**Trade-off conceitual:** KPIs em Dia Típico calculam média sobre 24
+linhas (média da série já-mediada por hora). Conceito útil — "média do
+dia típico" — mas user precisa entender que é average-of-averages. Na
+prática, com default 30D, é a média típica de **30 dias × 24 horas =
+720 valores subjacentes**, então o número converge pro mesmo resultado
+de "média do período em Diária".
+
+**Quando aplicar em outras abas:**
+- Reservatórios/ENA: candidato natural seria "Mês típico" (12 valores,
+  `groupby(index.month).mean()`). Sem demanda hoje.
+- PLD: candidato seria "Hora típica do dia útil" vs "Hora típica do
+  final de semana" (`groupby([dia_da_semana < 5, hour]).mean()`). Caso
+  interessante mas fora de escopo.
+- Pattern aplicável em geral: qualquer reagregação `groupby(<dimensão
+  derivada>).mean()` sobre dados horários do mesmo dataset, com Plotly
+  X categorial preservando ordem natural.
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
@@ -1474,6 +1598,32 @@ ambiente fresh do Cloud.
     isso é estado legítimo). Decisão 5.16 atualizada com "Extensão
     posterior (Sessão 1.6)" + 5.19 atualizada com aplicação ao 6º
     gatilho.
+21. **Sessão 2 — Dia Típico (perfil 24h por hora-do-dia)** — 6º commit
+    em 2026-04-25. Nova granularidade na aba Geração: stacked area com
+    24 ticks `00:00...23:00` mostrando média de cada fonte em cada
+    hora-do-dia ao longo do período selecionado (curva de pato canônica
+    do setor elétrico). **Implementação reutiliza a infraestrutura
+    existente** (decisão 5.25): `freq_map["Dia Típico"]=None` mantém
+    pivot horário, helper novo `_build_dia_tipico_submercado` reusa
+    `_build_pivot_submercado` + `groupby(index.hour).mean()` (5 linhas),
+    despacho elegante via variável local `_build_pivot` (1 linha vs
+    if/else espalhado). Eixo X categorial (`xaxis.type="category"`)
+    preserva ordem natural sem precisar de `hoverformat` — hovermode
+    unified mostra a string direto. Vline 29/04/2023 pulada (eixo é
+    categorial, Timestamp não bate). **Configuração:** default 30D no
+    reset block (decisão 5.20 estendida — sweet spot UX: captura padrão
+    weekday/weekend, dilui anomalias diárias); presets `7D / 30D / 90D
+    / 6M / 12M / 5A` (sem Máx — descontinuidade pré-2010 da matriz
+    elétrica torna 25a sem sentido como "perfil típico"); guard `<7
+    dias` com `st.warning + st.stop` (mesmo padrão da 5.24). **Tag
+    explicativa estendida:** "Dia típico (média horária do período
+    selecionado) · MWmed" — única das 4 tags da Geração que estende
+    explicação porque o conceito não é universal (Mensal/Diária/Horária
+    são óbvios). **Export CSV:** branch Dia Típico com coluna `Hora`
+    string (`"00:00".."23:00"`) em vez de `Data` datetime, gran_slug
+    `"dia_tipico"` no filename. Apenas 3 pontos divergem do flow
+    tradicional: eixo X, vline, formato de export — KPIs/título/legenda/
+    hover dos traces continuam reusados sem refator.
 
 ---
 
