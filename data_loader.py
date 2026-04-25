@@ -997,10 +997,16 @@ def load_reservatorios() -> pd.DataFrame:
         pra anos fechados (não mudam) → evita re-baixar 26 anos toda vez.
         Ano corrente é baixado direto (sem cache interno) — refresh a cada 2h.
 
-    clear_cache() limpa só o cache externo. Historic interno sobrevive.
-    Resultado: 'Atualizar' invalida só o ano corrente (histórico preservado).
+    clear_cache() limpa cache externo + disk-cache. Histórico interno (TTL
+    30d por ano) sobrevive — clear_cache invalida só o consolidado.
     """
     st.session_state["_debug_erros"] = []
+
+    # Disk-cache (Sessão 1.5b): se hit, ~1-2s vs ~20s do cold. Beneficia
+    # 1ª sessão de cada usuário e restarts do servidor.
+    df_disk = _try_read_reservatorios()
+    if df_disk is not None:
+        return df_disk
 
     ano_corrente = datetime.now().year
 
@@ -1041,6 +1047,9 @@ def load_reservatorios() -> pd.DataFrame:
     df = pd.concat(subsistema_frames + [sin_df], ignore_index=True)
     df = df.drop_duplicates(subset=["data", "subsistema_code"], keep="last")
     df = df.sort_values(["subsistema_code", "data"]).reset_index(drop=True)
+
+    # Persiste no disco pra próxima cold start cair em ~1-2s.
+    _try_write_reservatorios(df)
     return df
 
 
@@ -1222,9 +1231,16 @@ def load_ena() -> pd.DataFrame:
         fechados → evita re-baixar 26 anos toda vez. Ano corrente é
         baixado direto (sem cache interno) — refresh a cada 2h.
 
-    clear_cache() limpa só o cache externo. Historic interno sobrevive.
+    clear_cache() limpa cache externo + disk-cache. Histórico interno (TTL
+    30d por ano) sobrevive — clear_cache invalida só o consolidado.
     """
     st.session_state["_debug_erros"] = []
+
+    # Disk-cache (Sessão 1.5b): se hit, ~1-2s vs ~30s do cold. Cold do ENA
+    # é dominado pelo parsing XLSX dos 27 anos (parquet só existe 2021+).
+    df_disk = _try_read_ena()
+    if df_disk is not None:
+        return df_disk
 
     ano_corrente = datetime.now().year
 
@@ -1264,6 +1280,9 @@ def load_ena() -> pd.DataFrame:
     df = pd.concat(subsistema_frames + [sin_df], ignore_index=True)
     df = df.drop_duplicates(subset=["data", "subsistema_code"], keep="last")
     df = df.sort_values(["subsistema_code", "data"]).reset_index(drop=True)
+
+    # Persiste no disco pra próxima cold start cair em ~1-2s.
+    _try_write_ena(df)
     return df
 
 
@@ -1376,105 +1395,167 @@ def _download_balanco_parquet_historico(ano: int) -> pd.DataFrame | None:
 
 
 # =============================================================================
-# DISK CACHE — BALANÇO (Fix #3 da Sessão 1.5 Performance)
+# DISK CACHE — INFRAESTRUTURA GENÉRICA (Sessão 1.5b)
 # =============================================================================
+# Fábrica que produz o conjunto de helpers de disk-cache pra um dataset.
+# Substitui a duplicação que existiria em 4 datasets (balanço 15a, balanço
+# completo, reservatórios, ENA). Cada chamada de _make_disk_cache_helpers
+# retorna 4 callables independentes via closure — incluindo o lru_cache do
+# resolver de path, que é único por cache_name graças ao closure separado.
+#
 # Camada extra entre o @st.cache_data Streamlit (em-memória, por processo) e
 # o download HTTP. Persiste o DataFrame consolidado em parquet local — assim
-# uma sessão Streamlit nova (após restart do processo ou primeira visita do
-# usuário) cai aqui em ~1-2s em vez de ~60s do cold load.
+# uma sessão Streamlit nova (após restart do processo ou 1ª visita do
+# usuário) cai aqui em ~1-2s em vez de paga o cold load completo.
 #
-# Path: home/.cache/dashboard-setor-eletrico/balanco.parquet (primário) ou
-# tempfile.gettempdir()/.../balanco.parquet (fallback). Ambos são writable
-# durante o lifetime do container no Streamlit Cloud (somem em re-deploy).
+# Path com cascade: home/.cache/dashboard-setor-eletrico/{cache_name}.parquet
+# (primário) → tempfile.gettempdir()/dashboard-setor-eletrico/... (fallback).
+# Ambos writable no Streamlit Cloud durante o lifetime do container.
 #
-# TTL: 6h via mtime. Alinhado com @st.cache_data(ttl=60*60*6) externo.
-# clear_cache() também unlinks o arquivo — garante que "Atualizar" sempre
-# refaz o download.
+# TTL padrão: 6h via mtime. Alinhado com @st.cache_data(ttl=60*60*6) externo.
+# clear_cache() unlinks os arquivos — "Atualizar" sempre força fresh.
 #
-# Degradação graciosa: se ambos os candidatos de path falharem (FS read-only
-# em ambos), _get_balanco_disk_cache_path retorna None e is_balanco_cache_fresh
-# fica False permanentemente nessa execução. Load principal continua via
-# download HTTP normal — disk-cache é otimização, não dependência.
+# Degradação graciosa: se ambos os candidatos de path falharem (FS read-only),
+# get_path retorna None, is_fresh fica False permanentemente nessa execução,
+# IO vira no-op silencioso. Load principal continua via download HTTP normal.
 # =============================================================================
 
-_BALANCO_DISK_CACHE_TTL_SEC = 60 * 60 * 6  # 6h
+_DISK_CACHE_DIR_NAME = "dashboard-setor-eletrico"
+_DEFAULT_DISK_CACHE_TTL_SEC = 60 * 60 * 6  # 6h
 
 
-@functools.lru_cache(maxsize=1)
-def _get_balanco_disk_cache_path() -> Path | None:
-    """Resolve path writable pro disk-cache. Tenta home/.cache primeiro,
-    fallback /tmp/. Retorna None se ambos falharem (cache desabilitado).
+def _make_disk_cache_helpers(
+    cache_name: str,
+    ttl_sec: int = _DEFAULT_DISK_CACHE_TTL_SEC,
+):
+    """Cria conjunto de 4 helpers de disk-cache pra um dataset.
 
-    Cacheado via lru_cache pra não retentar a cada chamada (helper roda no
-    is_balanco_cache_fresh + leitura + escrita).
+    Args:
+        cache_name: identificador do cache. Vira filename {cache_name}.parquet
+                    e prefixo das mensagens de erro em _debug_erros.
+        ttl_sec: TTL via mtime (default 6h).
+
+    Returns:
+        (get_path, is_fresh, try_read, try_write) — 4 callables com closure
+        independente. lru_cache do get_path é único por chamada da fábrica.
     """
-    candidates = [
-        Path.home() / ".cache" / "dashboard-setor-eletrico",
-        Path(tempfile.gettempdir()) / "dashboard-setor-eletrico",
-    ]
-    for d in candidates:
+
+    @functools.lru_cache(maxsize=1)
+    def get_path() -> Path | None:
+        """Resolve path writable. Cascade home/.cache → tempfile.gettempdir().
+        None se ambos falharem (FS read-only)."""
+        candidates = [
+            Path.home() / ".cache" / _DISK_CACHE_DIR_NAME,
+            Path(tempfile.gettempdir()) / _DISK_CACHE_DIR_NAME,
+        ]
+        for d in candidates:
+            try:
+                d.mkdir(parents=True, exist_ok=True)
+                # write_test: mkdir pode passar mesmo em FS read-only se
+                # o diretório já existe; touch+unlink confirma escrita real
+                test = d / f".write_test_{cache_name}"
+                test.touch()
+                test.unlink()
+                return d / f"{cache_name}.parquet"
+            except Exception:
+                continue
+        return None
+
+    def is_fresh() -> bool:
+        """True se o parquet existe e tem menos que TTL."""
         try:
-            d.mkdir(parents=True, exist_ok=True)
-            # mkdir pode passar mesmo em FS read-only (raro mas existe);
-            # write_test confirma escrita real antes de comprometer o path
-            test = d / ".write_test"
-            test.touch()
-            test.unlink()
-            return d / "balanco.parquet"
+            path = get_path()
+            if path is None or not path.exists():
+                return False
+            age = time.time() - path.stat().st_mtime
+            return age < ttl_sec
         except Exception:
-            continue
-    return None
+            return False
 
-
-def _balanco_disk_cache_age_sec() -> float | None:
-    """Idade do cache em disco em segundos. None se inexistente ou erro."""
-    try:
-        path = _get_balanco_disk_cache_path()
-        if path is None or not path.exists():
+    def try_read() -> pd.DataFrame | None:
+        """Lê parquet se fresh. None em falha (registra em _debug_erros)."""
+        path = get_path()
+        if path is None or not is_fresh():
             return None
-        return time.time() - path.stat().st_mtime
-    except Exception:
-        return None
+        try:
+            return pd.read_parquet(path)
+        except Exception as e:
+            st.session_state.setdefault("_debug_erros", []).append(
+                f"Disk cache {cache_name} (leitura): {type(e).__name__}: {e}"
+            )
+            return None
+
+    def try_write(df: pd.DataFrame) -> None:
+        """Escreve parquet. Falha silenciosa em qualquer erro."""
+        path = get_path()
+        if path is None:
+            return
+        try:
+            df.to_parquet(path, index=False)
+        except Exception as e:
+            st.session_state.setdefault("_debug_erros", []).append(
+                f"Disk cache {cache_name} (escrita): {type(e).__name__}: {e}"
+            )
+
+    return get_path, is_fresh, try_read, try_write
 
 
-def is_balanco_cache_fresh() -> bool:
+# Instâncias de disk-cache por dataset (Sessão 1.5b).
+#
+# BALANÇO em 2 variantes (decisão 5.17 — dois eixos: range do dataset vs
+# período visível):
+#   - 15 anos (default, ano_corrente-14 a ano_corrente, ~3.9M linhas)
+#   - completo (2000 a ano_corrente, ~6.7M linhas — sob demanda via UI)
+# UI escolhe qual via parâmetro de load_balanco_subsistema(historico_completo).
+(
+    _get_balanco_15a_path,
+    _is_balanco_15a_cache_fresh,
+    _try_read_balanco_15a,
+    _try_write_balanco_15a,
+) = _make_disk_cache_helpers("balanco_15anos")
+
+(
+    _get_balanco_completo_path,
+    _is_balanco_completo_cache_fresh,
+    _try_read_balanco_completo,
+    _try_write_balanco_completo,
+) = _make_disk_cache_helpers("balanco_completo")
+
+# RESERVATÓRIOS (EAR) — instância única (sem variante 15a/completo, dataset
+# pequeno: ~900KB consolidado). Cold load ~20s antes do disk-cache.
+(
+    _get_reservatorios_path,
+    _is_reservatorios_cache_fresh,
+    _try_read_reservatorios,
+    _try_write_reservatorios,
+) = _make_disk_cache_helpers("reservatorios")
+
+# ENA — instância única. XLSX cobre 2000-2026 (~2MB), parsing Excel é o
+# que pesa (~30s cold).
+(
+    _get_ena_path,
+    _is_ena_cache_fresh,
+    _try_read_ena,
+    _try_write_ena,
+) = _make_disk_cache_helpers("ena")
+
+
+def is_balanco_cache_fresh(historico_completo: bool = False) -> bool:
     """Helper PÚBLICO pra UI escolher mensagem de spinner antes do load.
-    True se o parquet local existe e tem menos que TTL (6h).
-    """
-    age = _balanco_disk_cache_age_sec()
-    return age is not None and age < _BALANCO_DISK_CACHE_TTL_SEC
+    Despacha pra is_fresh do cache 15a ou do completo conforme a flag."""
+    if historico_completo:
+        return _is_balanco_completo_cache_fresh()
+    return _is_balanco_15a_cache_fresh()
 
 
-def _try_read_balanco_disk_cache() -> pd.DataFrame | None:
-    """Lê parquet local se fresh. Retorna None em qualquer falha (path
-    indisponível, expirado, corrupção). Falha silenciosa registrada em
-    _debug_erros mas não interrompe o load principal."""
-    path = _get_balanco_disk_cache_path()
-    if path is None:
-        return None
-    if not is_balanco_cache_fresh():
-        return None
-    try:
-        return pd.read_parquet(path)
-    except Exception as e:
-        st.session_state.setdefault("_debug_erros", []).append(
-            f"Disk cache balanço (leitura): {type(e).__name__}: {e}"
-        )
-        return None
+def is_reservatorios_cache_fresh() -> bool:
+    """Helper PÚBLICO. True se o disk-cache do EAR existe e tem <6h."""
+    return _is_reservatorios_cache_fresh()
 
 
-def _try_write_balanco_disk_cache(df: pd.DataFrame) -> None:
-    """Escreve parquet local. Falha silenciosa em qualquer erro (FS cheio,
-    permissão, etc.) — registra em _debug_erros mas não propaga."""
-    path = _get_balanco_disk_cache_path()
-    if path is None:
-        return
-    try:
-        df.to_parquet(path, index=False)
-    except Exception as e:
-        st.session_state.setdefault("_debug_erros", []).append(
-            f"Disk cache balanço (escrita): {type(e).__name__}: {e}"
-        )
+def is_ena_cache_fresh() -> bool:
+    """Helper PÚBLICO. True se o disk-cache do ENA existe e tem <6h."""
+    return _is_ena_cache_fresh()
 
 
 def _normalize_balanco(df: pd.DataFrame) -> pd.DataFrame:
@@ -1521,10 +1602,28 @@ def _normalize_balanco(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+# Janela default do "histórico curto" (Sessão 1.5b): N anos relativos ao
+# corrente. 15 anos cobre toda a fase moderna da matriz (eólica entrou em
+# escala em 2010-2011, solar em 2017). Pré-2011 é arqueológico — matriz
+# era ~85% hidro, dinâmica diferente, raramente útil pra análise atual.
+_BALANCO_DEFAULT_HISTORICO_ANOS = 15
+
+
 @st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
-def load_balanco_subsistema() -> pd.DataFrame:
+def load_balanco_subsistema(
+    incluir_historico_completo: bool = False,
+) -> pd.DataFrame:
     """
     Baixa e consolida Balanço de Energia nos Subsistemas do ONS.
+
+    Args:
+        incluir_historico_completo: se False (default), baixa ano_corrente-14
+            até ano_corrente (~16 anos). Se True, baixa 2000-ano_corrente
+            (todos os 27 anos). Decisão 5.17 do CLAUDE.md (dois eixos:
+            range do dataset vs período visível). UI dispara True via modal
+            de confirmação no botão "Carregar histórico completo".
+            @st.cache_data trata a flag como parte da key — cada variante
+            tem seu próprio entry de cache em-memória.
 
     Retorna DataFrame long-form:
       data_hora   datetime64  timestamp horário (fuso BRT, sem tz)
@@ -1532,6 +1631,8 @@ def load_balanco_subsistema() -> pd.DataFrame:
       fonte       str         'hidro'|'termica'|'eolica'|'solar'
                               |'carga'|'intercambio'
       mwmed       float       MWmed (nunca converter pra MWh)
+      data        datetime64  data_hora.dt.normalize() — pré-computada pra
+                              filter vetorizado (Fix #1 Sessão 1.5)
 
     Sobre o esquema 'fonte' (ver também cabeçalho da seção BALANCO):
       - 'hidro','termica','eolica','solar' são as 4 fontes de GERAÇÃO;
@@ -1544,33 +1645,50 @@ def load_balanco_subsistema() -> pd.DataFrame:
         No SIN representa troca internacional (~0 médio). Capturado pelo
         loader; UI inicial não expõe.
 
-    Fonte: S3 público ONS, 27 anos de parquet (~60MB total, 2.1-2.7MB/ano).
+    Fonte: S3 público ONS, parquet anual (~2.1-2.7MB/ano).
 
-    Cache em 2 camadas (padrão alinhado com EAR e ENA):
-      - Externo (esta função): TTL 6h. ONS atualiza às 12h e 19h BRT;
-        6h captura ambas as atualizações com margem confortável.
-      - Interno: _download_balanco_parquet_historico(ano) com TTL 30d pra
-        anos fechados → evita re-baixar 26 anos a cada refresh. Ano corrente
-        é baixado direto (sem cache interno) — refresh a cada 6h.
+    Cache em 3 camadas (Sessão 1.5b):
+      - Disk-cache (1ª tentativa): parquet local. ~1-2s se hit, pula tudo.
+      - @st.cache_data externo: TTL 6h. Tenta antes de re-baixar quando
+        disk-cache também é miss. Cada variante (15a / completo) tem entry
+        próprio.
+      - @st.cache_data interno por ano (TTL 30d pra anos fechados): evita
+        re-download HTTP de 25+ anos imutáveis a cada refresh.
 
-    clear_cache() limpa só o cache externo. Histórico interno sobrevive.
+    clear_cache() limpa caches em-memória + disk-caches (15a + completo).
     """
     st.session_state["_debug_erros"] = []
 
-    # Fix #3 (Sessão 1.5): tentativa 1 — disk-cache parquet local. Se hit,
-    # pula download/normalize/concat/sort/dt.normalize. ~1-2s vs ~60s do cold.
-    # Beneficia: 1ª sessão de cada usuário (cache @st.cache_data vazio mas
-    # disk fresh), restarts do servidor, sessões pós-redeploy se container
-    # ainda for o mesmo (improvável no Cloud — re-deploy rebuilda container).
-    df_disk = _try_read_balanco_disk_cache()
+    # Tentativa 1: disk-cache parquet local. Cache separado por variante
+    # (15a vs completo). Se hit: ~1-2s de leitura, pula tudo.
+    if incluir_historico_completo:
+        try_read = _try_read_balanco_completo
+        try_write = _try_write_balanco_completo
+        cache_label = "completo"
+    else:
+        try_read = _try_read_balanco_15a
+        try_write = _try_write_balanco_15a
+        cache_label = "15anos"
+
+    df_disk = try_read()
     if df_disk is not None:
         return df_disk
 
+    # Definir lista de anos a baixar conforme a variante. @st.cache_data
+    # interno (TTL 30d) cobre anos fechados — após 1ª request, vêm de
+    # memória mesmo numa "completo" cold (só 2026 paga HTTP).
     ano_corrente = datetime.now().year
+    if incluir_historico_completo:
+        anos_a_baixar = list(range(2000, ano_corrente + 1))
+    else:
+        anos_a_baixar = list(
+            range(ano_corrente - _BALANCO_DEFAULT_HISTORICO_ANOS + 1,
+                  ano_corrente + 1)
+        )
 
     raw_frames = []
     erros = []
-    for ano in BALANCO_YEARS_AVAILABLE:
+    for ano in anos_a_baixar:
         if ano < ano_corrente:
             df_raw = _download_balanco_parquet_historico(ano)
         else:
@@ -1585,8 +1703,8 @@ def load_balanco_subsistema() -> pd.DataFrame:
     if not raw_frames:
         raise RuntimeError(
             "Não foi possível baixar dados do ONS "
-            "(balanco-energia-subsistema) em nenhum ano. "
-            f"Anos com falha: {', '.join(erros)}."
+            f"(balanco-energia-subsistema, variante {cache_label}) em "
+            f"nenhum ano. Anos com falha: {', '.join(erros)}."
         )
 
     normalized_frames = []
@@ -1615,10 +1733,10 @@ def load_balanco_subsistema() -> pd.DataFrame:
     # object) → comparação `>=` continua vetorizada nativamente.
     df["data"] = df["data_hora"].dt.normalize()
 
-    # Fix #3: persiste no disco pra próxima cold start cair em ~1-2s.
-    # Falha silenciosa se FS read-only (degradação graciosa documentada
-    # no cabeçalho da seção DISK CACHE).
-    _try_write_balanco_disk_cache(df)
+    # Persiste no disco pra próxima cold start cair em ~1-2s. Falha
+    # silenciosa se FS read-only (degradação graciosa documentada no
+    # cabeçalho da seção DISK CACHE genérica).
+    try_write(df)
 
     return df
 
@@ -1655,9 +1773,14 @@ def clear_cache() -> None:
     """Força reload no próximo acesso — limpa cache de PLD (4 granularidades),
     reservatórios (ONS EAR), ENA (ONS) e balanço de energia (ONS geração).
 
-    Também unlinks o disk-cache do balanço (Fix #3 da Sessão 1.5) — garante
-    que o botão "Atualizar" sempre force download fresh, não só invalide o
-    cache em-memória do Streamlit.
+    Também unlinks os 4 disk-caches (Sessão 1.5b: balanco_15anos,
+    balanco_completo, reservatorios, ena) — garante que "Atualizar" sempre
+    força download fresh em todos os datasets, não só invalida cache em-
+    memória do Streamlit.
+
+    Reseta também `gen_historico_completo` (preferência da aba Geração):
+    "Atualizar" semanticamente significa começar do zero, não preservar
+    escolhas anteriores que forçariam re-download de 27 anos sem perguntar.
     """
     load_pld_media_diaria.clear()
     load_pld_horaria.clear()
@@ -1666,10 +1789,26 @@ def clear_cache() -> None:
     load_reservatorios.clear()
     load_ena.clear()
     load_balanco_subsistema.clear()
-    # Disk-cache do balanço: best-effort delete
-    try:
-        path = _get_balanco_disk_cache_path()
-        if path is not None and path.exists():
-            path.unlink()
-    except Exception:
-        pass
+
+    # Disk-caches: best-effort delete dos 4 parquets
+    for get_path in (
+        _get_balanco_15a_path,
+        _get_balanco_completo_path,
+        _get_reservatorios_path,
+        _get_ena_path,
+    ):
+        try:
+            p = get_path()
+            if p is not None and p.exists():
+                p.unlink()
+        except Exception:
+            pass
+
+    # Reset da preferência de histórico completo da aba Geração
+    st.session_state.pop("gen_historico_completo", None)
+
+    # Sinaliza pro reset block da aba Geração aplicar default da
+    # granularidade atual (decisão 5.20). Cobre o caso "Atualizar sem
+    # mudança de dataset" — sentinela _gen_dataset_max permanece OK,
+    # então a flag explícita força o reset. Consumida com pop.
+    st.session_state["_gen_force_reset"] = True

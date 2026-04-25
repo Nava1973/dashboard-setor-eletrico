@@ -534,7 +534,13 @@ def _render_period_controls(
                 break
 
     n = len(presets)
-    cols = st.columns([1] * n + [0.3, 1.4, 1.4])
+    # Sessão 1.5b fix: ratio dos date_inputs adaptativo. Default 1.4 cobre
+    # 4-5 presets (PLD/Reservatórios/ENA, ~161px). A partir de 6 presets a
+    # fração de coluna cai abaixo do mínimo pra `dd/mm/yyyy` caber sem
+    # corte (~131px), então sobe pra 1.8 (~165px). Não afeta as 3 abas
+    # com presets antigos — só Geração após +10A/15A.
+    date_ratio = 1.8 if n > 5 else 1.4
+    cols = st.columns([1] * n + [0.3, date_ratio, date_ratio])
 
     for i, (label, delta, is_max) in enumerate(presets):
         with cols[i]:
@@ -641,6 +647,71 @@ def _format_periodo_br(data_ini, data_fim, granularidade):
         return fim_str
     ini_str = data_ini.strftime("%d/%m/%Y")
     return f"{ini_str} a {fim_str}"
+
+
+def _aplica_default_periodo_gen(granularidade, min_d, max_d):
+    """Aplica default de período conforme granularidade (decisão 5.20).
+
+    Defaults:
+        Diária  → 1M  (max_d - 30 dias até max_d)
+        Mensal  → 12M (max_d - 365 dias até max_d)
+        Horária → 1D + data_base = max_d
+
+    Pop das keys da granularidade alternativa (Horária pop quando vai
+    pra Diária/Mensal e vice-versa) — evita state stale no widget cleanup
+    do Streamlit (decisões 5.16, 5.18, 5.19).
+
+    Em Horária: gen_data_ini/gen_data_fim são DERIVADOS pós-helper Horária
+    (linhas que espelham base/window). Não setamos aqui — eles são
+    re-escritos quando o helper roda.
+    """
+    if granularidade == "Diária":
+        st.session_state["gen_data_ini"] = max(
+            min_d, max_d - timedelta(days=30)
+        )
+        st.session_state["gen_data_fim"] = max_d
+        st.session_state.pop("gen_data_base", None)
+        st.session_state.pop("gen_horaria_window_dias", None)
+    elif granularidade == "Mensal":
+        st.session_state["gen_data_ini"] = max(
+            min_d, max_d - timedelta(days=365)
+        )
+        st.session_state["gen_data_fim"] = max_d
+        st.session_state.pop("gen_data_base", None)
+        st.session_state.pop("gen_horaria_window_dias", None)
+    else:  # Horária
+        st.session_state["gen_data_base"] = max_d
+        st.session_state["gen_horaria_window_dias"] = 1
+
+
+@st.dialog("Carregar histórico completo")
+def _confirmar_historico_completo_gen():
+    """Modal de confirmação pra expandir o range do dataset Geração de
+    15 anos pra completo (2000-presente). Decisão 5.17 do CLAUDE.md
+    (dois eixos: range do dataset vs período visível).
+
+    Setado pelo botão "📈 Carregar histórico completo" na aba Geração.
+    Confirmar marca gen_historico_completo=True na sessão; cancelar fecha.
+    @st.dialog requer Streamlit ≥1.32 (testado no 1.56).
+    """
+    st.markdown(
+        "Carregar dados de **2000-2010** (mais 11 anos)?  \n"
+        "Vai baixar mais ~12MB do ONS — pode levar ~25s na primeira vez. "
+        "Em sessões seguintes carrega do cache em ~1s."
+    )
+    st.caption(
+        "Útil pra análises históricas longas. Para uso típico (matriz "
+        "atual), o range default de 15 anos cobre toda a era da eólica "
+        "e solar centralizada."
+    )
+    col1, col2 = st.columns(2)
+    if col1.button("Cancelar", use_container_width=True):
+        st.rerun()
+    if col2.button(
+        "Carregar", type="primary", use_container_width=True,
+    ):
+        st.session_state["gen_historico_completo"] = True
+        st.rerun()
 
 
 def _wet_season_window(last_date):
@@ -1986,21 +2057,32 @@ elif aba == "Geração":
     )
 
     # --- Carregar dados ---
-    # Fix #4 (Sessão 1.5): mensagem do spinner depende do estado do disk-cache.
-    # Cache fresco → spinner light (~1-2s de leitura parquet local). Cache
-    # ausente/expirado → mensagem honesta de download longo. Quando o
-    # @st.cache_data em-memória do Streamlit está hit (re-render na mesma
-    # sessão), nem entra no with — instantâneo.
-    if is_balanco_cache_fresh():
+    # Sessão 1.5b: range do dataset segue gen_historico_completo (sticky na
+    # sessão até clear_cache). Default False → 15 anos. True (sob demanda
+    # via modal) → 27 anos. @st.cache_data trata o param como key, então
+    # cada variante tem entry de cache em-memória próprio.
+    historico_completo_gen = st.session_state.get(
+        "gen_historico_completo", False
+    )
+    # Spinner dinâmico (mesma lógica da Sessão 1.5, agora ciente da variante).
+    if is_balanco_cache_fresh(historico_completo_gen):
         spinner_msg = "Carregando dados de geração..."
     else:
-        spinner_msg = (
-            "Baixando 27 anos de dados ONS (~25MB)... "
-            "pode levar 1 minuto na primeira vez."
-        )
+        if historico_completo_gen:
+            spinner_msg = (
+                "Baixando 27 anos de dados ONS (~25MB)... "
+                "pode levar ~25s na primeira vez."
+            )
+        else:
+            spinner_msg = (
+                "Baixando 15 anos de dados ONS (~12MB)... "
+                "pode levar ~15s na primeira vez."
+            )
     with st.spinner(spinner_msg):
         try:
-            df_gen = load_balanco_subsistema()
+            df_gen = load_balanco_subsistema(
+                incluir_historico_completo=historico_completo_gen,
+            )
         except Exception as e:
             st.error(f"Falha ao carregar dados do ONS (balanço): {e}")
             debug = st.session_state.get("_debug_erros", [])
@@ -2037,6 +2119,45 @@ elif aba == "Geração":
     if st.session_state.pop("_gen_force_horaria", False):
         st.session_state["gen_granularidade"] = "Horária"
 
+    # Defesa preventiva contra widget-state cleanup do Streamlit (decisão
+    # 5.18 do CLAUDE.md, mesmo padrão da 5.16 que cobriu gen_data_ini/fim).
+    # Em reruns intermediários — particularmente durante o load pesado
+    # pós-"Atualizar" — o Streamlit pode descartar widget-state de keys que
+    # não foram instanciadas naquele rerun específico. Pra selectbox isso
+    # leva à dessincronia visual: dropdown mostra valor antigo cached do
+    # navegador, mas a variável retornada cai no default (Diária / SIN),
+    # presets/gráfico renderizam errado. Workaround manual: clicar de novo
+    # no dropdown.
+    #
+    # Backup paralelo em key NÃO widget-state preserva a escolha do user.
+    # Se widget-state foi descartada mas backup existe, restauramos antes
+    # do widget ser instanciado. No fim do bloco, atualizamos o backup.
+    _GEN_GRAN_BACKUP = "_gen_granularidade_backup"
+    _GEN_SUB_BACKUP = "_gen_submercado_backup"
+    if (
+        "gen_granularidade" not in st.session_state
+        and _GEN_GRAN_BACKUP in st.session_state
+    ):
+        st.session_state["gen_granularidade"] = (
+            st.session_state[_GEN_GRAN_BACKUP]
+        )
+    if (
+        "gen_submercado" not in st.session_state
+        and _GEN_SUB_BACKUP in st.session_state
+    ):
+        st.session_state["gen_submercado"] = (
+            st.session_state[_GEN_SUB_BACKUP]
+        )
+
+    # Default da 1ª visita absoluta na sessão: Horária (decisão 5.20).
+    # Setado ANTES do selectbox ser instanciado pra evitar
+    # StreamlitAPIException (decisão 5.12). Sentinela `_gen_dataset_max`
+    # ausente prova "nunca rodou nesta sessão" — só este reset block a
+    # seta. Razão UX: usuário casual costuma querer ver "como foi
+    # ontem/agora", não 12 meses de série diária.
+    if "_gen_dataset_max" not in st.session_state:
+        st.session_state["gen_granularidade"] = "Horária"
+
     # --- Controles: granularidade + submercado ---
     ctrl_cols = st.columns([1.2, 1.8, 3.2])
     with ctrl_cols[0]:
@@ -2055,51 +2176,67 @@ elif aba == "Geração":
             format_func=lambda c: NOME_SUB_LONGO[c],
         )
 
-    # Ao sair de Horária, limpa keys do modo "Data base + janela" — evita
-    # widget órfão no Streamlit 1.56 quando a key persiste em session_state
-    # após o widget não ser mais re-renderizado. Horária re-inicializa as
-    # keys na entrada.
-    prev_gran_gen = st.session_state.get("_gen_last_gran")
-    if prev_gran_gen == "Horária" and granularidade_gen != "Horária":
-        st.session_state.pop("gen_data_base", None)
-        st.session_state.pop("gen_horaria_window_dias", None)
-    st.session_state["_gen_last_gran"] = granularidade_gen
+    # Atualiza backups pós-widget pra próximo rerun ter valor preservado
+    # caso o cleanup dispare. Decisão 5.18 do CLAUDE.md.
+    st.session_state[_GEN_GRAN_BACKUP] = granularidade_gen
+    st.session_state[_GEN_SUB_BACKUP] = submercado_gen
 
     # --- Range disponível no dataset (baseado em data_hora) ---
     min_d_gen = df_gen["data_hora"].min().date()
     max_d_gen = df_gen["data_hora"].max().date()
 
-    # Default: últimos 12 meses. Sentinela `_gen_dataset_max` é setada SÓ
-    # por este bloco — sua ausência prova "1ª visita absoluta na sessão".
-    # Não usar "gen_data_ini not in state" como ÚNICA heurística: em Horária,
-    # gen_data_ini é derivado pós-helper de gen_data_base/window — usar
-    # essa key sozinha faria o reset disparar em todo render no modo Horária
-    # e popar gen_data_base/gen_horaria_window_dias, voltando window pra 1
-    # (decisão 5.11 do CLAUDE.md, bug §3.2 da Sessão 1).
+    # =========================================================================
+    # RESET BLOCK UNIFICADO (decisão 5.20)
+    # =========================================================================
+    # Aplica default da granularidade ATUAL em qualquer um destes gatilhos:
     #
-    # Combinada com `_gen_dataset_max not in state`, a checagem por
-    # gen_data_ini/gen_data_fim ausentes é segura: o reset só dispara quando
-    # o sentinela ESTÁ presente (não-1ª visita) MAS uma das keys foi
-    # descartada — sintoma do widget-state cleanup do Streamlit. Ele pode
-    # remover keys de widget que não foram instanciados em algum rerun
-    # intermediário (caso típico: Diária → Horária → Atualizar → reentrou
-    # em Diária, cache invalidado, gen_data_ini/fim já discardados pelo
-    # cleanup). Detecta + recupera caindo no default 12M.
+    # 1. force_reset (clear_cache disparou via flag _gen_force_reset)
+    # 2. 1ª visita absoluta (sentinela _gen_dataset_max ausente)
+    # 3. Dataset mudou (max ou min ≠ stored)
+    # 4. Transição de granularidade (prev_gran != atual, decisão 5.20)
+    # 5. Em modo NÃO-Horária: gen_data_ini/gen_data_fim ausentes (5.16/5.19)
+    #
+    # Defaults aplicados (helper top-level _aplica_default_periodo_gen):
+    #   Diária  → 1M
+    #   Mensal  → 12M
+    #   Horária → 1D + data_base = max_d
+    #
+    # Substitui bloco "ao sair de Horária" + auto-ajuste Mensal +
+    # reset de 12M-Diária — todos absorvidos aqui. Decisão 5.14 fica como
+    # histórico/superada.
+    #
+    # Decisão 5.19: a checagem de keys individuais ausentes EXCLUI a
+    # Horária — lá esses keys são widget-state de Diária/Mensal cujo
+    # cleanup é normal/esperado.
+    em_horaria = (
+        st.session_state.get("gen_granularidade") == "Horária"
+    )
+    prev_gran_gen = st.session_state.get("_gen_last_gran")
+    em_transicao = (
+        prev_gran_gen is not None
+        and prev_gran_gen != granularidade_gen
+    )
+    force_reset_gen = st.session_state.pop("_gen_force_reset", False)
+
     if (
-        "_gen_dataset_max" not in st.session_state
+        force_reset_gen
+        or "_gen_dataset_max" not in st.session_state
         or st.session_state.get("_gen_dataset_max") != max_d_gen
         or st.session_state.get("_gen_dataset_min") != min_d_gen
-        or "gen_data_ini" not in st.session_state
-        or "gen_data_fim" not in st.session_state
-    ):
-        st.session_state["gen_data_ini"] = max(
-            min_d_gen, max_d_gen - timedelta(days=365)
+        or em_transicao
+        or (
+            not em_horaria
+            and (
+                "gen_data_ini" not in st.session_state
+                or "gen_data_fim" not in st.session_state
+            )
         )
-        st.session_state["gen_data_fim"] = max_d_gen
+    ):
+        _aplica_default_periodo_gen(granularidade_gen, min_d_gen, max_d_gen)
         st.session_state["_gen_dataset_max"] = max_d_gen
         st.session_state["_gen_dataset_min"] = min_d_gen
-        st.session_state.pop("gen_data_base", None)
-        st.session_state.pop("gen_horaria_window_dias", None)
+
+    st.session_state["_gen_last_gran"] = granularidade_gen
 
     # --- Período: modo depende da granularidade ---
     # Diária/Mensal: 2 date_inputs ancorados em presets de "últimos N dias".
@@ -2153,33 +2290,28 @@ elif aba == "Geração":
         data_ini_gen = st.session_state["gen_data_ini"]
         data_fim_gen = st.session_state["gen_data_fim"]
 
-        # Mensal precisa de pelo menos ~2 meses pra render >= 2 pontos
-        # (resample MS = 1 ponto por mês). Se o período herdado for menor
-        # — caso típico ao vir de Horária 1D, onde data_ini==data_fim ==
-        # data_base — auto-ajusta pra 3M ancorado em max_d_gen, equivalente
-        # ao preset 3M. Sem isso, Mensal cai no guard <2 pontos sempre.
-        if (
-            granularidade_gen == "Mensal"
-            and (data_fim_gen - data_ini_gen).days < 60
-        ):
-            st.session_state["gen_data_ini"] = max(
-                min_d_gen, max_d_gen - timedelta(days=90)
-            )
-            st.session_state["gen_data_fim"] = max_d_gen
-            data_ini_gen = st.session_state["gen_data_ini"]
-            data_fim_gen = st.session_state["gen_data_fim"]
+        # NOTA (Sessão 1.5b): o antigo auto-ajuste de Mensal pra 3M quando
+        # período herdado < 60d (decisão 5.14) foi REMOVIDO. O reset block
+        # unificado (decisão 5.20) já aplica default Mensal=12M na transição
+        # de granularidade — cobre o caso Horária 1D → Mensal sem
+        # workaround. 5.14 marcada como histórico/superada no CLAUDE.md.
 
         if data_ini_gen > data_fim_gen:
             st.error("A data inicial não pode ser posterior à data final.")
             st.stop()
 
         # Mensal sem "1M": 1 mês dá 1 ponto, cai no guard de <2 pontos.
+        # Sessão 1.5b: presets revisados — Mensal ganha 10A e 15A; Diária
+        # ganha 10A. "Máx" continua respeitando o range do dataset (15a ou
+        # completo conforme gen_historico_completo). Decisão 5.17.
         if granularidade_gen == "Mensal":
             presets_gen = [
                 ("3M",  90,  False),
                 ("6M",  180, False),
                 ("12M", 365, False),
                 ("5A",  1825, False),
+                ("10A", 3650, False),
+                ("15A", 5475, False),
                 ("Máx", None, True),
             ]
         else:
@@ -2189,6 +2321,7 @@ elif aba == "Geração":
                 ("6M",  180, False),
                 ("12M", 365, False),
                 ("5A",  1825, False),
+                ("10A", 3650, False),
                 ("Máx", None, True),
             ]
         _render_period_controls(
@@ -2201,6 +2334,29 @@ elif aba == "Geração":
         )
         data_ini_gen = st.session_state["gen_data_ini"]
         data_fim_gen = st.session_state["gen_data_fim"]
+
+    # --- Botão "Carregar histórico completo" (Sessão 1.5b) ---
+    # Eixo separado dos presets de período: presets navegam DENTRO do range
+    # carregado; este botão EXPANDE o range. Decisão 5.17 (dois eixos).
+    # Discreto (Inter cinza) — não compete com presets.
+    if historico_completo_gen:
+        st.markdown(
+            '<div style="font-family:\'Inter\', sans-serif; '
+            'font-size:0.8rem; color:#6B6B6B; font-style:italic; '
+            'margin:0.4rem 0 0 0;">'
+            '✓ Histórico completo carregado (2000-presente)'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        if st.button(
+            "📈 Carregar histórico completo (2000-2010)",
+            key="btn_gen_historico_completo",
+            help="Adiciona 11 anos pré-2011 ao dataset. Útil pra análises "
+                 "longas; não recomendado pra uso típico (matriz era ~85% "
+                 "hidro, dinâmica diferente).",
+        ):
+            _confirmar_historico_completo_gen()
 
     # --- Teto 90 dias na horária (trunca no render, avisa via warning) ---
     # Decisão: não mexer em session_state pra não confundir o usuário com

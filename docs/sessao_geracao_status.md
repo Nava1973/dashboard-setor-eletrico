@@ -1,19 +1,19 @@
 # Status da sessão — Aba Geração (ONS Balanço de Energia)
 
-> **Sessão 1.5 (Performance) FECHADA em 2026-04-25.** 4 fixes aplicados
-> (Fix #1 pré-computar `data`, Fix #3 disk-cache, Fix #4 spinner dinâmico,
-> + extensão da sentinela do reset block contra widget-state cleanup).
-> Ganhos de 3,7-11× medidos (§4). Sessão 1 commitada em `e7db917` segue
-> local e será pushed junto com a 1.5.
+> **Sessão 1.5b (Performance global + default 15a) FECHADA em 2026-04-25.**
+> Escopo expandido pra disk-cache em Reservatórios e ENA + default
+> histórico 15a com expansão sob demanda na Geração. Decisão 5.17 do
+> CLAUDE.md (dois eixos: range do dataset vs período visível) consolida
+> o padrão arquitetural.
 >
-> Branch local: 2 commits à frente do `origin/main` + 1 commit pendente
-> da Sessão 1.5:
+> Branch local: 4 commits à frente do `origin/main`:
 > - `87a1eb1` — 5 gráficos empilhados (pré-reversão)
 > - `e7db917` — Sessão 1 (reversão pra gráfico único + fixes)
-> - **(pendente)** — Sessão 1.5 (performance)
+> - `efc7c38` — Sessão 1.5 (performance: disk-cache + filter sem dt.date)
+> - **(pendente)** — Sessão 1.5b (perf global + default 15a)
 >
-> Próxima sessão é a **1.5b (Default 15 anos + carregamento sob
-> demanda)** — ver §0.
+> Próxima sessão é a **1.6 (ajustes estéticos)** ou **2 (Dia Típico)** —
+> ordem flexível. Ver §0.
 
 ---
 
@@ -105,39 +105,138 @@ linhas é desnecessário pra 99% dos usos. Próximo passo: default
 histórico de 15 anos + carregamento sob demanda do completo (ver
 abaixo).
 
-### Sessão 1.5b — Default histórico 15 anos + carregamento sob demanda
+### Sessão 1.5b — Performance global + default 15a · ✅ CONCLUÍDA (2026-04-25)
 
-**Problema residual após 1.5:** mesmo com disk-cache, manter 27 anos ×
-6,7M linhas em memória/disco é pesado pra 99% dos usos. Quase nenhum
-usuário casual analisa eventos pré-2011 (matriz elétrica era muito
-diferente, hidro ~80% absoluta, pouca eólica/solar).
+**Escopo expandido durante a sessão:** após reportar lentidão também em
+Reservatórios (~20s) e ENA (~30s) no cold load, o escopo da 1.5b passou
+de "só Geração 15a" pra **disk-cache global em todos os datasets ONS** +
+default 15a na Geração.
 
-**Implementação proposta:**
+**Implementação em 5 partes (ordem):**
 
-- **Loader baixa 2011-2026 por padrão** (~16 anos × ~3.9M linhas).
-  Disk-cache primário: `balanco_15anos.parquet`.
-- **Botão "Máx" abre modal de confirmação** ("Carregar histórico
-  completo? Adiciona 11 anos (2000-2010), pode levar 30s na 1ª vez").
-  Se confirmado: baixa anos 2000-2010, concatena com cache 15a, salva
-  `balanco_completo.parquet`. Cache decisão na sessão (não pergunta de
-  novo).
-- **Disk-caches separados** (`balanco_15anos.parquet` e
-  `balanco_completo.parquet`) — usuário que nunca clica Máx nunca paga
-  custo dos 11 anos antigos.
+1. **Fábrica `_make_disk_cache_helpers(cache_name, ttl_sec)`** —
+   substitui ~120 linhas duplicadas que existiriam em 4 datasets. Closure
+   independente com `lru_cache(maxsize=1)` próprio: cada `cache_name`
+   gera 4 callables (`get_path`, `is_fresh`, `try_read`, `try_write`)
+   que não compartilham estado. Path resolver com cascade
+   `home/.cache → tempfile.gettempdir()` + `write_test` por instância
+   (`.write_test_{cache_name}`).
+2. **Disk-cache em Reservatórios e ENA** — 2 chamadas da fábrica
+   (`reservatorios.parquet` e `ena.parquet`) + early-return no início de
+   `load_reservatorios`/`load_ena` + write no fim. Helpers públicos
+   `is_reservatorios_cache_fresh()` e `is_ena_cache_fresh()` expostos.
+3. **`load_balanco_subsistema(incluir_historico_completo=False)`** com
+   flag — 2 chamadas da fábrica (`balanco_15anos.parquet` /
+   `balanco_completo.parquet`). Default baixa
+   `range(ano_corrente-14, ano_corrente+1)` (~3.9M linhas); flag True
+   baixa `range(2000, ano_corrente+1)` (~6.7M linhas).
+4. **UI Geração** — state `gen_historico_completo` (sticky default
+   False), botão "📈 Carregar histórico completo (2000-2010)" perto dos
+   presets, dispara `@st.dialog` (helper `_confirmar_historico_completo_gen`
+   top-level). Confirmação: seta flag + `st.rerun()`. Após confirmar:
+   loader chamado com True, `min_d_gen` expande pra 2000, botão vira
+   caption "✓ Histórico completo carregado". Spinner dinâmico ciente
+   da variante (mensagens distintas pra 15a vs completo). Presets
+   revisados:
 
-**Presets revisados:**
+   | Granularidade | Presets |
+   |---|---|
+   | Diária | 1M / 3M / 6M / 12M / 5A / **10A** / Máx |
+   | Mensal | 3M / 6M / 12M / 5A / **10A** / **15A** / Máx |
+   | Horária | 1D / 7D / 30D / 90D (inalterada) |
 
-| Granularidade | Presets |
-|---|---|
-| Diária | 1M / 3M / 6M / 12M / **5A** / **10A** / Máx |
-| Mensal | 3M / 6M / 12M / **5A** / **10A** / **15A** / Máx |
-| Horária | 1D / 7D / 30D / 90D (inalterada) |
+5. **`clear_cache()` estendido** — unlinks 4 parquets (15a, completo,
+   reservatórios, ENA) via loop sobre os 4 `get_path`. Reseta
+   `gen_historico_completo` da sessão pra coerência semântica
+   ("Atualizar = começar do zero"). Decisão 5.17 do CLAUDE.md consolida
+   o padrão (dois eixos: range do dataset vs período visível).
 
-**Antes de codar:** definir UX exata do modal (st.dialog em Streamlit
-1.56? ou st.expander? ou rerun com flag de confirmação?), e decidir
-se o split é dinâmico (loader recebe `incluir_historico_completo:
-bool`) ou se há 2 entry points distintos (`load_balanco_subsistema_15anos`
-vs `load_balanco_subsistema_completo`).
+**Decisões arquiteturais consolidadas no CLAUDE.md (4 novas):**
+
+- **5.17** Dois eixos: range do dataset (carregamento sob demanda
+  via modal) vs período visível (presets). Não misturar — preset "Máx"
+  navega dentro do range, expansão é ação separada.
+- **5.18** Backup paralelo pra widgets selectbox sujeitos a cleanup.
+  Mesmo padrão da 5.16 (que cobriu `st.date_input`), agora aplicado
+  a `gen_granularidade` e `gen_submercado` na Geração. Defesa
+  preventiva contra widget-state cleanup do Streamlit em ciclos
+  pesados (clear_cache → rerun → load >5s).
+- **5.19** Sentinela do reset com EXCEÇÃO por modo (refinamento da 5.16).
+  Em modos onde keys são widget-state alheias e cleanup é normal/esperado
+  (ex: Horária não usa `gen_data_ini`/`gen_data_fim`), excluir a checagem
+  individual desse modo. Sem isso, reset disparava em todo render Horária
+  pós-cleanup, popando window.
+- **5.20** Defaults por granularidade + reset block unificado. Cada modo
+  tem default próprio (Diária 1M, Mensal 12M, Horária 1D + max_d), aplicado
+  pelo reset em 5 gatilhos (1ª visita / dataset mudou / transição /
+  force_reset / keys ausentes não-Horária). Substitui blocos espalhados.
+  **5.14 marcada como SUPERADA** — auto-ajuste Mensal absorvido pelos
+  defaults novos.
+
+**3 bugs descobertos e corrigidos durante teste pós-implementação:**
+
+**Bug A — Datas cortadas no `_render_period_controls`.** Sintoma:
+campos "Data inicial" / "Data final" mostravam `2025/04/2` (faltando
+último dígito) na Geração após a 1.5b. Causa: 7 presets (vs 5 nas
+outras abas) reduziam fração de coluna do `date_input` de ~16% (~161px)
+pra ~13% (~131px) — abaixo do mínimo pra `dd/mm/yyyy` caber. Fix
+cirúrgico em `app.py:537`: ratio adaptativo `1.8 if n > 5 else 1.4`
+no helper. Outras 3 abas (PLD/Reservatórios/ENA) ficam intocadas.
+
+**Bug B — Dessincronia de granularidade pós-Atualizar.** Sintoma:
+após "Atualizar" com Mensal+histórico completo, dropdown visual
+mostrava "Mensal" mas presets renderizavam de Diária e gráfico
+renderizava como Diária. Workaround manual: trocar pra Diária e
+voltar pra Mensal. Causa: widget-state cleanup do Streamlit (mesmo
+padrão da decisão 5.16, que cobriu `gen_data_ini`/`gen_data_fim`).
+No ciclo pesado pós-Atualizar (clear_cache → rerun → load 15s →
+re-render), `gen_granularidade` é descartada do state. Widget
+recria com default "Diária", mas DOM do navegador exibe valor
+antigo cached por 1+ frame. Fix: backup paralelo (decisão 5.18 do
+CLAUDE.md) — `_gen_granularidade_backup` e `_gen_submercado_backup`
+em keys NÃO widget-state, restaurados antes do widget + atualizados
+pós-render. Aplicado preventivamente também em `gen_submercado`
+pelo mesmo risco.
+
+**Bug C — Botões 7D/30D/90D na Horária não respondiam.** Sintoma:
+em Horária, apenas 1D (default) funcionava. Cliques em 7D/30D/90D
+não atualizavam nada — botão 1D continuava amarelo, gráfico continuava
+mostrando 1 dia. Causa: regressão da própria decisão 5.16 (Sessão 1.5).
+A sentinela estendida com `gen_data_ini`/`gen_data_fim` ausentes
+disparava em TODO render Horária — esses keys são widget-state de
+`st.date_input` em `_render_period_controls` (Diária/Mensal), e em
+Horária esses widgets NÃO são instanciados → cleanup descarta
+NORMALMENTE → reset disparava → popava `gen_horaria_window_dias` →
+init re-setava pra 1 → click no 7D era perdido. Fix: decisão 5.19
+EXCLUI a Horária da checagem de keys individuais — `em_horaria=True`
+pula esse termo da condição. Reset continua disparando em Horária
+por sentinela (1ª visita) ou mudança de dataset, mas não pelos keys
+órfãos que são esperados estar ausentes.
+
+**Estimativa de impacto (a validar pós-deploy):**
+- Reservatórios cold com disk-cache hit: ~20s → ~1-2s (10×)
+- ENA cold com disk-cache hit: ~30s → ~1-2s (15×)
+- Geração 15a cold (sem disk): ~25s vs ~60s do 27a anterior (~2× só
+  pela menor lista)
+- Geração 15a cold com disk-cache: ~1-2s
+- Geração completo cold (sob demanda): ~25s primeira vez, ~1-2s subsequentes
+
+**Validação manual completa — 12 cenários (todos ✅):**
+
+| # | Cenário | Resultado |
+|---|---|---|
+| 1 | Hard restart → 1ª entrada Geração | ✅ abre em Horária + 1D + max_d_gen |
+| 2 | Trocar pra Diária | ✅ default 1M (max_d-30 → max_d) |
+| 3 | Trocar pra Mensal | ✅ default 12M (max_d-365 → max_d) |
+| 4 | Trocar pra Horária | ✅ default 1D + data_base = max_d |
+| 5 | Mudar período manual em Diária (ex: 6M) | ✅ escolha preservada nos próximos reruns |
+| 6 | Mensal → Horária 7D → Mensal | ✅ default 12M, sem cair no guard <2 pontos |
+| 7 | Atualizar em Diária 6M | ✅ reseta pra Diária 1M (force_reset flag) |
+| 8 | Atualizar em Mensal 5A | ✅ reseta pra Mensal 12M |
+| 9 | Atualizar em Horária 30D | ✅ reseta pra Horária 1D + max_d_gen |
+| 10 | Modal "Carregar histórico completo" + confirmar | ✅ range expande pra 2000-2026 |
+| 11 | Botões 7D/30D/90D em Horária | ✅ funcionam (5.19 cobriu regressão) |
+| 12 | Datas completas nos date_inputs (Diária 7 presets) | ✅ `dd/mm/yyyy` sem corte (5.20+ratio 1.8) |
 
 ### Sessão 1.6 — Ajustes estéticos & UX
 
@@ -519,18 +618,18 @@ regra de "não modifica session_state de widget instanciado".
 
 ## 4. Como retomar
 
-Próxima sessão é a **Sessão 1.5b (Default 15 anos + carregamento sob
-demanda)** do roadmap (§0).
+Próxima sessão é a **Sessão 1.6 (ajustes estéticos & UX)** ou
+**Sessão 2 (Dia Típico)** — ordem flexível.
 
-1. Conferir que os 3 commits locais (`87a1eb1`, `e7db917`, e o commit
-   da Sessão 1.5) foram pushed e Streamlit Cloud está verde.
-2. Decidir UX do modal "Carregar histórico completo" (ver Sessão 1.5b).
-3. Implementar split do loader (15a vs completo) com 2 disk-caches
-   distintos.
-4. Atualizar presets dos botões conforme tabela em §0.
-
-Após Sessão 1.5b verde, seguir pra **Sessão 1.6 (ajustes estéticos)**
-ou **Sessão 2 (Dia Típico)** — ordem flexível.
+1. Conferir que os 4 commits locais (`87a1eb1`, `e7db917`, `efc7c38`,
+   e o commit da Sessão 1.5b) foram pushed e Streamlit Cloud está verde.
+2. **Validar ganhos da 1.5b** abrindo Reservatórios e ENA pela 1ª vez
+   (cold) — esperado ~20-30s na 1ª, ~1-2s nas subsequentes (disk-cache
+   hit).
+3. Validar a Geração com defaults novos: range 15a, presets revisados,
+   modal "Carregar histórico completo" funcional.
+4. Pra 1.6, abrir `docs/sessao_geracao_status.md` §0 itens 1-7 (lista de
+   ajustes mistos: 1 bug + tipografia + UX).
 
 ---
 
@@ -538,21 +637,27 @@ ou **Sessão 2 (Dia Típico)** — ordem flexível.
 
 - `docs/aba_geracao_spec.md` — spec original.
 - `docs/geracao_research.md` — Fase A (descoberta CKAN, schema, números).
-- `CLAUDE.md` — guia geral do projeto (atualizado com decisões 5.15
-  disk-cache + 5.16 widget-state cleanup do Streamlit nesta sessão).
+- `CLAUDE.md` — guia geral do projeto (atualizado com decisões
+  5.15 disk-cache, 5.16 widget-state cleanup do Streamlit, 5.17 dois
+  eixos: range vs período visível).
 - Commits relevantes:
-  - `87a1eb1` (2026-04-23) — trabalho da sessão anterior (5 gráficos
-    empilhados, antes da reversão). Local, não pushed.
-  - `e7db917` (2026-04-24) — Sessão 1 fechada: reversão pra gráfico
-    único + 5 fixes + nota intercâmbio + auto-ajuste Mensal + docs.
-    Local, não pushed (aguarda Sessão 1.5).
-  - **(pendente, esta sessão)** — Sessão 1.5: Fix #1 + Fix #3 + Fix #4
-    + extensão sentinela. 4 fixes, +5-15× speedup.
+  - `87a1eb1` (2026-04-23) — Geração 1ª versão (5 gráficos empilhados,
+    antes da reversão). Local, não pushed.
+  - `e7db917` (2026-04-24) — Sessão 1: reversão pra gráfico único +
+    5 fixes + auto-ajuste Mensal + docs. Local, não pushed.
+  - `efc7c38` (2026-04-25) — Sessão 1.5: Fix #1 (filter sem dt.date)
+    + Fix #3 (disk-cache balanço) + Fix #4 (spinner) + extensão
+    sentinela. Local, não pushed.
+  - **(pendente, esta sessão)** — Sessão 1.5b: fábrica de helpers +
+    disk-cache em Reservatórios/ENA + default 15a Geração + modal
+    expansão + presets revisados.
   - Anteriores (em `origin/main`): `4be9f33`, `80634b5`, `87c8e72`.
-- Disk-cache do balanço (Fix #3): `~/.cache/dashboard-setor-eletrico/balanco.parquet`
-  (Windows: `C:\Users\<USER>\.cache\dashboard-setor-eletrico\`),
-  com fallback automático pra `tempfile.gettempdir()/dashboard-setor-eletrico/`
-  se home for read-only.
+- Disk-caches dos datasets ONS (Sessão 1.5b):
+  `~/.cache/dashboard-setor-eletrico/{nome}.parquet` onde `{nome}` ∈
+  `{balanco_15anos, balanco_completo, reservatorios, ena}`. Windows:
+  `C:\Users\<USER>\.cache\dashboard-setor-eletrico\`. Fallback automático
+  pra `tempfile.gettempdir()/dashboard-setor-eletrico/` se home for
+  read-only.
 - Helpers introduzidos (top-level no `app.py`):
   - `_render_period_controls_horaria` — modo "Data base + janela".
   - `_format_periodo_br` — string de período no formato BR por

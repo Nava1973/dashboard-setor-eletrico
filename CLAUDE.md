@@ -543,18 +543,25 @@ Bonus: usar `not get()` (cobre ausência E `None`) na key que pode ser
 escrita pelo widget; usar `"X" not in state` (só ausência) na key que
 só é escrita por código nosso.
 
-### 5.14 Auto-ajuste de período ao trocar pra granularidade incompatível
+### 5.14 Auto-ajuste de período ao trocar pra granularidade incompatível ⚠ SUPERADA pela 5.20
 
-**Decisão:** ao trocar pra uma granularidade onde o período herdado
-geraria <2 pontos no resample, **auto-ajustar** o período pra um
-default razoável da nova granularidade.
+> **Status:** histórico/superada. A 5.20 (defaults por granularidade
+> via reset block unificado) cobre TODAS as transições com defaults
+> intencionais — Mensal default 12M já evita o caso < 2 pontos sem
+> precisar de workaround pontual. Código antigo (auto-ajuste Mensal
+> linhas 2243-2252) removido na Sessão 1.5b. Mantida aqui como
+> referência da decisão original.
+
+**Decisão original:** ao trocar pra uma granularidade onde o período
+herdado geraria <2 pontos no resample, **auto-ajustar** o período pra
+um default razoável da nova granularidade.
 
 **Caso concreto:** trocar de Horária 1D pra Mensal mantém
 `data_ini == data_fim` (1 dia). Mensal resample MS = 1 ponto → guard
 `<2 pontos` dispara. UX ruim — usuário não entende por que Mensal
 "não funciona".
 
-**Implementação** (Geração):
+**Implementação original** (substituída pela 5.20):
 ```python
 if granularidade_gen == "Mensal" and (data_fim - data_ini).days < 60:
     st.session_state["gen_data_ini"] = max_d_gen - timedelta(days=90)
@@ -683,6 +690,283 @@ key que é ALSO widget-state de `st.date_input`/`st.text_input` etc.
 Se a aba alterna entre 2+ helpers que instanciam widgets diferentes
 (ex: Geração com `_render_period_controls` vs
 `_render_period_controls_horaria`), o cleanup pode ocorrer.
+
+**Refinamento importante (decisão 5.19):** se a aba ALTERNA entre
+modos onde widgets diferentes ocupam o mesmo papel (Diária/Mensal usa
+`st.date_input` com keys X e Y; Horária usa outro layout sem essas
+keys), a sentinela estendida precisa **EXCLUIR o modo onde o cleanup
+é normal**. Sem isso, o reset dispara em todo rerun do modo
+alternativo. Ver 5.19 abaixo.
+
+### 5.17 Dois eixos: range do dataset vs período visível
+
+**Decisão:** quando o tamanho do dataset carregado é decisão própria
+(ex: balanço da Geração, default 15a vs completo sob demanda), **separar
+explicitamente em 2 eixos ortogonais** os controles de UI:
+
+1. **Range do dataset** = "quanto histórico carregar". Controlado por
+   estado *sticky* na sessão (ex: `gen_historico_completo: bool`),
+   alterado via ação explícita do usuário (modal de confirmação).
+   Default conservador (15 anos cobre 95% dos usos).
+2. **Período visível** = "qual slice mostrar do que está carregado".
+   Controlado pelos presets (1M, 3M, ..., Máx) + date inputs, dentro
+   do range disponível.
+
+**Não misturar.** O preset "Máx" navega ao mínimo *do range carregado*,
+não força carregar mais. Quem quer expandir o range usa o botão
+separado "Carregar histórico completo".
+
+**Justificativa:**
+- Performance: 99% dos usos não precisam dos 11 anos antigos. Carregar
+  por padrão é ~25s vs ~15s — custo dobrado pra benefício raro.
+- UX: clicar "Máx" é uma operação navegacional barata. Se ela
+  silenciosamente disparasse "carregar mais 11 anos + esperar 25s",
+  seria surpresa ruim.
+- Modelo mental: "navegar dentro do que tenho" e "buscar mais dados"
+  são ações conceitualmente distintas — refletir isso na UI é
+  honesto.
+
+**Implementação na Geração (Sessão 1.5b):**
+
+```python
+# Loader recebe a flag, @st.cache_data trata como key
+@st.cache_data(...)
+def load_balanco_subsistema(incluir_historico_completo: bool = False):
+    ...
+
+# Disk-caches separados por variante (via fábrica _make_disk_cache_helpers)
+_make_disk_cache_helpers("balanco_15anos")
+_make_disk_cache_helpers("balanco_completo")
+
+# UI:
+historico_completo_gen = st.session_state.get("gen_historico_completo", False)
+df_gen = load_balanco_subsistema(incluir_historico_completo=historico_completo_gen)
+
+# Botão de expansão é separado dos presets de período
+if st.button("📈 Carregar histórico completo (2000-2010)"):
+    _confirmar_historico_completo_gen()  # @st.dialog
+```
+
+**`clear_cache()` reseta `gen_historico_completo`:** "Atualizar"
+semanticamente significa "começar do zero", não preservar escolhas
+que forçariam re-download silencioso. Coerente com o eixo da decisão.
+
+**Aplica a outros datasets pesados:** se Reservatórios/ENA crescerem
+muito (improvável — são pequenos), o mesmo padrão se aplica. Hoje
+ambos cabem em 15a-equivalente sem dor (dataset consolidado < 5MB).
+
+### 5.18 Backup paralelo pra widgets selectbox sujeitos a cleanup
+
+**Decisão:** keys de `st.selectbox` que precisam preservar valor entre
+ciclos de rerun pesado (load >5s + clear_cache + navegação entre abas)
+ganham um backup paralelo em key NÃO widget-state. Defesa preventiva
+contra widget-state cleanup do Streamlit, mesmo padrão da 5.16 que
+cobriu `st.date_input`.
+
+**Bug que motivou (Sessão 1.5b):** após "Atualizar" na sidebar com
+Geração+Mensal+histórico completo, dropdown visual mostrava "Mensal"
+mas variável `granularidade_gen` lida pelo código vinha como "Diária".
+Resultado: presets de Diária renderizam, gráfico Diária, mas user vê
+"Mensal" no dropdown. Workaround manual era clicar no dropdown e
+reselecionar o valor.
+
+**Causa raiz:** Streamlit ≥1.30 descarta widget-state de keys cujo
+widget não foi instanciado em algum rerun intermediário. No ciclo
+pesado pós-"Atualizar" (clear_cache → rerun → load 15s → re-render),
+há janela onde `gen_granularidade` pode sumir do state. Widget recria
+com default (`index=1` → "Diária"). DOM do navegador pode mostrar o
+valor antigo cached por 1+ frame até o re-render terminar, criando
+divergência visual vs lógica.
+
+**Padrão de fix:**
+
+```python
+# Antes do selectbox:
+_BACKUP_KEY = "_<sufixo>_backup"
+if (
+    "<key_widget>" not in st.session_state
+    and _BACKUP_KEY in st.session_state
+):
+    st.session_state["<key_widget>"] = st.session_state[_BACKUP_KEY]
+
+# Selectbox normal:
+valor = st.selectbox(..., key="<key_widget>")
+
+# Pós-widget, atualiza backup:
+st.session_state[_BACKUP_KEY] = valor
+```
+
+3 critérios da key de backup:
+1. Prefixo `_` distingue de widget keys do user.
+2. NÃO é widget-state — escrita só pelo nosso código → sobrevive cleanup.
+3. Mantida sincronizada com o widget pós-render (sempre escrita ao final).
+
+**Quando aplicar em outras abas:** preventivamente quando há sintoma
+similar (dessincronia visual de selectbox após interação pesada). Não
+necessariamente em TODOS os selectbox — só os que estão em ciclos
+suscetíveis. Hoje aplicado em `gen_granularidade` e `gen_submercado`
+da Geração, mas o radio `aba` da sidebar e os selectbox do PLD
+(`selectbox_granularidade`) também são candidatos se o bug aparecer.
+
+**Trade-off:** ~5 linhas extras por widget. Aceitável em troca de
+robustez. Não é gratuito — em widgets de listas dinâmicas o backup
+pode "lembrar" valor que não é mais opção válida; nesse caso, validar
+antes de restaurar.
+
+### 5.19 Sentinela do reset com EXCEÇÃO por modo (refinamento da 5.16)
+
+**Decisão:** quando a sentinela do reset block (5.16) inclui keys
+individuais ausentes E a aba tem modos onde essas keys NÃO são
+widget-state (cleanup é normal/esperado naquele modo), **excluir o
+modo do check** via `if mode == ... not em_modo_alternativo and ...`.
+
+**Bug que motivou (Sessão 1.5b pós-implementação):** após aplicar a
+5.16 estendendo a sentinela do reset com `gen_data_ini`/`gen_data_fim`
+ausentes, descobrimos que botões 7D/30D/90D na Horária não respondiam.
+Apenas 1D (default) funcionava. Causa: `gen_data_ini` e `gen_data_fim`
+são widget-keys do `st.date_input` em `_render_period_controls`
+(Diária/Mensal). Em Horária, esses widgets NÃO são instanciados —
+helper Horária usa `_render_period_controls_horaria` com layout
+diferente. Streamlit faz cleanup das keys → reset dispara em TODO
+rerun Horária pós-cleanup → popa `gen_horaria_window_dias` → init
+re-seta pra 1 → window do clique 7D é perdido.
+
+**Fix** (`app.py:2170-2189`):
+
+```python
+em_horaria = (
+    st.session_state.get("gen_granularidade") == "Horária"
+)
+if (
+    "_gen_dataset_max" not in st.session_state
+    or st.session_state.get("_gen_dataset_max") != max_d_gen
+    or st.session_state.get("_gen_dataset_min") != min_d_gen
+    or (
+        not em_horaria
+        and (
+            "gen_data_ini" not in st.session_state
+            or "gen_data_fim" not in st.session_state
+        )
+    )
+):
+    # ... reset ...
+```
+
+**Por que funciona:**
+- Em Diária/Mensal: `em_horaria=False` → checa keys individuais →
+  cobre o cenário do bug do Cenário 3 (Sessão 1.5).
+- Em Horária: `em_horaria=True` → NÃO checa keys individuais → reset
+  só dispara por mudança de dataset (`_gen_dataset_max/_min`) ou 1ª
+  visita absoluta. Window preservada.
+- Sentinela `_gen_dataset_max` continua autoritativa em ambos modos.
+
+**Por que é seguro em Horária:**
+- `gen_data_ini`/`gen_data_fim` em Horária são **derivadas** das
+  linhas 2232-2233 (espelhadas a partir de `data_base`/`window`).
+  Sempre re-escritas no fim do bloco Horária. Não há dependência de
+  leitura — se sumirem, são re-criadas no rerun seguinte.
+- Cenário "sessão antiga, sentinela presente, gen_data_ini perdida"
+  em Horária deixa de auto-recuperar via reset, mas as próprias
+  linhas de espelhamento recuperam.
+
+**Lição aprendida:** sentinelas estendidas devem considerar TODOS os
+modos da aba antes de assumir que "key ausente = sintoma de bug".
+Nem sempre é — em modos alternativos pode ser comportamento normal.
+Quando o reset tem efeitos colaterais (popa outras keys), uma falsa
+detecção custa caro.
+
+**Padrão genérico aplicável:**
+
+```python
+em_modo_X = <condicao>  # ex: granularidade=="Horária"
+if (
+    sentinela_principal_invalida
+    or (
+        not em_modo_X
+        and (key_widget_modo_diferente_ausente)
+    )
+):
+    reset()
+```
+
+### 5.20 Defaults por granularidade + reset block unificado
+
+**Decisão:** quando uma aba tem múltiplos modos (granularidades) com
+controles de período distintos, **cada modo tem seu default próprio
+de período**, aplicado por um reset block unificado que dispara nos 5
+gatilhos abaixo. Substitui blocos espalhados de "ao sair do modo X" +
+auto-ajuste pontual + reset de 1ª visita.
+
+**Defaults na aba Geração:**
+
+| Modo | Default | Comentário |
+|---|---|---|
+| Diária | 1M | Janela curta cobre análise recente; user expande sob demanda |
+| Mensal | 12M | 12 pontos = 1 ano completo, mostra sazonalidade |
+| Horária | 1D + data_base = max_d | "Como foi ontem" — uso casual mais comum |
+
+**1ª entrada na aba (sentinela `_gen_dataset_max` ausente): default Horária.**
+Pre-selectbox seta `state["gen_granularidade"] = "Horária"` antes do
+widget ser instanciado (decisão 5.12). Razão UX: usuário casual
+costuma querer ver "agora" não 12 meses de série.
+
+**5 gatilhos do reset block unificado:**
+
+```python
+em_horaria = state.get("gen_granularidade") == "Horária"
+prev_gran = state.get("_gen_last_gran")
+em_transicao = (
+    prev_gran is not None and prev_gran != granularidade_gen
+)
+force_reset = state.pop("_gen_force_reset", False)
+
+if (
+    force_reset                                      # 1. clear_cache disparou
+    or "_gen_dataset_max" not in state               # 2. 1ª visita absoluta
+    or state.get("_gen_dataset_max") != max_d_gen    # 3. dataset mudou (max)
+    or state.get("_gen_dataset_min") != min_d_gen    # 4. dataset mudou (min)
+    or em_transicao                                  # 5. transição de gran
+    or (not em_horaria and (                         # 6. widget cleanup (5.16/5.19)
+        "gen_data_ini" not in state
+        or "gen_data_fim" not in state
+    ))
+):
+    _aplica_default_periodo_gen(granularidade_gen, min_d_gen, max_d_gen)
+    state["_gen_dataset_max"] = max_d_gen
+    state["_gen_dataset_min"] = min_d_gen
+
+state["_gen_last_gran"] = granularidade_gen
+```
+
+**Helper `_aplica_default_periodo_gen`** (top-level): aplica default
+da granularidade passada + popa keys da granularidade alternativa.
+Idempotente — chamadas redundantes não causam efeito colateral.
+
+**Flag `_gen_force_reset`** setada por `clear_cache()` em
+`data_loader.py`. Cobre o caso "Atualizar sem mudança de dataset"
+(gen_historico_completo já era False, dataset não mudou). Consumida
+com `pop` no início do reset.
+
+**Detecção de transição via `_gen_last_gran`:**
+- `prev_gran is not None` exclui 1ª visita (não é transição, é entrada).
+- Atualizado SEMPRE no fim do bloco — independente de reset disparar.
+
+**O que esta decisão SUBSTITUI/CONSOLIDA:**
+- 5.14 (auto-ajuste Mensal < 60d) — superada. Default Mensal=12M já cobre.
+- Bloco "ao sair de Horária" pop keys — absorvido (helper popa).
+- Reset de 1ª visita com 12M-Diária fixo — vira reset com default da gran atual.
+
+**Sem riscos de loop:**
+- Reset é idempotente (set mesmo valor 2× → mesmo estado).
+- Transição detectada UMA vez — ao final do reset, `_gen_last_gran` =
+  atual → próximo render `em_transicao=False`.
+- `force_reset` flag consumida com pop — só dispara 1×.
+
+**Quando aplicar em outras abas:** quando uma aba tem 2+ modos com
+controles de período diferentes. PLD tem 4 granularidades mas presets
+similares (`_render_period_controls` em todas). Reservatórios e ENA
+têm 1 modo só. Padrão fica reservado pra Geração por enquanto, mas
+a estrutura é generalizável se aparecer caso similar.
 
 ---
 
@@ -839,6 +1123,26 @@ ambiente fresh do Cloud.
     por widget-state cleanup do Streamlit. Fix: estender sentinela do
     reset block com keys individuais (decisão 5.16). Tabela de ganhos
     medidos (3,7-11×) em `docs/sessao_geracao_status.md` §0.
+19. **Sessão 1.5b — Performance global + default 15a Geração** — 4º commit
+    pendente em 2026-04-25. Escopo expandido após user reportar Reservatórios
+    ~20s e ENA ~30s no cold load. **3 partes:** (a) **Fábrica
+    `_make_disk_cache_helpers(cache_name)`** em `data_loader.py` — closure
+    independente com `lru_cache(maxsize=1)` próprio, gera 4 callables
+    (get_path, is_fresh, try_read, try_write). Substitui ~120 linhas
+    duplicadas que existiriam em 4 datasets. (b) **Disk-cache em
+    Reservatórios e ENA** via 2 chamadas da fábrica + early-return + write
+    nos respectivos loaders. Helpers públicos `is_reservatorios_cache_fresh`
+    e `is_ena_cache_fresh` expostos. (c) **Default histórico 15 anos** na
+    Geração (decisão 5.17 — dois eixos): `load_balanco_subsistema` ganha
+    parâmetro `incluir_historico_completo: bool = False`. Caches em disco
+    separados (`balanco_15anos.parquet` e `balanco_completo.parquet`). UI
+    da Geração: state sticky `gen_historico_completo`, botão "📈 Carregar
+    histórico completo (2000-2010)" abre `@st.dialog` de confirmação,
+    confirmação seta flag + rerun → loader re-chamado com True →
+    `min_d_gen` expande pra 2000. Presets revisados: Diária ganha 10A,
+    Mensal ganha 10A + 15A. `clear_cache()` estendido pra unlinkar 4
+    parquets + resetar `gen_historico_completo` (Atualizar = começar do
+    zero).
 
 ---
 
