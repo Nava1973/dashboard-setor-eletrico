@@ -1,16 +1,19 @@
 # Status da sessão — Aba Geração (ONS Balanço de Energia)
 
-> **Sessão 1.5b (Performance global + default 15a) FECHADA em 2026-04-25.**
-> Escopo expandido pra disk-cache em Reservatórios e ENA + default
-> histórico 15a com expansão sob demanda na Geração. Decisão 5.17 do
-> CLAUDE.md (dois eixos: range do dataset vs período visível) consolida
-> o padrão arquitetural.
+> **Sessão 1.5b (Performance global + default 15a) FECHADA + PUSHED em
+> 2026-04-25.** Escopo expandido pra disk-cache em Reservatórios e ENA +
+> default histórico 15a com expansão sob demanda na Geração. 4 decisões
+> arquiteturais novas (5.17-5.20) + 1 marcada como superada (5.14). 3
+> bugs encontrados/fixados durante implementação. 12 testes ✅.
 >
-> Branch local: 4 commits à frente do `origin/main`:
+> Branch local: **em sync com `origin/main`** (4 commits pushed):
 > - `87a1eb1` — 5 gráficos empilhados (pré-reversão)
 > - `e7db917` — Sessão 1 (reversão pra gráfico único + fixes)
 > - `efc7c38` — Sessão 1.5 (performance: disk-cache + filter sem dt.date)
-> - **(pendente)** — Sessão 1.5b (perf global + default 15a)
+> - `9142e9c` — Sessão 1.5b (perf global + default 15a + UX dois eixos)
+>
+> Push: `4be9f33..9142e9c main -> main` em 2026-04-25. Streamlit Cloud
+> redeployando em `dashboard-setor-eletrico.streamlit.app`.
 >
 > Próxima sessão é a **1.6 (ajustes estéticos)** ou **2 (Dia Típico)** —
 > ordem flexível. Ver §0.
@@ -621,13 +624,18 @@ regra de "não modifica session_state de widget instanciado".
 Próxima sessão é a **Sessão 1.6 (ajustes estéticos & UX)** ou
 **Sessão 2 (Dia Típico)** — ordem flexível.
 
-1. Conferir que os 4 commits locais (`87a1eb1`, `e7db917`, `efc7c38`,
-   e o commit da Sessão 1.5b) foram pushed e Streamlit Cloud está verde.
-2. **Validar ganhos da 1.5b** abrindo Reservatórios e ENA pela 1ª vez
-   (cold) — esperado ~20-30s na 1ª, ~1-2s nas subsequentes (disk-cache
-   hit).
-3. Validar a Geração com defaults novos: range 15a, presets revisados,
-   modal "Carregar histórico completo" funcional.
+1. **Confirmar que o Streamlit Cloud está verde** após o redeploy do
+   commit `9142e9c` (push em 2026-04-25). URL:
+   `dashboard-setor-eletrico.streamlit.app`. Em caso de falha, ver log
+   via "Manage app" (armadilha 4.5 do CLAUDE.md).
+2. **Validar ganhos da 1.5b em produção** abrindo Reservatórios e ENA
+   pela 1ª vez (cold) — esperado ~20-30s na 1ª request do container,
+   ~1-2s nas subsequentes (disk-cache hit em
+   `/home/appuser/.cache/dashboard-setor-eletrico/`).
+3. Validar a Geração com defaults novos: 1ª entrada = Horária 1D +
+   max_d_gen, transições aplicam defaults da nova granularidade
+   (Diária 1M, Mensal 12M, Horária 1D), modal "Carregar histórico
+   completo" funcional.
 4. Pra 1.6, abrir `docs/sessao_geracao_status.md` §0 itens 1-7 (lista de
    ajustes mistos: 1 bug + tipografia + UX).
 
@@ -638,20 +646,25 @@ Próxima sessão é a **Sessão 1.6 (ajustes estéticos & UX)** ou
 - `docs/aba_geracao_spec.md` — spec original.
 - `docs/geracao_research.md` — Fase A (descoberta CKAN, schema, números).
 - `CLAUDE.md` — guia geral do projeto (atualizado com decisões
-  5.15 disk-cache, 5.16 widget-state cleanup do Streamlit, 5.17 dois
-  eixos: range vs período visível).
-- Commits relevantes:
+  5.15 disk-cache, 5.16 widget-state cleanup, 5.17 dois eixos
+  range vs período visível, 5.18 backup paralelo selectbox, 5.19
+  exceção por modo no reset, 5.20 defaults por granularidade +
+  reset block unificado; 5.14 marcada como SUPERADA pela 5.20).
+- Commits relevantes (todos em `origin/main` após push em 2026-04-25):
   - `87a1eb1` (2026-04-23) — Geração 1ª versão (5 gráficos empilhados,
-    antes da reversão). Local, não pushed.
+    antes da reversão).
   - `e7db917` (2026-04-24) — Sessão 1: reversão pra gráfico único +
-    5 fixes + auto-ajuste Mensal + docs. Local, não pushed.
+    5 fixes + auto-ajuste Mensal + docs.
   - `efc7c38` (2026-04-25) — Sessão 1.5: Fix #1 (filter sem dt.date)
     + Fix #3 (disk-cache balanço) + Fix #4 (spinner) + extensão
-    sentinela. Local, não pushed.
-  - **(pendente, esta sessão)** — Sessão 1.5b: fábrica de helpers +
+    sentinela.
+  - `9142e9c` (2026-04-25) — Sessão 1.5b: fábrica de helpers +
     disk-cache em Reservatórios/ENA + default 15a Geração + modal
-    expansão + presets revisados.
-  - Anteriores (em `origin/main`): `4be9f33`, `80634b5`, `87c8e72`.
+    expansão + presets revisados + 3 bugs fixados (datas cortadas,
+    dessincronia granularidade, regressão botões Horária) + decisões
+    5.17-5.20.
+  - Anteriores (já estavam em `origin/main`): `4be9f33`, `80634b5`,
+    `87c8e72`.
 - Disk-caches dos datasets ONS (Sessão 1.5b):
   `~/.cache/dashboard-setor-eletrico/{nome}.parquet` onde `{nome}` ∈
   `{balanco_15anos, balanco_completo, reservatorios, ena}`. Windows:
