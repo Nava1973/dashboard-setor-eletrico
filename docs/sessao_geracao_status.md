@@ -1,12 +1,19 @@
 # Status da sessão — Aba Geração (ONS Balanço de Energia)
 
-> **Sessão 1 do roadmap (§0) concluída em 2026-04-24.** Reversão pra
-> gráfico único + dropdown de submercado + KPIs dinâmicos +
-> 5 bugs descobertos e corrigidos (§3). Trabalho da sessão pronto pra
-> 2º commit (não pushed — aguarda revisão do usuário).
+> **Sessão 1.5 (Performance) FECHADA em 2026-04-25.** 4 fixes aplicados
+> (Fix #1 pré-computar `data`, Fix #3 disk-cache, Fix #4 spinner dinâmico,
+> + extensão da sentinela do reset block contra widget-state cleanup).
+> Ganhos de 3,7-11× medidos (§4). Sessão 1 commitada em `e7db917` segue
+> local e será pushed junto com a 1.5.
 >
-> Próxima sessão é a **1.5 (Performance)**, inserida após o usuário
-> reportar lentidão da aba — ver §0.
+> Branch local: 2 commits à frente do `origin/main` + 1 commit pendente
+> da Sessão 1.5:
+> - `87a1eb1` — 5 gráficos empilhados (pré-reversão)
+> - `e7db917` — Sessão 1 (reversão pra gráfico único + fixes)
+> - **(pendente)** — Sessão 1.5 (performance)
+>
+> Próxima sessão é a **1.5b (Default 15 anos + carregamento sob
+> demanda)** — ver §0.
 
 ---
 
@@ -33,34 +40,217 @@ pendências de ontem, corrigir bugs descobertos durante a reversão.
    <2 pontos + botão "Ver curva horária", export CSV no Excel BR,
    anotação 29/04/2023, cor eólica verde-oliva.
 
-### Sessão 1.5 — Performance da aba Geração
+### Sessão 1.5 — Performance da aba Geração · ✅ CONCLUÍDA (2026-04-25)
 
-**Problema:** aba lenta em comparação com as outras (cada interação
-demora vários segundos vs. ~instantâneo nas outras). Reportado pelo
-usuário no fim da Sessão 1.
+**Problema:** aba lenta em comparação com as outras (~60-90s por
+interação vs. ~instantâneo nas outras). Causa: dataset de 6,7M linhas
+× 27 anos, com filter `dt.date` chamado 5× por render no loop dos 5
+submercados.
 
-**Causa provável:** dataset de ~60 MB (vs. ~2 MB das outras abas) —
-Geração tem 27 anos × 4 submercados × 8.760 horas = milhões de linhas.
-Cada interação re-filtra/repivota o dataset inteiro.
+**Fluxo da sessão:**
 
-**Estratégias a explorar em sessão dedicada (com medições antes/depois):**
+1. **Fase A — Diagnóstico.** Instrumentou app.py e data_loader.py com
+   `time.perf_counter()` em cada etapa. Descoberto que o gargalo não
+   era render Plotly nem cache miss — era o filtro de período: cada
+   chamada `df_gen["data_hora"].dt.date >= data_ini` materializa
+   Series de 6,7M Python `date` objects. Loop dos 5 submercados =
+   10× materializações = ~55s no hot path.
 
-- **Cache persistente em disco** — parquet local em vez de re-baixar a
-  cada cold start (~5min download via curl_cffi).
-- **Default de 10–15 anos** em vez de 27 — toggle "histórico completo"
-  pra abrir os anos antigos sob demanda.
-- **Cache do pivot** por `(submercado, granularidade, data_ini, data_fim)`
-  — evita recomputar resample em interações repetidas.
-- **WebGL: `go.Scattergl`** em vez de `go.Scatter` quando pontos > 500 —
-  render no GPU em vez de SVG.
-- **`hovermode="closest"`** em vez de `"x unified"` quando pontos > 1000
-  — `x unified` calcula tooltip de TODAS as séries em todo hover.
-- **Agregação prévia** — parquet auxiliar com daily/monthly
-  pré-calculados, eliminando o resample em runtime.
+2. **Fix #1 — Pré-computar `data` no loader.** Adicionada coluna
+   `df["data"] = df["data_hora"].dt.normalize()` em
+   `load_balanco_subsistema` (1× total, cacheada). No `_build_pivot_submercado`
+   trocado pra `df_gen["data"] >= pd.Timestamp(data_ini)` — comparação
+   vetorizada em datetime64. **Filter de ~11s/sub pra ~50ms/sub** (50×).
 
-**Antes de implementar:** medir com `time.perf_counter()` o tempo de
-cada estágio (download → normalize → filter → pivot → render) pra
-saber qual é o gargalo real. Otimizar sem medir é chute.
+3. **Fix #3 — Cache persistente em disco (parquet local).** Camada
+   nova entre `@st.cache_data` em-memória e download HTTP. Path com
+   cascade `~/.cache/dashboard-setor-eletrico/balanco.parquet` →
+   `tempfile.gettempdir()/...` (degradação graciosa se FS read-only).
+   TTL 6h via mtime. `clear_cache()` estendida pra `unlink()`. **Cold
+   start subsequente: 60s → ~1-2s.**
+
+4. **Fix #4 — Spinner dinâmico.** Helper público
+   `is_balanco_cache_fresh()` exposto pelo data_loader. App escolhe
+   mensagem antes do `with st.spinner(...)`: light ("Carregando dados
+   de geração...") quando disk-cache fresco, pesado ("Baixando 27 anos
+   de dados ONS (~25MB)...") quando ausente/expirado. Define expectativa
+   honesta de ~1min só na 1ª vez.
+
+5. **Bug descoberto: `KeyError 'gen_data_ini'` no Cenário 3.** Ao
+   clicar Atualizar com sessão que passou por Horária, o widget-state
+   cleanup do Streamlit pode descartar `gen_data_ini`/`gen_data_fim`
+   (widgets não instanciados em algum rerun intermediário). Sentinela
+   atual `_gen_dataset_max` não cobria. **Fix:** estender condição do
+   reset block pra também disparar quando essas keys estão ausentes
+   individualmente (decisão 5.16 do CLAUDE.md).
+
+**Tabela de ganhos (medidos antes/depois nos mesmos cenários):**
+
+| Cenário | Antes | Depois | Ganho |
+|---|---:|---:|---:|
+| Cold start (com disk-cache hit) | 81s | 7s | 11× |
+| Hot path (troca de submercado, Diária 12M) | 59s | 8s | 7,5× |
+| Mensal 12M | 57s | 15s | 3,7× |
+| Horária 30D | 91s | 14s | 6,5× |
+
+**Decisões arquiteturais consolidadas no CLAUDE.md:**
+
+- **5.15** Disk-cache de parquets ONS (path com cascade + lru_cache +
+  degradação graciosa).
+- **5.16** Sentinela do reset block estendida com keys individuais
+  contra widget-state cleanup do Streamlit.
+
+**O que ficou pra Sessão 1.5b:** mesmo com disk-cache, 27 anos × 6,7M
+linhas é desnecessário pra 99% dos usos. Próximo passo: default
+histórico de 15 anos + carregamento sob demanda do completo (ver
+abaixo).
+
+### Sessão 1.5b — Default histórico 15 anos + carregamento sob demanda
+
+**Problema residual após 1.5:** mesmo com disk-cache, manter 27 anos ×
+6,7M linhas em memória/disco é pesado pra 99% dos usos. Quase nenhum
+usuário casual analisa eventos pré-2011 (matriz elétrica era muito
+diferente, hidro ~80% absoluta, pouca eólica/solar).
+
+**Implementação proposta:**
+
+- **Loader baixa 2011-2026 por padrão** (~16 anos × ~3.9M linhas).
+  Disk-cache primário: `balanco_15anos.parquet`.
+- **Botão "Máx" abre modal de confirmação** ("Carregar histórico
+  completo? Adiciona 11 anos (2000-2010), pode levar 30s na 1ª vez").
+  Se confirmado: baixa anos 2000-2010, concatena com cache 15a, salva
+  `balanco_completo.parquet`. Cache decisão na sessão (não pergunta de
+  novo).
+- **Disk-caches separados** (`balanco_15anos.parquet` e
+  `balanco_completo.parquet`) — usuário que nunca clica Máx nunca paga
+  custo dos 11 anos antigos.
+
+**Presets revisados:**
+
+| Granularidade | Presets |
+|---|---|
+| Diária | 1M / 3M / 6M / 12M / **5A** / **10A** / Máx |
+| Mensal | 3M / 6M / 12M / **5A** / **10A** / **15A** / Máx |
+| Horária | 1D / 7D / 30D / 90D (inalterada) |
+
+**Antes de codar:** definir UX exata do modal (st.dialog em Streamlit
+1.56? ou st.expander? ou rerun com flag de confirmação?), e decidir
+se o split é dinâmico (loader recebe `incluir_historico_completo:
+bool`) ou se há 2 entry points distintos (`load_balanco_subsistema_15anos`
+vs `load_balanco_subsistema_completo`).
+
+### Sessão 1.6 — Ajustes estéticos & UX
+
+Observações coletadas pelo user testando a aba ao final da Sessão 1.
+Mistura **1 bug**, decisões de tipografia/hierarquia e pequenos
+refinos de UX. Tarefas pequenas, mas afetam a percepção de polimento.
+
+#### 1. [BUG] Data do canto superior direito do gráfico está incorreta
+
+**Sintoma:** o lado direito do título Bauhaus mostra
+`DD/MM/YYYY · X.XXX MWmed`, mas a data é **sempre a última do dataset**
+(ex: 22/04/2026), não a do período visualizado. Não atualiza ao mudar
+preset, data_base ou granularidade. Acontece em todas as granularidades.
+
+**Decisão:** **remover totalmente o lado direito** do título Bauhaus
+na aba Geração. A linha "Período: X a Y" abaixo do título já comunica
+o período. Duas datas (uma errada) polui mais que ajuda.
+
+**Onde mexer:** bloco do título em `app.py` (~linha 2380, dentro do
+ramo `else` do guard `<2 pontos`). Remover a montagem de `right_side`
+e o segundo `<span>` no `st.markdown` do título flex.
+
+#### 2. Default da Horária = data mais recente do dataset
+
+**Comportamento atual:** ao entrar em Horária pela 1ª vez (ou após
+reset), `data_base` herda da seleção anterior (ex: `data_ini` da
+Diária — pode ser arbitrária).
+
+**Desejado:** ao entrar em Horária, abrir sempre com
+`data_base = max_d_gen` + `window = 1D`. Usuário casual quer ver "como
+foi ontem", não uma data aleatória que ele tinha selecionado antes.
+
+**Onde mexer:** init de Horária em `app.py:~2099-2113`. Trocar o
+`min(max_d_gen, get("gen_data_fim") or max_d_gen)` por
+`max_d_gen` direto.
+
+**Cuidado:** se o user manualmente escolheu uma data no `date_input`
+"Data base" e depois trocou de aba/granularidade e voltou pra Horária,
+ele vai perder a escolha. Avaliar se a regra "sempre `max_d_gen` no
+init" é boa o suficiente, ou se vale uma flag tipo `_gen_data_base_user_set`
+pra preservar escolha explícita.
+
+#### 3. Mensal com período < 2 meses — fragilidade UX
+
+**Problema atual:** o auto-ajuste implementado na Sessão 1 (decisão
+5.14 do CLAUDE.md) dispara **silenciosamente** quando o user seleciona
+< 60 dias em Mensal — força volta pra 3M sem avisar. Confuso para o
+user ("escolhi 45 dias e o sistema mudou pra 90 sem explicar").
+
+**Soluções a considerar (escolher na Sessão 1.6):**
+
+a) **Validar + mensagem clara:** mostrar `st.warning` explicando
+   *"Mensal requer pelo menos 2 meses. Selecione período maior ou
+   troque pra Diária."*. Não auto-ajusta — bloqueia render do gráfico
+   até user decidir.
+b) **Converter automaticamente pra Diária** com `st.info` visível
+   *"Período curto demais pra Mensal — exibindo em Diária."*
+c) **Impedir a seleção:** limitar `min_value` do `date_input` em
+   Mensal pra `max_d_gen - 60 dias` (não é escolha do user — proativo).
+
+(a) preserva a intenção do user mas pede ação. (c) é preventivo
+(impede o estado inválido). (b) é o auto-ajuste atual com aviso.
+
+#### 4. Unidade `MWmed` (não `MWMED`)
+
+**Padronização:** unidade escrita como `MWmed` (M e W maiúsculos, "med"
+minúsculo) em **todos** os lugares — KPIs, hover do gráfico, eixo Y,
+coluna do export CSV, notas explicativas.
+
+**Bug visual atual:** nos KPIs, `MWmed` aparece como `MWMED` por causa
+do `text-transform: uppercase` global do CSS Bauhaus aplicado a labels
+de `st.metric`.
+
+**Fix:** override CSS específico que remove `text-transform` da unidade
+DENTRO dos cards de KPI, mantendo `uppercase` no rótulo
+("GERAÇÃO TOTAL" / "TÉRMICA" / "% RENOV VARIÁVEL" / "CARGA").
+
+#### 5. Tipografia comprimida nos KPIs
+
+Os 4 cards estão com texto comprimido — número e unidade colados, sem
+respiração. Revisar tipografia do componente KPI:
+
+- Aumentar espaçamento entre número e unidade.
+- Considerar aumentar tamanho da unidade.
+- Avaliar peso visual geral dos cards (talvez número maior).
+
+Tarefa de afinamento visual — comparar lado a lado com KPIs do PLD/ENA.
+
+#### 6. Linha "Período" muito discreta
+
+A linha `Período: DD/MM/YYYY a DD/MM/YYYY` abaixo do título está em
+fonte pequena (~0.85rem) e cinza italic — quase invisível.
+
+Sendo a **informação mais importante** da tela (qual período está
+sendo visualizado), deveria ter peso visual maior.
+
+**Sugestões:**
+- Aumentar fonte (1rem ou 1.05rem).
+- Trocar cinza claro por preto (pode manter italic).
+- Negrito leve no número das datas.
+
+#### 7. Realocar nota "Cada ponto representa..." pra perto do gráfico
+
+**Atual:** a nota `Cada ponto representa a média X em MWmed` está no
+bloco de notas do topo, junto com 4 outras notas (atualização ONS,
+intercâmbio, GD, ...).
+
+**Desejado:** mover essa nota pra **perto do gráfico** — à direita do
+título do submercado, ou outra posição visualmente próxima.
+
+**Princípio:** informação que descreve o gráfico fica perto do gráfico.
+O bloco de notas do topo deve ficar reservado para contexto geral da
+aba (data de atualização, intercâmbio, GD).
 
 ### Sessão 2 — Dia Típico
 
@@ -213,14 +403,18 @@ Também atualizado: §3.4 (helpers `_render_period_controls_horaria` e
 `_format_periodo_br`) e §7 (timeline entries 16-17 — primeira versão da
 Geração + Sessão 1).
 
-### 2.5. ⏳ Commit + push da Sessão 1
+### 2.5. ✅ Commit da Sessão 1 — FEITO (push protelado)
 
-- **Commit `87a1eb1`** (2026-04-23) já tem o trabalho de ontem.
-- **Sessão 1 vai gerar 2º commit separado** com todas as mudanças desta
-  sessão (reversão + 5 fixes + auto-ajuste Mensal + decisões CLAUDE.md).
-- **Não pushar até user revisar** o commit. Após push, ambos commits
-  saem juntos pra `origin main` → Streamlit Cloud redeploya com a
-  versão final.
+- **Commit `87a1eb1`** (2026-04-23) — trabalho de ontem (5 gráficos
+  empilhados, antes da reversão).
+- **Commit `e7db917`** (2026-04-24) — Sessão 1: reversão pra gráfico
+  único + 5 fixes + auto-ajuste Mensal + nota intercâmbio + atualização
+  CLAUDE.md/sessao_geracao_status.md. 758 inserções, 454 remoções em 3
+  arquivos.
+- **Push: NÃO FEITO.** Decisão do user: protelar push pra após Sessão
+  1.5 (performance) estar testada, evitando 2 redeploys seguidos no
+  Streamlit Cloud. Quando pushar, ambos commits saem juntos pra
+  `origin main`.
 
 ### 2.6. Pendentes de sessões anteriores → Sessões 2/3 do roadmap
 
@@ -325,17 +519,18 @@ regra de "não modifica session_state de widget instanciado".
 
 ## 4. Como retomar
 
-Próxima sessão é a **Sessão 1.5 (Performance)** do roadmap (§0).
+Próxima sessão é a **Sessão 1.5b (Default 15 anos + carregamento sob
+demanda)** do roadmap (§0).
 
-1. Conferir que o commit da Sessão 1 está pushed e Streamlit Cloud está
-   verde.
-2. Medir o tempo de cada estágio (download/normalize/filter/pivot/render)
-   com `time.perf_counter()` antes de otimizar — saber o gargalo real.
-3. Atacar a causa de maior impacto primeiro (provável: render Plotly
-   com hover unified em 8.640 pontos × stack de 5 fontes).
-4. Validar sempre com medição antes/depois.
+1. Conferir que os 3 commits locais (`87a1eb1`, `e7db917`, e o commit
+   da Sessão 1.5) foram pushed e Streamlit Cloud está verde.
+2. Decidir UX do modal "Carregar histórico completo" (ver Sessão 1.5b).
+3. Implementar split do loader (15a vs completo) com 2 disk-caches
+   distintos.
+4. Atualizar presets dos botões conforme tabela em §0.
 
-Após Sessão 1.5 verde, seguir pra **Sessão 2 (Dia Típico)**.
+Após Sessão 1.5b verde, seguir pra **Sessão 1.6 (ajustes estéticos)**
+ou **Sessão 2 (Dia Típico)** — ordem flexível.
 
 ---
 
@@ -343,11 +538,21 @@ Após Sessão 1.5 verde, seguir pra **Sessão 2 (Dia Típico)**.
 
 - `docs/aba_geracao_spec.md` — spec original.
 - `docs/geracao_research.md` — Fase A (descoberta CKAN, schema, números).
-- `CLAUDE.md` — guia geral do projeto (atualizado nesta sessão com 5.15-5.21).
+- `CLAUDE.md` — guia geral do projeto (atualizado com decisões 5.15
+  disk-cache + 5.16 widget-state cleanup do Streamlit nesta sessão).
 - Commits relevantes:
-  - `87a1eb1` (2026-04-23) — trabalho da sessão anterior consolidado.
-  - 2º commit da Sessão 1 (2026-04-24) — pendente de revisão pelo user.
-  - Anteriores: `4be9f33`, `80634b5`, `87c8e72`.
+  - `87a1eb1` (2026-04-23) — trabalho da sessão anterior (5 gráficos
+    empilhados, antes da reversão). Local, não pushed.
+  - `e7db917` (2026-04-24) — Sessão 1 fechada: reversão pra gráfico
+    único + 5 fixes + nota intercâmbio + auto-ajuste Mensal + docs.
+    Local, não pushed (aguarda Sessão 1.5).
+  - **(pendente, esta sessão)** — Sessão 1.5: Fix #1 + Fix #3 + Fix #4
+    + extensão sentinela. 4 fixes, +5-15× speedup.
+  - Anteriores (em `origin/main`): `4be9f33`, `80634b5`, `87c8e72`.
+- Disk-cache do balanço (Fix #3): `~/.cache/dashboard-setor-eletrico/balanco.parquet`
+  (Windows: `C:\Users\<USER>\.cache\dashboard-setor-eletrico\`),
+  com fallback automático pra `tempfile.gettempdir()/dashboard-setor-eletrico/`
+  se home for read-only.
 - Helpers introduzidos (top-level no `app.py`):
   - `_render_period_controls_horaria` — modo "Data base + janela".
   - `_format_periodo_br` — string de período no formato BR por

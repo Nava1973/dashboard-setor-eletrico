@@ -44,9 +44,13 @@ Para atualizar resource_ids quando a CCEE publicar um novo ano, rodar:
 
 from __future__ import annotations
 
+import functools
 import io
 import os
+import tempfile
+import time
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -1371,6 +1375,108 @@ def _download_balanco_parquet_historico(ano: int) -> pd.DataFrame | None:
     return _download_balanco_parquet_raw(ano)
 
 
+# =============================================================================
+# DISK CACHE — BALANÇO (Fix #3 da Sessão 1.5 Performance)
+# =============================================================================
+# Camada extra entre o @st.cache_data Streamlit (em-memória, por processo) e
+# o download HTTP. Persiste o DataFrame consolidado em parquet local — assim
+# uma sessão Streamlit nova (após restart do processo ou primeira visita do
+# usuário) cai aqui em ~1-2s em vez de ~60s do cold load.
+#
+# Path: home/.cache/dashboard-setor-eletrico/balanco.parquet (primário) ou
+# tempfile.gettempdir()/.../balanco.parquet (fallback). Ambos são writable
+# durante o lifetime do container no Streamlit Cloud (somem em re-deploy).
+#
+# TTL: 6h via mtime. Alinhado com @st.cache_data(ttl=60*60*6) externo.
+# clear_cache() também unlinks o arquivo — garante que "Atualizar" sempre
+# refaz o download.
+#
+# Degradação graciosa: se ambos os candidatos de path falharem (FS read-only
+# em ambos), _get_balanco_disk_cache_path retorna None e is_balanco_cache_fresh
+# fica False permanentemente nessa execução. Load principal continua via
+# download HTTP normal — disk-cache é otimização, não dependência.
+# =============================================================================
+
+_BALANCO_DISK_CACHE_TTL_SEC = 60 * 60 * 6  # 6h
+
+
+@functools.lru_cache(maxsize=1)
+def _get_balanco_disk_cache_path() -> Path | None:
+    """Resolve path writable pro disk-cache. Tenta home/.cache primeiro,
+    fallback /tmp/. Retorna None se ambos falharem (cache desabilitado).
+
+    Cacheado via lru_cache pra não retentar a cada chamada (helper roda no
+    is_balanco_cache_fresh + leitura + escrita).
+    """
+    candidates = [
+        Path.home() / ".cache" / "dashboard-setor-eletrico",
+        Path(tempfile.gettempdir()) / "dashboard-setor-eletrico",
+    ]
+    for d in candidates:
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            # mkdir pode passar mesmo em FS read-only (raro mas existe);
+            # write_test confirma escrita real antes de comprometer o path
+            test = d / ".write_test"
+            test.touch()
+            test.unlink()
+            return d / "balanco.parquet"
+        except Exception:
+            continue
+    return None
+
+
+def _balanco_disk_cache_age_sec() -> float | None:
+    """Idade do cache em disco em segundos. None se inexistente ou erro."""
+    try:
+        path = _get_balanco_disk_cache_path()
+        if path is None or not path.exists():
+            return None
+        return time.time() - path.stat().st_mtime
+    except Exception:
+        return None
+
+
+def is_balanco_cache_fresh() -> bool:
+    """Helper PÚBLICO pra UI escolher mensagem de spinner antes do load.
+    True se o parquet local existe e tem menos que TTL (6h).
+    """
+    age = _balanco_disk_cache_age_sec()
+    return age is not None and age < _BALANCO_DISK_CACHE_TTL_SEC
+
+
+def _try_read_balanco_disk_cache() -> pd.DataFrame | None:
+    """Lê parquet local se fresh. Retorna None em qualquer falha (path
+    indisponível, expirado, corrupção). Falha silenciosa registrada em
+    _debug_erros mas não interrompe o load principal."""
+    path = _get_balanco_disk_cache_path()
+    if path is None:
+        return None
+    if not is_balanco_cache_fresh():
+        return None
+    try:
+        return pd.read_parquet(path)
+    except Exception as e:
+        st.session_state.setdefault("_debug_erros", []).append(
+            f"Disk cache balanço (leitura): {type(e).__name__}: {e}"
+        )
+        return None
+
+
+def _try_write_balanco_disk_cache(df: pd.DataFrame) -> None:
+    """Escreve parquet local. Falha silenciosa em qualquer erro (FS cheio,
+    permissão, etc.) — registra em _debug_erros mas não propaga."""
+    path = _get_balanco_disk_cache_path()
+    if path is None:
+        return
+    try:
+        df.to_parquet(path, index=False)
+    except Exception as e:
+        st.session_state.setdefault("_debug_erros", []).append(
+            f"Disk cache balanço (escrita): {type(e).__name__}: {e}"
+        )
+
+
 def _normalize_balanco(df: pd.DataFrame) -> pd.DataFrame:
     """
     Normaliza schema ONS pra long-form com múltiplas séries no mesmo DataFrame.
@@ -1451,6 +1557,15 @@ def load_balanco_subsistema() -> pd.DataFrame:
     """
     st.session_state["_debug_erros"] = []
 
+    # Fix #3 (Sessão 1.5): tentativa 1 — disk-cache parquet local. Se hit,
+    # pula download/normalize/concat/sort/dt.normalize. ~1-2s vs ~60s do cold.
+    # Beneficia: 1ª sessão de cada usuário (cache @st.cache_data vazio mas
+    # disk fresh), restarts do servidor, sessões pós-redeploy se container
+    # ainda for o mesmo (improvável no Cloud — re-deploy rebuilda container).
+    df_disk = _try_read_balanco_disk_cache()
+    if df_disk is not None:
+        return df_disk
+
     ano_corrente = datetime.now().year
 
     raw_frames = []
@@ -1491,6 +1606,20 @@ def load_balanco_subsistema() -> pd.DataFrame:
     df = df.sort_values(
         ["submercado", "fonte", "data_hora"]
     ).reset_index(drop=True)
+
+    # Coluna `data` (timestamp normalizado pra meia-noite) pré-computada uma
+    # vez aqui — evita chamar .dt.date no caller, que materializa Series de
+    # Python date objects toda vez (custo O(N) em N=6.7M linhas, repetido 5×
+    # por render = ~55s no diagnóstico Sessão 1.5 Fase A).
+    # `.dt.normalize()` mantém dtype datetime64[ns] (vs dt.date que vira
+    # object) → comparação `>=` continua vetorizada nativamente.
+    df["data"] = df["data_hora"].dt.normalize()
+
+    # Fix #3: persiste no disco pra próxima cold start cair em ~1-2s.
+    # Falha silenciosa se FS read-only (degradação graciosa documentada
+    # no cabeçalho da seção DISK CACHE).
+    _try_write_balanco_disk_cache(df)
+
     return df
 
 
@@ -1524,7 +1653,12 @@ def load_gd_ons() -> pd.DataFrame:
 
 def clear_cache() -> None:
     """Força reload no próximo acesso — limpa cache de PLD (4 granularidades),
-    reservatórios (ONS EAR), ENA (ONS) e balanço de energia (ONS geração)."""
+    reservatórios (ONS EAR), ENA (ONS) e balanço de energia (ONS geração).
+
+    Também unlinks o disk-cache do balanço (Fix #3 da Sessão 1.5) — garante
+    que o botão "Atualizar" sempre force download fresh, não só invalide o
+    cache em-memória do Streamlit.
+    """
     load_pld_media_diaria.clear()
     load_pld_horaria.clear()
     load_pld_media_semanal.clear()
@@ -1532,3 +1666,10 @@ def clear_cache() -> None:
     load_reservatorios.clear()
     load_ena.clear()
     load_balanco_subsistema.clear()
+    # Disk-cache do balanço: best-effort delete
+    try:
+        path = _get_balanco_disk_cache_path()
+        if path is not None and path.exists():
+            path.unlink()
+    except Exception:
+        pass

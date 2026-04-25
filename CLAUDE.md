@@ -564,6 +564,126 @@ if granularidade_gen == "Mensal" and (data_fim - data_ini).days < 60:
 Aplicado **ANTES** do `_render_period_controls` ser chamado, pra
 respeitar a regra 5.12 (não modificar key de widget instanciado).
 
+### 5.15 Disk-cache de parquets ONS (Fix #3 da Sessão 1.5)
+
+**Decisão:** datasets ONS pesados (>10MB consolidado) ganham camada
+adicional de cache em disco entre `@st.cache_data` em-memória e o
+download HTTP. Persiste o DataFrame pós-normalize/concat/sort em
+parquet local.
+
+**Caso concreto:** `load_balanco_subsistema` consolida 27 anos × 6,7M
+linhas. Sem disk-cache, 1ª sessão de cada usuário paga ~60s pra
+download + normalize. Com disk-cache hit: ~1-2s (leitura parquet
+local). 11× redução em cold-starts subsequentes.
+
+**Path com cascade + `lru_cache`:**
+
+```python
+@functools.lru_cache(maxsize=1)
+def _get_balanco_disk_cache_path() -> Path | None:
+    candidates = [
+        Path.home() / ".cache" / "dashboard-setor-eletrico",
+        Path(tempfile.gettempdir()) / "dashboard-setor-eletrico",
+    ]
+    for d in candidates:
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            test = d / ".write_test"
+            test.touch()
+            test.unlink()  # Confirma escrita real (mkdir pode passar
+                           # em FS read-only se path já existe)
+            return d / "balanco.parquet"
+        except Exception:
+            continue
+    return None  # Ambos read-only → disk-cache desabilitado
+```
+
+**Por que cascade:** `Path.home()/.cache/` é o ideal (segue convenção
+XDG, persiste entre restarts do app). `tempfile.gettempdir()` é
+fallback garantido em qualquer SO. No Streamlit Cloud, `Path.home()`
+resolve em `/home/appuser/.cache/` — funciona durante lifetime do
+container, some em re-deploy.
+
+**Por que `lru_cache(maxsize=1)`:** o resolver roda em
+`is_balanco_cache_fresh()`, leitura e escrita — sem cache, retentaria
+mkdir+write_test em cada chamada. Como o path não muda no lifetime do
+processo, cachear é seguro.
+
+**TTL:** mtime do arquivo > (now - 6h). Alinhado com
+`@st.cache_data(ttl=60*60*6)` externo — sem hash do conteúdo
+(redundante).
+
+**Degradação graciosa:** todas as operações em try/except amplo —
+falhas vão pra `_debug_erros` mas não interrompem o load. Cobertura:
+
+| Cenário | Comportamento |
+|---|---|
+| `home/.cache` writable | usa primário |
+| `home/.cache` read-only | testa `/tmp`, usa se OK |
+| Ambos read-only | retorna None, `is_balanco_cache_fresh()` sempre False, IO no-op silencioso. Load continua via download HTTP. |
+| Parquet corrompido na leitura | exception capturada, refaz download |
+| Disco cheio na escrita | exception capturada, df retornado normalmente |
+
+**Helper público pra UI:** `is_balanco_cache_fresh() -> bool` exposto
+de `data_loader`, permite a aba escolher mensagem de spinner antes do
+load (Fix #4 — light vs pesado).
+
+**`clear_cache()` estendido:** unlinks o parquet também — garante que
+"Atualizar" sempre força download fresh, não só invalida cache em-memória.
+
+**Quando aplicar a outros loaders:** se o tempo de cold-load passar
+de ~10s e o dataset consolidado for >10MB, vale replicar o padrão.
+Hoje só o balanço justifica (60s, 60MB consolidado). EAR (~900KB) e
+ENA (~2MB) ficam só com `@st.cache_data` externo.
+
+### 5.16 Sentinela de reset estendida com keys individuais
+
+**Decisão:** quando o reset block usa uma sentinela do tipo
+`_dataset_max` pra detectar "1ª visita / dataset mudou", **estender
+a condição pra também disparar quando keys individuais críticas
+estão ausentes**, não só quando a sentinela está.
+
+**Bug que motivou:** `KeyError 'gen_data_ini'` no Cenário 3 da Sessão 1.5
+(clicar Atualizar com sessão que tinha passado por Horária). Causa:
+**widget-state cleanup do Streamlit (≥1.30)** — quando um widget com
+`key="X"` não é instanciado em algum rerun (ex: usuário foi pra
+Horária e o helper `_render_period_controls` não foi chamado), o
+Streamlit pode descartar `st.session_state["X"]`. Sentinela
+`_gen_dataset_max` ficou em state mas `gen_data_ini`/`gen_data_fim`
+não — reset não disparava, leitura subsequente quebrava.
+
+**Fix** (`app.py:2091-2103`):
+
+```python
+if (
+    "_gen_dataset_max" not in st.session_state
+    or st.session_state.get("_gen_dataset_max") != max_d_gen
+    or st.session_state.get("_gen_dataset_min") != min_d_gen
+    or "gen_data_ini" not in st.session_state   # widget cleanup
+    or "gen_data_fim" not in st.session_state   # widget cleanup
+):
+    # ... seta tudo do zero ...
+```
+
+**Por que combinar com sentinela em vez de só checar keys individuais:**
+em modo Horária, `gen_data_ini` é DERIVADO pós-helper de
+`gen_data_base`/`window` — usar SÓ a key como sentinela faria o reset
+disparar em todo render Horária e popar `gen_data_base` (regressão do
+bug §3.2 da Sessão 1, decisão 5.11). A combinação `sentinela OR
+key_ausente` cobre os dois casos: 1ª visita real (sentinela ausente)
++ widget cleanup (key específica ausente).
+
+**Trade-off:** se Streamlit descartou widget-state, user perde
+customização de período (volta pro default). Aceitável — a perda já
+ocorreu, estamos só detectando.
+
+**Quando aplicar em outros lugares:** qualquer aba que usa
+`st.session_state["X"]` (brackets, sem `.get()` fallback) lendo de
+key que é ALSO widget-state de `st.date_input`/`st.text_input` etc.
+Se a aba alterna entre 2+ helpers que instanciam widgets diferentes
+(ex: Geração com `_render_period_controls` vs
+`_render_period_controls_horaria`), o cleanup pode ocorrer.
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
@@ -702,6 +822,23 @@ ambiente fresh do Cloud.
     `None`). Detalhes em `docs/sessao_geracao_status.md` §3. Sessão 1.5
     (Performance) inserida no roadmap após user reportar lentidão geral
     da aba — ver mesmo doc.
+18. **Aba Geração — Sessão 1.5 (Performance)** — 3º commit pendente em
+    2026-04-25. 4 fixes mensurados com `time.perf_counter()` em Fase A
+    de diagnóstico (instrumentação 100% removida pós-validação). **Fix #1:**
+    pré-computar coluna `data` (datetime64[ns] normalizado) no loader,
+    trocar `dt.date >= date(...)` por `data >= pd.Timestamp(...)` no
+    filtro do `_build_pivot_submercado` — filter de ~11s/sub pra ~50ms/sub
+    (50× speedup no hot path). **Fix #3:** disk-cache parquet local
+    (`~/.cache/dashboard-setor-eletrico/balanco.parquet`) com cascade pra
+    `tempfile.gettempdir()` em FS read-only, TTL 6h via mtime, helper
+    público `is_balanco_cache_fresh()` exposto pra UI — cold start
+    subsequente de 60s pra ~1-2s (decisão 5.15). **Fix #4:** spinner
+    dinâmico no app.py (mensagem light se cache fresh, pesada com aviso
+    de download longo se ausente). **Bug Cenário 3** descoberto:
+    `KeyError 'gen_data_ini'` no clique Atualizar pós-Horária — causado
+    por widget-state cleanup do Streamlit. Fix: estender sentinela do
+    reset block com keys individuais (decisão 5.16). Tabela de ganhos
+    medidos (3,7-11×) em `docs/sessao_geracao_status.md` §0.
 
 ---
 

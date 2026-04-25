@@ -24,6 +24,7 @@ from data_loader import (
     load_reservatorios,
     load_ena,
     load_balanco_subsistema,
+    is_balanco_cache_fresh,
     clear_cache,
 )
 
@@ -1985,7 +1986,19 @@ elif aba == "Geração":
     )
 
     # --- Carregar dados ---
-    with st.spinner("Carregando dados do ONS…"):
+    # Fix #4 (Sessão 1.5): mensagem do spinner depende do estado do disk-cache.
+    # Cache fresco → spinner light (~1-2s de leitura parquet local). Cache
+    # ausente/expirado → mensagem honesta de download longo. Quando o
+    # @st.cache_data em-memória do Streamlit está hit (re-render na mesma
+    # sessão), nem entra no with — instantâneo.
+    if is_balanco_cache_fresh():
+        spinner_msg = "Carregando dados de geração..."
+    else:
+        spinner_msg = (
+            "Baixando 27 anos de dados ONS (~25MB)... "
+            "pode levar 1 minuto na primeira vez."
+        )
+    with st.spinner(spinner_msg):
         try:
             df_gen = load_balanco_subsistema()
         except Exception as e:
@@ -2058,14 +2071,26 @@ elif aba == "Geração":
 
     # Default: últimos 12 meses. Sentinela `_gen_dataset_max` é setada SÓ
     # por este bloco — sua ausência prova "1ª visita absoluta na sessão".
-    # Não usar "gen_data_ini not in state" como heurística: em Horária,
+    # Não usar "gen_data_ini not in state" como ÚNICA heurística: em Horária,
     # gen_data_ini é derivado pós-helper de gen_data_base/window — usar
-    # essa key faria o reset disparar em todo render no modo Horária e
-    # popar gen_data_base/gen_horaria_window_dias, voltando window pra 1.
+    # essa key sozinha faria o reset disparar em todo render no modo Horária
+    # e popar gen_data_base/gen_horaria_window_dias, voltando window pra 1
+    # (decisão 5.11 do CLAUDE.md, bug §3.2 da Sessão 1).
+    #
+    # Combinada com `_gen_dataset_max not in state`, a checagem por
+    # gen_data_ini/gen_data_fim ausentes é segura: o reset só dispara quando
+    # o sentinela ESTÁ presente (não-1ª visita) MAS uma das keys foi
+    # descartada — sintoma do widget-state cleanup do Streamlit. Ele pode
+    # remover keys de widget que não foram instanciados em algum rerun
+    # intermediário (caso típico: Diária → Horária → Atualizar → reentrou
+    # em Diária, cache invalidado, gen_data_ini/fim já discardados pelo
+    # cleanup). Detecta + recupera caindo no default 12M.
     if (
         "_gen_dataset_max" not in st.session_state
         or st.session_state.get("_gen_dataset_max") != max_d_gen
         or st.session_state.get("_gen_dataset_min") != min_d_gen
+        or "gen_data_ini" not in st.session_state
+        or "gen_data_fim" not in st.session_state
     ):
         st.session_state["gen_data_ini"] = max(
             min_d_gen, max_d_gen - timedelta(days=365)
@@ -2203,11 +2228,19 @@ elif aba == "Geração":
     # colunas), aplica resample e fillna(0). Retorna None se sem dados.
     # .fillna(0) SÓ aqui no render (não no loader — preserva semântica de
     # "ausência de registro" vs "zero medido" no DataFrame público).
+    # Fix #1 (Sessão 1.5): comparar contra a coluna `data` (datetime64[ns]
+    # normalizado pra meia-noite, pré-computada no loader). `pd.Timestamp` na
+    # condição mantém comparação vetorizada nativamente — diff vs versão
+    # antiga `.dt.date >= date(...)` é ~50× (filter de ~11s/sub pra ~50ms/sub
+    # no cenário Diária 12M).
+    data_ini_ts = pd.Timestamp(data_ini_efetivo_gen)
+    data_fim_ts = pd.Timestamp(data_fim_gen)
+
     def _build_pivot_submercado(code):
         mask = (
             (df_gen["submercado"] == code)
-            & (df_gen["data_hora"].dt.date >= data_ini_efetivo_gen)
-            & (df_gen["data_hora"].dt.date <= data_fim_gen)
+            & (df_gen["data"] >= data_ini_ts)
+            & (df_gen["data"] <= data_fim_ts)
         )
         dff = df_gen.loc[mask]
         if dff.empty:
