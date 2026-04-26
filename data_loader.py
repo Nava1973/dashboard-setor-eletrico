@@ -1812,3 +1812,8 @@ def clear_cache() -> None:
     # mudança de dataset" — sentinela _gen_dataset_max permanece OK,
     # então a flag explícita força o reset. Consumida com pop.
     st.session_state["_gen_force_reset"] = True
+
+    # Mesmo flag pra aba Carga (Sessão 4a). Carga compartilha o load do
+    # balanço com a Geração, então "Atualizar" deve resetar o reset block
+    # de ambas. Consumida com pop pelo reset block da Carga.
+    st.session_state["_carga_force_reset"] = True

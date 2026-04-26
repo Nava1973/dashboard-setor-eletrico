@@ -251,6 +251,56 @@ st.markdown(
         color: {BAUHAUS_BLACK} !important;
     }}
 
+    /* Expander Bauhaus — mesma família de problema do stAlert (decisão
+       5.23): tema dark deixa textColor branco/cinza-claro herdado pelo
+       conteúdo do expander, ficando ilegível sobre fundo cream. Diagnóstico
+       via DevTools mostrou (a) header preto-sobre-preto + Material Symbols
+       icon vazando como TEXTO ("arrow_drop_down" literal porque a regra
+       global de font-family Inter !important sobrescreveu a font do ícone),
+       e (b) conteúdo cinza-claro sobre cream. Ataque cirúrgico:
+       - Header (summary): fundo cream-light + texto/ícone preto.
+       - Conteúdo: fundo cream + borda preta + texto preto.
+       - Ícone: exceção de font-family que devolve Material Symbols
+         (sem essa exceção, o nome do ícone aparece como literal).
+       - Prefixo [data-testid="stExpander"] mantém escopo — não atinge
+         expanders eventuais na sidebar (que tem fundo dark + texto cream). */
+    [data-testid="stExpander"] details > summary {{
+        background-color: {BAUHAUS_LIGHT} !important;
+        color: {BAUHAUS_BLACK} !important;
+        border: 2px solid {BAUHAUS_BLACK} !important;
+        border-radius: 0 !important;
+        font-family: 'Inter', sans-serif !important;
+        font-weight: 600 !important;
+        padding: 0.5rem 1rem !important;
+    }}
+    [data-testid="stExpander"] details > summary p,
+    [data-testid="stExpander"] details > summary span,
+    [data-testid="stExpander"] details > summary div {{
+        color: {BAUHAUS_BLACK} !important;
+    }}
+    /* NOTA: o chevron do summary (nome do ícone "arrow_drop_down" vazando
+       como texto) NÃO é resolvido por CSS — devolver font-family Material
+       Symbols não funcionou (testado, font não carrega no contexto do
+       summary). Solução: substituição via JS no setInterval do componente
+       de "ícones invisíveis" (linhas ~525-590) — TreeWalker troca o
+       texto pelo glifo Unicode ▼/▲. Mesmo padrão da sidebar. */
+    [data-testid="stExpanderDetails"] {{
+        background-color: {BAUHAUS_CREAM} !important;
+        color: {BAUHAUS_BLACK} !important;
+        border: 2px solid {BAUHAUS_BLACK} !important;
+        border-top: none !important;
+        border-radius: 0 !important;
+        padding: 1rem !important;
+    }}
+    [data-testid="stExpanderDetails"] p,
+    [data-testid="stExpanderDetails"] span,
+    [data-testid="stExpanderDetails"] strong,
+    [data-testid="stExpanderDetails"] em,
+    [data-testid="stExpanderDetails"] li,
+    [data-testid="stExpanderDetails"] div {{
+        color: {BAUHAUS_BLACK} !important;
+    }}
+
     /* Botões principais (fora da sidebar) — altura igual aos date inputs */
     .stButton > button {{
         border-radius: 0 !important;
@@ -474,16 +524,34 @@ components.html(
     (function() {
         const doc = window.parent.document;
         const SUBSTITUICOES = {
+            // Família "double arrow" + chevrons + menu = navegação de
+            // sidebar/painel. Sempre usa caracteres simples << / >> pra
+            // simetria visual (sidebar fechada >>, aberta <<).
             'keyboard_double_arrow_right': '>>',
-            'keyboard_double_arrow_left': '<<',
-            'chevron_right': '>',
-            'chevron_left': '<',
-            'arrow_forward': '>',
-            'arrow_back': '<',
-            'menu_open': '<<',
-            'menu': '>>',
-            'first_page': '<<',
-            'last_page': '>>'
+            'keyboard_double_arrow_left':  '<<',
+            'chevron_right':               '>>',
+            'chevron_left':                '<<',
+            'arrow_forward':               '>',
+            'arrow_back':                  '<',
+            'menu_open':                   '<<',
+            'menu':                        '>>',
+            'first_page':                  '<<',
+            'last_page':                   '>>',
+            // Família "keyboard_arrow_*" (singular) = chevrons de
+            // expanders. Glifos triangulares ▶/▼/▲ preservam o sinal
+            // direcional do expand/collapse, sem confundir com navegação
+            // de sidebar. Identificados via DevTools no st.expander
+            // (Sessão 4a) — DOM expõe como <span data-testid="stIconMaterial">.
+            'keyboard_arrow_right': '▶',
+            'keyboard_arrow_down':  '▼',
+            'keyboard_arrow_up':    '▲',
+            // Preventivos da família dos triângulos — variantes que o
+            // Streamlit pode usar em outros componentes (selectbox aberto,
+            // accordion não-expander, etc.).
+            'arrow_drop_down': '▼',
+            'arrow_drop_up':   '▲',
+            'expand_more':     '▼',
+            'expand_less':     '▲'
         };
 
         function substituirTextos() {
@@ -492,7 +560,12 @@ components.html(
                 '[data-testid="stSidebarCollapsedControl"], ' +
                 '[data-testid="collapsedControl"], ' +
                 'button[kind="header"], ' +
-                'button[kind="headerNoPadding"]'
+                'button[kind="headerNoPadding"], ' +
+                '[data-testid="stExpander"], ' +
+                // Cobertura redundante mas explícita: o stIconMaterial
+                // pode aparecer em qualquer lugar (não só dentro de
+                // stExpander), então varremos diretamente também.
+                '[data-testid="stIconMaterial"]'
             );
             botoes.forEach(btn => {
                 const walker = doc.createTreeWalker(btn, NodeFilter.SHOW_TEXT);
@@ -746,6 +819,45 @@ def _aplica_default_periodo_gen(granularidade, min_d, max_d):
         st.session_state["gen_horaria_window_dias"] = 1
 
 
+def _aplica_default_periodo_carga(granularidade, min_d, max_d):
+    """Análogo do _aplica_default_periodo_gen pra aba Carga (Sessão 4a).
+
+    Defaults:
+        Diária     → 1M  (preferência da aba — série temporal de demanda
+                          em escala de meses é o uso mais natural)
+        Mensal     → 12M (1 ano completo, mostra sazonalidade)
+        Horária    → 1D + data_base = max_d
+        Dia Típico → 30D (sweet spot UX da decisão 5.25)
+
+    Pop das keys da granularidade alternativa pra evitar state stale no
+    widget cleanup do Streamlit (decisões 5.16, 5.18, 5.19).
+    """
+    if granularidade == "Diária":
+        st.session_state["carga_data_ini"] = max(
+            min_d, max_d - timedelta(days=30)
+        )
+        st.session_state["carga_data_fim"] = max_d
+        st.session_state.pop("carga_data_base", None)
+        st.session_state.pop("carga_horaria_window_dias", None)
+    elif granularidade == "Mensal":
+        st.session_state["carga_data_ini"] = max(
+            min_d, max_d - timedelta(days=365)
+        )
+        st.session_state["carga_data_fim"] = max_d
+        st.session_state.pop("carga_data_base", None)
+        st.session_state.pop("carga_horaria_window_dias", None)
+    elif granularidade == "Dia Típico":
+        st.session_state["carga_data_ini"] = max(
+            min_d, max_d - timedelta(days=30)
+        )
+        st.session_state["carga_data_fim"] = max_d
+        st.session_state.pop("carga_data_base", None)
+        st.session_state.pop("carga_horaria_window_dias", None)
+    else:  # Horária
+        st.session_state["carga_data_base"] = max_d
+        st.session_state["carga_horaria_window_dias"] = 1
+
+
 @st.dialog("Carregar histórico completo")
 def _confirmar_historico_completo_gen():
     """Modal de confirmação pra expandir o range do dataset Geração de
@@ -832,6 +944,146 @@ def _compute_kpi_mlt_pct(df_ena, subsistema_code, date_start, date_end):
     if den <= 0:
         return float("nan")
     return num / den * 100.0
+
+
+def _compute_rampa_series(df_long, code, data_ini, data_fim, janela_h):
+    """
+    Série completa de rampas de carga líquida em janela de N horas
+    (Sessão 4a — KPIs e viz 5 da aba Carga).
+
+    Carga líquida = val_carga - val_gereolica - val_gersolar (mesmo
+    instante). Rampa(t, N) = liq(t+Nh) - liq(t), com SINAL preservado
+    (positivo = up-ramp = sistema precisa SUBIR geração; negativo =
+    down-ramp).
+
+    Sempre lê dado horário bruto do parquet — independente de qualquer
+    granularidade de UI. Garante que rampas sejam consistentes entre
+    abas e modos de display.
+
+    Reusada por:
+      - _compute_kpis_carga (max(.abs()) pra os KPIs Rampa Máx 1h/3h)
+      - Viz 5 da Sessão 4b (histograma de rampas)
+
+    Retorna pd.Series indexada por data_hora (NaN nas N últimas linhas
+    por causa do shift). Series vazia se sem dados no período.
+    """
+    mask = (
+        (df_long["submercado"] == code)
+        & (df_long["data"] >= pd.Timestamp(data_ini))
+        & (df_long["data"] <= pd.Timestamp(data_fim))
+    )
+    dff = df_long.loc[mask]
+    if dff.empty:
+        return pd.Series(dtype="float64")
+
+    pivot = dff.pivot_table(
+        index="data_hora", columns="fonte", values="mwmed",
+        aggfunc="mean",
+    ).sort_index()
+    # fillna(0) só nessas 3 colunas. Semanticamente: ausência de medição
+    # de eólica/solar num instante = contribuição 0 (era pré-renováveis ou
+    # gap). Pra carga, ausência é raríssima (val_carga é a métrica primária
+    # do dataset) — fillna(0) protege contra NaN propagar pra rampa.
+    for col in ("carga", "eolica", "solar"):
+        if col not in pivot.columns:
+            pivot[col] = 0.0
+    pivot[["carga", "eolica", "solar"]] = (
+        pivot[["carga", "eolica", "solar"]].fillna(0)
+    )
+
+    liq = pivot["carga"] - pivot["eolica"] - pivot["solar"]
+    return liq.shift(-janela_h) - liq
+
+
+def _compute_kpis_carga(df_long, code, data_ini, data_fim):
+    """
+    5 KPIs da aba Carga (Sessão 4a).
+
+    Retorna dict:
+      carga_total_media   (MWmed) mean(val_carga) no período
+      carga_liquida_media (MWmed) mean(val_carga - val_gereolica - val_gersolar)
+      rampa_max_1h        (MW)    max(|liq(t+1h) - liq(t)|) — pico instantâneo
+      rampa_max_1h_ts     (Timestamp) início da janela onde a rampa 1h foi máxima
+      rampa_max_3h        (MW)    max(|liq(t+3h) - liq(t)|) — duck-curve clássica
+      rampa_max_3h_ts     (Timestamp) início da janela onde a rampa 3h foi máxima
+      pct_renov_var       (%)     (mean(eolica) + mean(solar)) / mean(carga) × 100
+
+    Sempre lê dado horário bruto — rampas consistentes independente da
+    granularidade de UI selecionada (decisão do plano: "rampa sempre em
+    horária"). Cálculo O(N), fast (~80ms pra 15a × 8760h).
+
+    Sem @st.cache_data — recomputo por render é barato, e a key seria
+    DataFrame (não-hashable nativo, exigiria hash custom).
+
+    Valores indisponíveis (sem dados, divisão por zero, série toda NaN)
+    caem em float('nan') / None graciosamente — UI deve renderizar "—".
+    """
+    rampa_1h_series = _compute_rampa_series(
+        df_long, code, data_ini, data_fim, janela_h=1
+    )
+    rampa_3h_series = _compute_rampa_series(
+        df_long, code, data_ini, data_fim, janela_h=3
+    )
+
+    if rampa_1h_series.empty:
+        return {
+            "carga_total_media":   float("nan"),
+            "carga_liquida_media": float("nan"),
+            "rampa_max_1h":        float("nan"),
+            "rampa_max_1h_ts":     None,
+            "rampa_max_3h":        float("nan"),
+            "rampa_max_3h_ts":     None,
+            "pct_renov_var":       float("nan"),
+        }
+
+    # Recompõe pivot uma vez pras médias (evita 3º call ao filter+pivot).
+    # Custo desta duplicação vs DRY: ~50ms num cenário Diária 12M, aceitável.
+    mask = (
+        (df_long["submercado"] == code)
+        & (df_long["data"] >= pd.Timestamp(data_ini))
+        & (df_long["data"] <= pd.Timestamp(data_fim))
+    )
+    pivot = df_long.loc[mask].pivot_table(
+        index="data_hora", columns="fonte", values="mwmed",
+        aggfunc="mean",
+    ).sort_index()
+    for col in ("carga", "eolica", "solar"):
+        if col not in pivot.columns:
+            pivot[col] = 0.0
+    pivot[["carga", "eolica", "solar"]] = (
+        pivot[["carga", "eolica", "solar"]].fillna(0)
+    )
+
+    carga_mean = pivot["carga"].mean()
+    eolica_mean = pivot["eolica"].mean()
+    solar_mean = pivot["solar"].mean()
+    liq_mean = carga_mean - eolica_mean - solar_mean
+
+    pct_renov = (
+        (eolica_mean + solar_mean) / carga_mean * 100
+        if carga_mean and carga_mean > 0 else float("nan")
+    )
+
+    def _max_abs_with_ts(s):
+        s_clean = s.dropna()
+        if s_clean.empty:
+            return float("nan"), None
+        s_abs = s_clean.abs()
+        idx = s_abs.idxmax()
+        return float(s_abs.loc[idx]), idx
+
+    rampa_1h, ts_1h = _max_abs_with_ts(rampa_1h_series)
+    rampa_3h, ts_3h = _max_abs_with_ts(rampa_3h_series)
+
+    return {
+        "carga_total_media":   carga_mean,
+        "carga_liquida_media": liq_mean,
+        "rampa_max_1h":        rampa_1h,
+        "rampa_max_1h_ts":     ts_1h,
+        "rampa_max_3h":        rampa_3h,
+        "rampa_max_3h_ts":     ts_3h,
+        "pct_renov_var":       pct_renov,
+    }
 
 
 def _add_wet_season_bands(fig, *, date_start, date_end):
@@ -945,7 +1197,7 @@ with st.sidebar:
 
     aba = st.radio(
         "NAVEGAÇÃO",
-        ["PLD", "Reservatórios", "ENA/Chuva", "Geração"],
+        ["PLD", "Reservatórios", "ENA/Chuva", "Geração", "Carga"],
         label_visibility="collapsed",
     )
 
@@ -2828,7 +3080,7 @@ elif aba == "Geração":
     )
     st.markdown(
         f'<div style="font-family:\'Inter\', sans-serif; '
-        f'font-size:0.85rem; color:#4A4A4A; '
+        f'font-size:0.9rem; color:#1A1A1A; font-weight:500; '
         f'letter-spacing:0.04em; margin:0 0 0.5rem 0;">'
         f'{tag_granularidade_gen}'
         f'</div>',
@@ -3041,6 +3293,876 @@ elif aba == "Geração":
             mime="text/csv",
             use_container_width=False,
         )
+
+elif aba == "Carga":
+    # -----------------------------------------------------------------------
+    # Aba Carga — demanda elétrica por subsistema (val_carga do balanço ONS).
+    # Reusa load_balanco_subsistema da Geração (mesmo dataset, mesmo cache).
+    # Sessão 4a entrega Setup + KPIs + Glossário + Viz 1 (total vs líquida)
+    # + Viz 2 (decomposição com ordem da carga líquida).
+    # Sessão 4b adicionará Viz 3/4/5 (comparação anual, LDC, histograma rampas).
+    # -----------------------------------------------------------------------
+    st.markdown("# CARGA")
+    st.markdown(
+        '<div style="border-bottom: 2px solid #1A1A1A; '
+        'margin: 0 0 -1.5rem 0;"></div>',
+        unsafe_allow_html=True,
+    )
+
+    # --- Carregar dados ---
+    # Compartilha gen_historico_completo com a aba Geração: ambas leem do
+    # mesmo balanço ONS, então a flag de range (15a vs completo) é
+    # naturalmente compartilhada. Trade-off conhecido: clicar "Carregar
+    # histórico completo" em qualquer das 2 abas afeta a outra. Aceitável
+    # — duplicar a flag obrigaria 2 disk-caches paralelos de 60MB cada.
+    historico_completo_carga = st.session_state.get(
+        "gen_historico_completo", False
+    )
+    if is_balanco_cache_fresh(historico_completo_carga):
+        spinner_msg_carga = "Carregando dados de carga..."
+    else:
+        if historico_completo_carga:
+            spinner_msg_carga = (
+                "Baixando 27 anos de dados ONS (~25MB)... "
+                "pode levar ~25s na primeira vez."
+            )
+        else:
+            spinner_msg_carga = (
+                "Baixando 15 anos de dados ONS (~12MB)... "
+                "pode levar ~15s na primeira vez."
+            )
+    with st.spinner(spinner_msg_carga):
+        try:
+            df_carga = load_balanco_subsistema(
+                incluir_historico_completo=historico_completo_carga,
+            )
+        except Exception as e:
+            st.error(f"Falha ao carregar dados do ONS (balanço): {e}")
+            debug = st.session_state.get("_debug_erros", [])
+            if debug:
+                st.subheader("Detalhes técnicos do erro")
+                for d in debug[:20]:
+                    st.code(d)
+            st.stop()
+
+    if df_carga.empty:
+        st.warning("Nenhum dado disponível.")
+        st.stop()
+
+    ORDEM_SUBSISTEMA_CARGA = ["SIN", "SE", "S", "NE", "N"]
+    LABELS_SUBSISTEMA_CARGA = {
+        "SIN": "SIN",
+        "SE":  "SUDESTE",
+        "S":   "SUL",
+        "NE":  "NORDESTE",
+        "N":   "NORTE",
+    }
+    NOME_SUB_LONGO_CARGA = {
+        "SIN": "SIN",
+        "SE":  "Sudeste/Centro-Oeste",
+        "S":   "Sul",
+        "NE":  "Nordeste",
+        "N":   "Norte",
+    }
+
+    # Backups paralelos pra dropdowns (decisão 5.18). Defesa preventiva
+    # contra widget-state cleanup do Streamlit em ciclos pesados.
+    _CARGA_GRAN_BACKUP = "_carga_granularidade_backup"
+    _CARGA_SUB_BACKUP = "_carga_submercado_backup"
+    if (
+        "carga_granularidade" not in st.session_state
+        and _CARGA_GRAN_BACKUP in st.session_state
+    ):
+        st.session_state["carga_granularidade"] = (
+            st.session_state[_CARGA_GRAN_BACKUP]
+        )
+    if (
+        "carga_submercado" not in st.session_state
+        and _CARGA_SUB_BACKUP in st.session_state
+    ):
+        st.session_state["carga_submercado"] = (
+            st.session_state[_CARGA_SUB_BACKUP]
+        )
+
+    # Default da 1ª visita absoluta na sessão: Diária (UX da aba Carga).
+    # Diferente da Geração (Horária), porque o uso típico de Carga é
+    # "como evoluiu a demanda nas últimas semanas/meses", não
+    # "como foi nas últimas horas". Setado ANTES do selectbox (5.12).
+    if "_carga_dataset_max" not in st.session_state:
+        st.session_state["carga_granularidade"] = "Diária"
+
+    # --- Controles: granularidade + submercado ---
+    ctrl_cols_carga = st.columns([1.2, 1.8, 3.2])
+    with ctrl_cols_carga[0]:
+        granularidade_carga = st.selectbox(
+            "Granularidade",
+            ["Mensal", "Diária", "Horária", "Dia Típico"],
+            index=1,  # default diária
+            key="carga_granularidade",
+        )
+    with ctrl_cols_carga[1]:
+        submercado_carga = st.selectbox(
+            "Submercado",
+            ORDEM_SUBSISTEMA_CARGA,
+            index=0,  # default SIN
+            key="carga_submercado",
+            format_func=lambda c: NOME_SUB_LONGO_CARGA[c],
+        )
+
+    st.session_state[_CARGA_GRAN_BACKUP] = granularidade_carga
+    st.session_state[_CARGA_SUB_BACKUP] = submercado_carga
+
+    min_d_carga = df_carga["data_hora"].min().date()
+    max_d_carga = df_carga["data_hora"].max().date()
+
+    # =========================================================================
+    # RESET BLOCK UNIFICADO (decisão 5.20) — 6 gatilhos completos.
+    # Mesma estrutura do reset block da Geração (linhas ~2280-2315), com
+    # keys prefixadas carga_*. Ver CLAUDE.md §5.20 + 5.16/5.19 + extensão
+    # 1.6 do 6º gatilho (range degenerado >=).
+    # =========================================================================
+    em_horaria_carga = (
+        st.session_state.get("carga_granularidade") == "Horária"
+    )
+    prev_gran_carga = st.session_state.get("_carga_last_gran")
+    em_transicao_carga = (
+        prev_gran_carga is not None
+        and prev_gran_carga != granularidade_carga
+    )
+    force_reset_carga = st.session_state.pop("_carga_force_reset", False)
+
+    if (
+        force_reset_carga
+        or "_carga_dataset_max" not in st.session_state
+        or st.session_state.get("_carga_dataset_max") != max_d_carga
+        or st.session_state.get("_carga_dataset_min") != min_d_carga
+        or em_transicao_carga
+        or (
+            not em_horaria_carga
+            and (
+                "carga_data_ini" not in st.session_state
+                or "carga_data_fim" not in st.session_state
+            )
+        )
+        or (
+            not em_horaria_carga
+            and "carga_data_ini" in st.session_state
+            and "carga_data_fim" in st.session_state
+            and st.session_state["carga_data_ini"]
+                >= st.session_state["carga_data_fim"]
+        )
+    ):
+        _aplica_default_periodo_carga(
+            granularidade_carga, min_d_carga, max_d_carga
+        )
+        st.session_state["_carga_dataset_max"] = max_d_carga
+        st.session_state["_carga_dataset_min"] = min_d_carga
+
+    st.session_state["_carga_last_gran"] = granularidade_carga
+
+    # --- Período: modo depende da granularidade (idêntico à Geração) ---
+    if granularidade_carga == "Horária":
+        if not st.session_state.get("carga_data_base"):
+            st.session_state["carga_data_base"] = min(
+                max_d_carga,
+                st.session_state.get("carga_data_fim") or max_d_carga,
+            )
+        if "carga_horaria_window_dias" not in st.session_state:
+            st.session_state["carga_horaria_window_dias"] = 1
+
+        presets_hora_carga = [
+            ("1D",  1,  False),
+            ("7D",  7,  False),
+            ("30D", 30, False),
+            ("90D", 90, False),
+        ]
+        _render_period_controls_horaria(
+            presets=presets_hora_carga,
+            session_key_base="carga_data_base",
+            session_key_window="carga_horaria_window_dias",
+            key_prefix="btn_carga_hora_",
+            min_d=min_d_carga,
+            max_d=max_d_carga,
+        )
+
+        window_carga = st.session_state["carga_horaria_window_dias"]
+        data_base_carga = st.session_state["carga_data_base"]
+        data_fim_carga = data_base_carga
+        data_ini_carga = max(
+            min_d_carga, data_base_carga - timedelta(days=window_carga - 1)
+        )
+        st.session_state["carga_data_ini"] = data_ini_carga
+        st.session_state["carga_data_fim"] = data_fim_carga
+    else:
+        data_ini_carga = st.session_state["carga_data_ini"]
+        data_fim_carga = st.session_state["carga_data_fim"]
+
+        if data_ini_carga > data_fim_carga:
+            st.error("A data inicial não pode ser posterior à data final.")
+            st.stop()
+
+        if granularidade_carga == "Mensal":
+            presets_carga = [
+                ("3M",  90,   False),
+                ("6M",  180,  False),
+                ("12M", 365,  False),
+                ("5A",  1825, False),
+                ("10A", 3650, False),
+                ("15A", 5475, False),
+                ("Máx", None, True),
+            ]
+        elif granularidade_carga == "Dia Típico":
+            presets_carga = [
+                ("7D",  7,    False),
+                ("30D", 30,   False),
+                ("90D", 90,   False),
+                ("6M",  180,  False),
+                ("12M", 365,  False),
+                ("5A",  1825, False),
+            ]
+        else:  # Diária
+            presets_carga = [
+                ("1M",  30,   False),
+                ("3M",  90,   False),
+                ("6M",  180,  False),
+                ("12M", 365,  False),
+                ("5A",  1825, False),
+                ("10A", 3650, False),
+                ("Máx", None, True),
+            ]
+        _render_period_controls(
+            presets=presets_carga,
+            session_key_ini="carga_data_ini",
+            session_key_fim="carga_data_fim",
+            key_prefix="btn_carga_",
+            min_d=min_d_carga,
+            max_d=max_d_carga,
+        )
+        data_ini_carga = st.session_state["carga_data_ini"]
+        data_fim_carga = st.session_state["carga_data_fim"]
+
+    # --- Botão histórico completo (compartilhado com Geração) ---
+    if historico_completo_carga:
+        st.markdown(
+            '<div style="font-family:\'Inter\', sans-serif; '
+            'font-size:0.8rem; color:#6B6B6B; font-style:italic; '
+            'margin:0.4rem 0 0 0;">'
+            '✓ Histórico completo carregado (2000-presente)'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        if st.button(
+            "📈 Carregar histórico completo (2000-2010)",
+            key="btn_carga_historico_completo",
+            help="Adiciona 11 anos pré-2011 ao dataset (compartilhado com a "
+                 "aba Geração — afeta as duas).",
+        ):
+            _confirmar_historico_completo_gen()
+
+    # --- Teto 90 dias na Horária ---
+    periodo_dias_carga = (data_fim_carga - data_ini_carga).days
+    if granularidade_carga == "Horária" and periodo_dias_carga > 90:
+        st.warning(
+            f"Granularidade horária limitada a 90 dias (seria "
+            f"{periodo_dias_carga} dias). Mostrando os últimos 90 dias do "
+            f"intervalo selecionado."
+        )
+        data_ini_efetivo_carga = data_fim_carga - timedelta(days=90)
+    else:
+        data_ini_efetivo_carga = data_ini_carga
+
+    # --- Guards ---
+    if (
+        granularidade_carga == "Mensal"
+        and (data_fim_carga - data_ini_efetivo_carga).days < 60
+    ):
+        st.warning(
+            "Mensal precisa de pelo menos 2 meses. Selecione um período "
+            "maior ou troque pra Diária."
+        )
+        st.stop()
+    if (
+        granularidade_carga == "Dia Típico"
+        and (data_fim_carga - data_ini_efetivo_carga).days < 7
+    ):
+        st.warning(
+            "Dia típico precisa de pelo menos 7 dias pra ser "
+            "representativo. Selecione um período maior ou troque pra "
+            "Diária pra ver dia específico."
+        )
+        st.stop()
+
+    # --- Pivot helpers (mesmo padrão da Geração, com 'intercambio' incluído) ---
+    # Diferença vs Geração: a Carga vai precisar de 'intercambio' na Viz 2
+    # (decomposição = hidro+térmica+eólica+solar+intercâmbio = carga). Na
+    # Geração, intercambio não é exposto. Mantemos os 2 pivots independentes
+    # pra não acoplar; a duplicação é ~20 linhas, aceitável.
+    freq_map_carga = {
+        "Horária":    None,
+        "Diária":     "D",
+        "Mensal":     "MS",
+        "Dia Típico": None,
+    }
+    freq_carga = freq_map_carga[granularidade_carga]
+
+    data_ini_ts_carga = pd.Timestamp(data_ini_efetivo_carga)
+    data_fim_ts_carga = pd.Timestamp(data_fim_carga)
+
+    _COLUNAS_CARGA = ["hidro", "termica", "eolica", "solar", "carga", "intercambio"]
+
+    def _build_pivot_carga(code):
+        mask = (
+            (df_carga["submercado"] == code)
+            & (df_carga["data"] >= data_ini_ts_carga)
+            & (df_carga["data"] <= data_fim_ts_carga)
+        )
+        dff = df_carga.loc[mask]
+        if dff.empty:
+            return None
+        pivot = dff.pivot_table(
+            index="data_hora", columns="fonte", values="mwmed",
+            aggfunc="mean",
+        ).sort_index()
+        if freq_carga is not None:
+            pivot = pivot.resample(freq_carga).mean()
+        for col in _COLUNAS_CARGA:
+            if col not in pivot.columns:
+                pivot[col] = 0.0
+        pivot[_COLUNAS_CARGA] = pivot[_COLUNAS_CARGA].fillna(0)
+        return pivot
+
+    def _build_dia_tipico_carga(code):
+        """Reagrega pivot horário por hora-do-dia (decisão 5.25)."""
+        pivot_horario = _build_pivot_carga(code)
+        if pivot_horario is None or pivot_horario.empty:
+            return None
+        pivot = pivot_horario.groupby(pivot_horario.index.hour).mean()
+        pivot.index = [f"{h:02d}:00" for h in pivot.index]
+        pivot.index.name = "Hora"
+        return pivot
+
+    pivots_por_sub_carga = {}
+    _build_pivot_carga_dispatch = (
+        _build_dia_tipico_carga
+        if granularidade_carga == "Dia Típico"
+        else _build_pivot_carga
+    )
+    for code in ORDEM_SUBSISTEMA_CARGA:
+        pv = _build_pivot_carga_dispatch(code)
+        if pv is not None:
+            pivots_por_sub_carga[code] = pv
+
+    pivot_sel_carga = pivots_por_sub_carga.get(submercado_carga)
+    if pivot_sel_carga is None:
+        st.warning(
+            f"Sem dados de {NOME_SUB_LONGO_CARGA[submercado_carga]} "
+            "no intervalo selecionado."
+        )
+        st.stop()
+
+    # =========================================================================
+    # KPIs (Bloco 3 da Sessão 4a) — 5 cards em layout 3+2 (decisão de
+    # implementação). Linha 1: estado médio do sistema (carga total,
+    # líquida, % renov). Linha 2: estresse operacional (rampas 1h, 3h).
+    # Agrupamento semântico tem valor analítico além de evitar 5 cards
+    # apertados em 1 linha (max-width 1000px ≈ 190px/card seria estreito).
+    # Tooltips via title="" no card pai (browser nativo, sem JS).
+    # =========================================================================
+    kpis_carga = _compute_kpis_carga(
+        df_carga, submercado_carga, data_ini_efetivo_carga, data_fim_carga,
+    )
+
+    def _fmt_br_carga(v, casas=0):
+        """Número BR: 1.234 (milhar ponto, decimal vírgula)."""
+        if v is None or (hasattr(v, "__float__") and not (v == v)):
+            return "—"
+        fmt = f"{{:,.{casas}f}}"
+        return fmt.format(v).replace(",", "X").replace(".", ",").replace("X", ".")
+
+    # CSS dedicado .carga-kpi-* (cópia do .gen-kpi-* da Geração).
+    # Duplicação consciente: refator pra .kpi-* genérico fica pra futuro
+    # (não mexer no bloco Geração estável agora). +1 propriedade vs gen-kpi:
+    # cursor:help no card quando há tooltip — sinal visual de hoverable.
+    st.markdown(
+        """
+        <style>
+        .carga-kpi-card {
+            background: #F5F1E8;
+            border: 2px solid #1A1A1A;
+            padding: 8px 12px;
+            border-radius: 0;
+        }
+        .carga-kpi-card[title] {
+            cursor: help;
+        }
+        .carga-kpi-label {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.16em;
+            color: #1A1A1A;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+        /* Row interna: número à esquerda + subtext à direita (rampas 1h/3h
+           usam subtext pra mostrar timestamp do pico). Cards sem subtext
+           (Carga Total/Líquida/% Renov) ficam visualmente idênticos —
+           subtext é opcional via parâmetro do helper. */
+        .carga-kpi-value-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-top: 0.15rem;
+            gap: 0.5rem;
+        }
+        .carga-kpi-value {
+            display: flex;
+            align-items: baseline;
+        }
+        .carga-kpi-value-num {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.45rem;
+            color: #1A1A1A;
+            letter-spacing: 0.02em;
+            line-height: 1.1;
+        }
+        .carga-kpi-value-unit {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
+            color: #1A1A1A;
+            font-weight: 600;
+            margin-left: 0.4rem;
+        }
+        .carga-kpi-subtext {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.8rem;
+            color: #1A1A1A;
+            text-align: right;
+            line-height: 1.25;
+            white-space: nowrap;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    def _render_kpi_carga(label, num, unit="", tooltip="", subtext=""):
+        """Card KPI Bauhaus.
+
+        subtext (opcional): texto pequeno à direita do número (mesma row,
+        space-between). Usa <br> dentro pra quebrar em 2 linhas. Hoje é
+        usado pelos cards de rampa pra mostrar 'em<br>DD/MM/YYYY HH:MM'.
+        """
+        unit_html = (
+            f'<span class="carga-kpi-value-unit">{unit}</span>'
+            if unit else ""
+        )
+        subtext_html = (
+            f'<div class="carga-kpi-subtext">{subtext}</div>'
+            if subtext else ""
+        )
+        title_attr = f' title="{tooltip}"' if tooltip else ""
+        return (
+            f'<div class="carga-kpi-card"{title_attr}>'
+            f'<div class="carga-kpi-label">{label}</div>'
+            f'<div class="carga-kpi-value-row">'
+            f'<div class="carga-kpi-value">'
+            f'<span class="carga-kpi-value-num">{num}</span>{unit_html}'
+            f'</div>'
+            f'{subtext_html}'
+            f'</div>'
+            f'</div>'
+        )
+
+    # Caption acima dos KPIs — segue padrão da Geração ("Médias do período...").
+    st.markdown(
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+        f'margin:0.6rem 0 0.2rem 0;">'
+        f'Indicadores do período selecionado '
+        f'({NOME_SUB_LONGO_CARGA[submercado_carga]}). '
+        f'Passe o mouse sobre cada KPI pra ver a definição.'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Linha 1: estado médio do sistema (3 cards).
+    kpi_l1 = st.columns(3)
+    with kpi_l1[0]:
+        st.markdown(
+            _render_kpi_carga(
+                "CARGA TOTAL MÉDIA",
+                _fmt_br_carga(kpis_carga["carga_total_media"]),
+                "MWmed",
+                tooltip=(
+                    "Soma de toda demanda elétrica do subsistema. "
+                    "Inclui MMGD pós-29/04/2023."
+                ),
+            ),
+            unsafe_allow_html=True,
+        )
+    with kpi_l1[1]:
+        st.markdown(
+            _render_kpi_carga(
+                "CARGA LÍQUIDA MÉDIA",
+                _fmt_br_carga(kpis_carga["carga_liquida_media"]),
+                "MWmed",
+                tooltip=(
+                    "Carga total menos eólica e solar centralizada. "
+                    "O que hidro+térmica precisa cobrir."
+                ),
+            ),
+            unsafe_allow_html=True,
+        )
+    with kpi_l1[2]:
+        st.markdown(
+            _render_kpi_carga(
+                "% RENOV VARIÁVEIS",
+                f"{_fmt_br_carga(kpis_carga['pct_renov_var'], casas=1)}%",
+                tooltip=(
+                    "Participação de eólica+solar centralizada. Não inclui "
+                    "hidro (despachável) nem MMGD."
+                ),
+            ),
+            unsafe_allow_html=True,
+        )
+
+    # Linha 2: estresse operacional (2 cards + 1 col vazia). Cards uniformes
+    # com a linha 1 (mesma largura visual), col 2 vazia preserva alinhamento.
+    # Timestamps dos picos vão DENTRO de cada card via parâmetro `subtext`
+    # do helper — economiza vertical e cola a info ao número que ela descreve.
+    ts_1h = kpis_carga["rampa_max_1h_ts"]
+    ts_3h = kpis_carga["rampa_max_3h_ts"]
+    subtext_1h = (
+        f"em<br>{ts_1h.strftime('%d/%m/%Y %H:%M')}"
+        if ts_1h is not None else ""
+    )
+    subtext_3h = (
+        f"em<br>{ts_3h.strftime('%d/%m/%Y %H:%M')}"
+        if ts_3h is not None else ""
+    )
+    kpi_l2 = st.columns(3)
+    with kpi_l2[0]:
+        st.markdown(
+            _render_kpi_carga(
+                "RAMPA MÁX 1H",
+                _fmt_br_carga(kpis_carga["rampa_max_1h"]),
+                "MW",
+                tooltip=(
+                    "Maior variação de carga líquida em 1 hora. Mostra picos "
+                    "instantâneos de estresse operacional."
+                ),
+                subtext=subtext_1h,
+            ),
+            unsafe_allow_html=True,
+        )
+    with kpi_l2[1]:
+        st.markdown(
+            _render_kpi_carga(
+                "RAMPA MÁX 3H",
+                _fmt_br_carga(kpis_carga["rampa_max_3h"]),
+                "MW",
+                tooltip=(
+                    "Maior variação de carga líquida em 3 horas consecutivas. "
+                    "Padrão internacional (duck curve), captura tipicamente "
+                    "a rampa de fim de tarde."
+                ),
+                subtext=subtext_3h,
+            ),
+            unsafe_allow_html=True,
+        )
+    # kpi_l2[2] fica vazio (alinha visualmente com a linha 1).
+
+    # =========================================================================
+    # Glossário (st.expander, fechado por default). Posicionado APÓS os
+    # KPIs e ANTES das visualizações: leitura natural dos números primeiro,
+    # contexto profundo sob demanda. Tooltips dos KPIs cobrem a 1ª linha
+    # de definição; glossário aprofunda quando o leitor quer entender o
+    # "por que importa".
+    # =========================================================================
+    with st.expander("ⓘ Glossário"):
+        # Ordem espelha o layout dos cards (linha 1: Total/Líquida/% Renov;
+        # linha 2: Rampas) + Rampa Máxima por último (texto mais longo
+        # com comparação histórica 2015→2024). Capitalização dos termos
+        # bate exatamente com a label dos cards pra leitor associar.
+        st.markdown(
+            """
+**Carga Total**
+Demanda elétrica medida pelo ONS. Inclui MMGD pós-29/04/2023 (geração
+distribuída embutida na carga).
+
+**Carga Líquida**
+Carga total menos eólica e solar centralizada. Representa a demanda
+"residual" que hidro+térmica+importação precisam cobrir. Métrica-chave
+pra planejamento operacional do sistema.
+
+**% Renováveis Variáveis**
+Participação de eólica+solar centralizada na carga total. Variáveis =
+não-despacháveis (dependem do recurso natural). Não inclui hidro
+(despachável via reservatórios) nem MMGD (telhados/fachadas, embutida
+na carga pós-2023).
+
+**Rampa Máxima (1h e 3h)**
+Variação de carga líquida em janelas de tempo consecutivas. Indicador
+de quanto a hidro+térmica precisa subir ou descer geração rapidamente
+pra acompanhar a demanda.
+
+A janela de **1h** captura picos instantâneos — momentos extremos onde
+a rede precisa reagir rápido (ex: nuvem cobre uma usina solar grande
+de repente).
+
+A janela de **3h** é o padrão internacional (referência: duck curve
+CAISO Califórnia 2013). Captura a rampa típica de fim de tarde, quando
+solar some entre 17h-20h e hidro+térmica precisam compensar gradualmente.
+
+Em 2015 as rampas de 3h no SIN ficavam em torno de ~5 GW. Em 2024 já
+se observam picos próximos a ~20 GW — quase 4× maiores, causados pela
+penetração da solar centralizada.
+            """
+        )
+
+    # =========================================================================
+    # VIZ 1 (Bloco 4) — Carga Total vs Carga Líquida sobrepostas.
+    #
+    # 2 linhas:
+    #   - Carga Total   (azul Bauhaus)
+    #   - Carga Líquida (vermelho Bauhaus, definida = carga - eólica - solar)
+    # Área entre as 2 linhas sombreada com verde-oliva sutil (mesma cor
+    # eólica do stacked da Geração) = "renováveis variáveis cobriram esse
+    # gap". Trace fake na legenda documenta a semântica da área (sem ele
+    # a sombra fica críptica).
+    #
+    # Vline 29/04/2023 só em modos temporais (Diária/Mensal/Horária) — em
+    # Dia Típico o eixo X é categorial e Timestamp não bate.
+    # =========================================================================
+    OLIVA_RGBA_FILL    = "rgba(143, 163, 30, 0.18)"  # área entre linhas
+    OLIVA_RGBA_LEGENDA = "rgba(143, 163, 30, 0.6)"   # marker fake da legenda
+
+    tag_granularidade_carga = {
+        "Mensal":     "Média mensal · MWmed",
+        "Diária":     "Média diária · MWmed",
+        "Horária":    "Valor horário · MWmed",
+        "Dia Típico": (
+            "Dia típico (média horária do período selecionado) · MWmed"
+        ),
+    }[granularidade_carga]
+
+    hover_fmt_carga = {
+        "Horária":    "%d/%m/%Y %H:%M",
+        "Diária":     "%d/%m/%Y",
+        "Mensal":     "%b %Y",
+        "Dia Típico": None,  # eixo X categorial
+    }[granularidade_carga]
+
+    periodo_str_carga = _format_periodo_br(
+        data_ini_efetivo_carga, data_fim_carga, granularidade_carga,
+    )
+
+    label_sub_carga = LABELS_SUBSISTEMA_CARGA[submercado_carga]
+
+    st.markdown(
+        f'<div style="display:flex; justify-content:space-between; '
+        f'align-items:baseline; '
+        f'font-family:\'Bebas Neue\', sans-serif; '
+        f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
+        f'margin: 1.2rem 0 0.3rem 0; padding-bottom:3px; '
+        f'border-bottom: 2px solid #1A1A1A;">'
+        f'<span>{label_sub_carga} · CARGA TOTAL VS LÍQUIDA</span>'
+        f'<span>{periodo_str_carga}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.9rem; color:#1A1A1A; font-weight:500; '
+        f'letter-spacing:0.04em; margin:0 0 0.5rem 0;">'
+        f'{tag_granularidade_carga}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    if granularidade_carga == "Horária" and periodo_dias_carga >= 30:
+        st.caption(
+            "Granularidade horária com janela longa — "
+            "renderização pode levar alguns segundos."
+        )
+
+    # Série carga líquida = carga - eólica - solar (mesma instante).
+    # pivot_sel_carga já tem fillna(0) nas colunas, então aritmética é segura.
+    carga_total_series = pivot_sel_carga["carga"]
+    carga_liquida_series = (
+        pivot_sel_carga["carga"]
+        - pivot_sel_carga["eolica"]
+        - pivot_sel_carga["solar"]
+    )
+
+    fig_v1 = go.Figure()
+
+    # Trace 1: Carga Total (azul, sem fill — referência pro tonexty abaixo).
+    total_label_fix = "Total".ljust(11).replace(" ", "&nbsp;")
+    fig_v1.add_trace(
+        go.Scatter(
+            x=carga_total_series.index,
+            y=carga_total_series.values,
+            # Trailing spaces (3) criam respiro extra na legenda — Plotly
+            # não tem itemgap em legend, então este é o truque mais limpo
+            # pra separar de "Carga Líquida" sem CSS.
+            name="Carga Total   ",
+            mode="lines",
+            line=dict(color=BAUHAUS_BLUE, width=2.2),
+            hovertemplate=(
+                f'<span style="color:{BAUHAUS_BLUE}; font-weight:700;">'
+                f'{total_label_fix}</span>'
+                '&nbsp;&nbsp;'
+                '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
+                '<extra></extra>'
+            ),
+        )
+    )
+
+    # Trace 2: Carga Líquida (vermelha) com fill='tonexty' → preenche
+    # entre esta linha (embaixo, total > líquida) e o trace anterior
+    # (carga total, em cima). Resultado: faixa verde-oliva entre as duas.
+    liquida_label_fix = "Líquida".ljust(11).replace(" ", "&nbsp;")
+    fig_v1.add_trace(
+        go.Scatter(
+            x=carga_liquida_series.index,
+            y=carga_liquida_series.values,
+            name="Carga Líquida   ",
+            mode="lines",
+            line=dict(color=BAUHAUS_RED, width=2.2),
+            fill="tonexty",
+            fillcolor=OLIVA_RGBA_FILL,
+            hovertemplate=(
+                f'<span style="color:{BAUHAUS_RED}; font-weight:700;">'
+                f'{liquida_label_fix}</span>'
+                '&nbsp;&nbsp;'
+                '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
+                '<extra></extra>'
+            ),
+        )
+    )
+
+    # Trace fake só pra documentar a área verde na legenda. Marker square
+    # verde-oliva (0.6 alpha pra ser visível como ícone), sem dado real,
+    # hover desativado. Sem ele a sombra entre as linhas fica críptica.
+    fig_v1.add_trace(
+        go.Scatter(
+            x=[None], y=[None],
+            name="Renováveis variáveis cobriram",
+            mode="markers",
+            marker=dict(
+                color=OLIVA_RGBA_LEGENDA,
+                size=14,
+                symbol="square",
+                line=dict(color=BAUHAUS_BLACK, width=1),
+            ),
+            showlegend=True,
+            hoverinfo="skip",
+        )
+    )
+
+    # Vline 29/04/2023 (quebra MMGD — ONS passa a incluir geração distribuída
+    # na série de carga). Só faz sentido em eixo temporal.
+    quebra_data_carga = pd.Timestamp(2023, 4, 29)
+    if (
+        granularidade_carga != "Dia Típico"
+        and data_ini_efetivo_carga <= quebra_data_carga.date() <= data_fim_carga
+    ):
+        fig_v1.add_vline(
+            x=quebra_data_carga,
+            line_dash="dot",
+            line_color=BAUHAUS_GRAY,
+            line_width=1.2,
+        )
+        fig_v1.add_annotation(
+            x=quebra_data_carga,
+            y=1.02,
+            yref="paper",
+            text="ONS passa a incluir MMGD na carga",
+            showarrow=False,
+            font=dict(
+                family="Inter, sans-serif",
+                size=10,
+                color=BAUHAUS_GRAY,
+            ),
+            align="center",
+        )
+
+    _xaxis_v1_dict = dict(
+        title=None, showgrid=False, showline=True,
+        linewidth=2, linecolor=BAUHAUS_BLACK,
+        ticks="outside", tickcolor=BAUHAUS_BLACK,
+        tickfont=dict(
+            family="Inter, sans-serif",
+            size=13, color=BAUHAUS_BLACK,
+        ),
+    )
+    if granularidade_carga == "Dia Típico":
+        _xaxis_v1_dict["type"] = "category"
+    else:
+        _xaxis_v1_dict["hoverformat"] = hover_fmt_carga
+
+    fig_v1.update_layout(
+        height=450,
+        margin=dict(l=20, r=20, t=40, b=20),
+        paper_bgcolor=BAUHAUS_CREAM,
+        plot_bgcolor=BAUHAUS_CREAM,
+        separators=",.",
+        hovermode="x unified",
+        hoverlabel=dict(
+            bgcolor=BAUHAUS_CREAM,
+            bordercolor=BAUHAUS_BLACK,
+            font=dict(
+                family="'IBM Plex Mono', 'Courier New', monospace",
+                size=12, color=BAUHAUS_BLACK,
+            ),
+        ),
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom", y=1.02,
+            xanchor="left", x=0,
+            bgcolor="rgba(0,0,0,0)",
+            # Bebas Neue 19 (vs 17 da Geração). Plotly NÃO suporta itemgap
+            # em legend (testado, lança ValueError). Pra criar respiro entre
+            # entradas com label longo ("Renováveis variáveis cobriram"),
+            # o caminho é (a) bump no font.size — texto maior espaça
+            # naturalmente — e (b) trailing spaces nos nomes dos traces
+            # mais curtos (vide name="Carga Total   ").
+            font=dict(
+                family="Bebas Neue, sans-serif",
+                size=19, color=BAUHAUS_BLACK,
+            ),
+        ),
+        xaxis=_xaxis_v1_dict,
+        yaxis=dict(
+            title=None,
+            showgrid=True, gridcolor=BAUHAUS_LIGHT, gridwidth=1,
+            showline=True, linewidth=2, linecolor=BAUHAUS_BLACK,
+            ticks="outside", tickcolor=BAUHAUS_BLACK,
+            tickfont=dict(
+                family="Inter, sans-serif",
+                size=13, color=BAUHAUS_BLACK,
+            ),
+            zeroline=False,
+            tickformat=",.0f",
+        ),
+        font=dict(family="Inter, sans-serif", size=12),
+    )
+
+    st.plotly_chart(
+        fig_v1, use_container_width=True,
+        config={"displaylogo": False},
+    )
+
+    # --- Placeholder até o Bloco 5 ---
+    st.info(
+        "⚙️ **Blocos 1-4 concluídos.** "
+        "Viz 2 (decomposição com ordem da carga líquida) vem no próximo "
+        "bloco desta sessão. Viz 3/4/5 ficam pra Sessão 4b."
+    )
 
 # =============================================================================
 # RODAPÉ — com espaçamento claro para evitar sobreposição

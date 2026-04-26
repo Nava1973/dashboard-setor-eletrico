@@ -82,6 +82,35 @@ desconhecido.
 
 ---
 
+## Sessão futura (prioridade média) — PLD horário com seleção de dia
+
+**Status:** prioridade média — depois de Sessão 4a/4b da Carga, antes ou
+junto com Curtailment.
+
+Hoje a aba PLD tem 4 granularidades (Horário/Diário/Semanal/Mensal) num
+dropdown, mas a granularidade Horária mostra todo o range de período
+selecionado — em janela longa fica ilegível (8.760 pontos × 12 meses).
+
+**Mudança proposta:** modo "1D" análogo ao da Geração (decisão 5.9).
+1 `date_input` "Data base" + presets de janela curta (1D/7D), mostrando
+as 24h × N dias do dia selecionado.
+
+**Útil pra:**
+- Análise de spike intradiário (PLD nas horas de pico).
+- Comparação entre dias específicos (ex: feriado vs dia útil).
+- Análise regulatória de momentos críticos.
+
+**Reuso esperado:**
+- `_render_period_controls_horaria` (5.9) já existe.
+- Loader `load_pld_horaria()` já existe — só precisa do switch de UI.
+
+**Esforço estimado:** ~1-1.5h. Maior parte é UI (switch granularidade
+Horária → modo "Data base + janela", sem mexer em loader). Bug previsto:
+session_state da granularidade do PLD precisa do mesmo padrão de reset
+block unificado (5.20) que a Geração ganhou.
+
+---
+
 ## Sessões futuras (menor prioridade)
 
 Cada uma exige Fase A própria. Listadas em ordem de afinidade temática
