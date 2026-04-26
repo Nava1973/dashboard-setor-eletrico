@@ -43,6 +43,63 @@ existe). Maior parte é UI nova + 4 plots Plotly distintos.
 
 ---
 
+## Sessão futura (alta prioridade) — UX: Preservar estado de período entre trocas de aba
+
+**Status:** alta prioridade — fricção UX recorrente reportada pelo user
+no fluxo "abro Carga, customizo período, dou uma olhada em PLD, volto
+pra Carga e tenho que refazer tudo".
+
+**Comportamento atual (problema):** ao trocar de aba e voltar, as datas
+podem zerar ou voltar pro default. Causa raiz é a decisão **5.16
+estendida (Sessão 1.6)** + **6º gatilho do reset block** que detecta
+`data_ini >= data_fim` (range degenerado) — necessário pra cobrir
+widget-state cleanup do Streamlit, mas hoje sacrifica preservação
+legítima da customização do user.
+
+**Comportamento desejado:**
+1. **1ª visita** → defaults da granularidade (mantém)
+2. **Trocar granularidade** → aplicar default da nova granularidade
+   (mantém — comportamento intencional, troca de modo é mudança de
+   contexto)
+3. **Trocar de aba e voltar** → preservar tudo: período exato, preset
+   ativo, granularidade, submercado, qualquer customização
+
+**Implementação proposta:**
+- Estender **backup paralelo (decisão 5.18)** pras keys de período
+  (`*_data_ini`, `*_data_fim`, `*_data_base`, `*_horaria_window_dias`)
+  em todas as 5 abas (PLD, Reservatórios, ENA, Geração, Carga).
+- Distinguir **2 gatilhos do reset block**:
+  - **Reset hard** (defaults aplicados): 1ª visita absoluta, dataset
+    mudou, transição de granularidade, force_reset (clear_cache).
+  - **Restore soft** (backup paralelo restaurado): widget-state
+    cleanup detectado mas user não trocou de granularidade — restaura
+    do backup em vez de aplicar default.
+- A diferença entre "cleanup parcial sem mudança de modo" e
+  "transição genuína" é a sentinela `_<aba>_last_gran` (já usada na
+  Geração e Carga) — se igual, é cleanup → restore; se diferente, é
+  transição → reset.
+
+**Riscos a considerar:**
+- O 6º gatilho (`data_ini >= data_fim`) não pode ser puramente
+  removido — protege contra recriação degenerada do `st.date_input`
+  sem `value=`. Solução: substituir o reset por restore-do-backup
+  quando esse gatilho dispara fora de transição de granularidade.
+- Backup precisa rodar TODO render (não só pré-widget) — se cleanup
+  ocorrer entre rerun A (backup feito) e rerun B (cleanup), o restore
+  no início de B usa o backup mais recente.
+- Coerência com decisão 5.17 (dois eixos): backup preserva período
+  visível, mas range do dataset (`gen_historico_completo`) continua
+  sendo flag explícita do user.
+
+**Decisão arquitetural nova (5.27)** consolidaria o pattern.
+
+**Esforço estimado:** **2-3h** — UI inalterada, todo o trabalho fica
+no reset block + backup paralelo de cada aba. Maior risco é
+regressão em algum dos 12 cenários validados na Sessão 1.5b — exigir
+re-validação completa.
+
+---
+
 ## Sessão futura (alta prioridade) — Curtailment
 
 **Status:** alta prioridade — tema central da agenda regulatória ANEEL
@@ -108,6 +165,48 @@ as 24h × N dias do dia selecionado.
 Horária → modo "Data base + janela", sem mexer em loader). Bug previsto:
 session_state da granularidade do PLD precisa do mesmo padrão de reset
 block unificado (5.20) que a Geração ganhou.
+
+---
+
+## Sessão futura (prioridade média) — UX: Comportamento do preset 15A quando dados não cobrem
+
+**Status:** prioridade média — fix técnico do crash já aplicado na
+Sessão 4a (clamp em `min_d` no `_render_period_controls`,
+`app.py:650-655`). Sessão futura discute apenas a UX do clamp.
+
+**Comportamento atual (pós-fix):** quando preset pede período maior que
+`(max_d - min_d).days` (ex: 15A na Carga sem histórico completo →
+data_ini=2011-04-28 < min_d=2012-01-01), o clamp em `min_d` faz a
+seleção degenerar pra equivalente de "Máx". Resultado: botão "Máx" fica
+amarelo silenciosamente, 15A não fica destacado. Honesto sobre dados
+disponíveis, mas pode confundir user que esperava "15 anos".
+
+**3 alternativas a discutir:**
+
+(a) **Manter atual** — Máx amarelo, sem caption. Honesto sobre dados
+disponíveis, zero ruído visual. Custo: user pode não notar que pediu
+15A e recebeu 14a.
+
+(b) **Sugerir ativar histórico completo via caption** — quando o clamp
+acontece, mostrar caption pequena "15A não disponível com dataset atual.
+Carregue o histórico completo (botão acima) pra ver os 15 anos."
+Educativo, conecta os 2 eixos da decisão 5.17. Custo: caption fica
+visível em todo render desse cenário, pode virar ruído se o user
+explicitamente quer ficar nos 15a.
+
+(c) **Manter 15A amarelo + caption explicativo** — preserva sinal do
+preset clicado mesmo após clamp + esclarece o que aconteceu. Mais
+complexo (a detecção de "preset ativo" da linha 624 usa
+`(max_d - data_ini).days == delta`, que não bate após clamp — exigiria
+flag adicional `_<aba>_preset_clicado` em session_state). Trade-off:
+mais state pra manter consistente, mas UX mais expressiva.
+
+**Preferência inicial:** (b) — adiciona valor educativo sem complicar
+state. Mas vale conversar com user antes.
+
+**Esforço estimado:** **~30 min** (caso (b)) ou **~1h** (caso (c)).
+Mudança contida ao `_render_period_controls` + caller (caption
+condicional após o helper).
 
 ---
 

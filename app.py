@@ -251,44 +251,33 @@ st.markdown(
         color: {BAUHAUS_BLACK} !important;
     }}
 
-    /* Expander Bauhaus — mesma família de problema do stAlert (decisão
-       5.23): tema dark deixa textColor branco/cinza-claro herdado pelo
-       conteúdo do expander, ficando ilegível sobre fundo cream. Diagnóstico
-       via DevTools mostrou (a) header preto-sobre-preto + Material Symbols
-       icon vazando como TEXTO ("arrow_drop_down" literal porque a regra
-       global de font-family Inter !important sobrescreveu a font do ícone),
-       e (b) conteúdo cinza-claro sobre cream. Ataque cirúrgico:
-       - Header (summary): fundo cream-light + texto/ícone preto.
-       - Conteúdo: fundo cream + borda preta + texto preto.
-       - Ícone: exceção de font-family que devolve Material Symbols
-         (sem essa exceção, o nome do ícone aparece como literal).
-       - Prefixo [data-testid="stExpander"] mantém escopo — não atinge
-         expanders eventuais na sidebar (que tem fundo dark + texto cream). */
+    /* Expander Bauhaus — mesma família do stAlert (decisão 5.23): tema dark
+       herda textColor cinza-claro no conteúdo do expander, ilegível sobre
+       cream. Refinamento Sessão 4a: header SEM caixa (texto puro clicável,
+       não compete visualmente com KPIs acima); painel aberto ganha caixa
+       só ao redor do CONTEÚDO (borda preta 2px completa + fundo cream-light).
+       O chevron ▶/▼ é injetado via JS (TreeWalker troca o nome do ícone
+       Material Symbols vazando como texto) — ver bloco em ~linha 525.
+       Prefixo [data-testid="stExpander"] mantém escopo — não atinge
+       expanders eventuais na sidebar (fundo dark + texto cream). */
     [data-testid="stExpander"] details > summary {{
-        background-color: {BAUHAUS_LIGHT} !important;
+        background-color: transparent !important;
         color: {BAUHAUS_BLACK} !important;
-        border: 2px solid {BAUHAUS_BLACK} !important;
+        border: none !important;
         border-radius: 0 !important;
         font-family: 'Inter', sans-serif !important;
         font-weight: 600 !important;
-        padding: 0.5rem 1rem !important;
+        padding: 0.4rem 0 !important;
     }}
     [data-testid="stExpander"] details > summary p,
     [data-testid="stExpander"] details > summary span,
     [data-testid="stExpander"] details > summary div {{
         color: {BAUHAUS_BLACK} !important;
     }}
-    /* NOTA: o chevron do summary (nome do ícone "arrow_drop_down" vazando
-       como texto) NÃO é resolvido por CSS — devolver font-family Material
-       Symbols não funcionou (testado, font não carrega no contexto do
-       summary). Solução: substituição via JS no setInterval do componente
-       de "ícones invisíveis" (linhas ~525-590) — TreeWalker troca o
-       texto pelo glifo Unicode ▼/▲. Mesmo padrão da sidebar. */
     [data-testid="stExpanderDetails"] {{
-        background-color: {BAUHAUS_CREAM} !important;
+        background-color: {BAUHAUS_LIGHT} !important;
         color: {BAUHAUS_BLACK} !important;
         border: 2px solid {BAUHAUS_BLACK} !important;
-        border-top: none !important;
         border-radius: 0 !important;
         padding: 1rem !important;
     }}
@@ -658,8 +647,15 @@ def _render_period_controls(
                 if is_max:
                     st.session_state[session_key_ini] = min_d
                 else:
-                    st.session_state[session_key_ini] = (
-                        max_d - timedelta(days=delta)
+                    # Clamp em min_d: presets longos (ex: 15A na Carga sem
+                    # histórico completo) podem cair abaixo do range
+                    # disponível. Sem o clamp, o date_input rerun-instanciado
+                    # com value=min_d-X dias estoura StreamlitAPIException
+                    # (default fora de [min_value, max_value]). Quando a
+                    # janela do preset excede o range, ele degenera pra Máx
+                    # — comportamento intencional, melhor que crash.
+                    st.session_state[session_key_ini] = max(
+                        min_d, max_d - timedelta(days=delta)
                     )
                 st.session_state[session_key_fim] = max_d
                 st.rerun()
