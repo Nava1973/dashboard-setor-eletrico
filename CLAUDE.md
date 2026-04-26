@@ -1704,6 +1704,10 @@ ambiente fresh do Cloud.
 
 ## 8. Referências Cruzadas
 
+- **`docs/roadmap.md`** — roadmap futuro do projeto (pós-encerramento
+  do roadmap original da Geração). Sessão 4 Carga (próxima na fila),
+  Curtailment (alta prioridade), + 3 sessões futuras de menor prioridade
+  (carga por classe, componentes da carga, carga vs PIB).
 - **`docs/sessao_geracao_status.md`** — status da aba Geração: roadmap
   de 3+1 sessões, histórico das mudanças, bugs descobertos/corrigidos
   na Sessão 1 (referenciados pelas decisões 5.11-5.13).

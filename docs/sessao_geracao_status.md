@@ -22,9 +22,9 @@
 > - **(pendente)** Sessão 3 (docs: GD descartada + decisão 5.26 + script
 >   `inspect_gd.py`)
 >
-> Próximas direções de evolução **fora deste roadmap**: aba "Carga"
-> dedicada (Etapa 4 do `aba_geracao_spec.md`), aba curtailment (Etapa 5),
-> ou aba "GD Brasil" via ANEEL (projeto separado, decisão 5.26).
+> Próximas direções de evolução **fora deste roadmap** registradas em
+> `docs/roadmap.md` (Sessão 4 Carga, Curtailment alta-prio, e
+> 3 sessões futuras de menor prioridade).
 
 ---
 
