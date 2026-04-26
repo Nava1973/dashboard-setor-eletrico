@@ -91,7 +91,8 @@ legítima da customização do user.
   visível, mas range do dataset (`gen_historico_completo`) continua
   sendo flag explícita do user.
 
-**Decisão arquitetural nova (5.27)** consolidaria o pattern.
+**Decisão arquitetural nova (5.28)** consolidaria o pattern (5.27 foi
+usada na Sessão 4a pelo ajuste de presets/tooltip do Máx).
 
 **Esforço estimado:** **2-3h** — UI inalterada, todo o trabalho fica
 no reset block + backup paralelo de cada aba. Maior risco é

@@ -633,27 +633,35 @@ def _render_period_controls(
     # 4-5 presets (PLD/Reservatórios/ENA, ~161px). A partir de 6 presets a
     # fração de coluna cai abaixo do mínimo pra `dd/mm/yyyy` caber sem
     # corte (~131px), então sobe pra 1.8 (~165px). Não afeta as 3 abas
-    # com presets antigos — só Geração após +10A/15A.
+    # com presets antigos — só Geração/Carga após +10A.
     date_ratio = 1.8 if n > 5 else 1.4
     cols = st.columns([1] * n + [0.3, date_ratio, date_ratio])
 
     for i, (label, delta, is_max) in enumerate(presets):
         with cols[i]:
             tipo = "primary" if label == preset_atual else "secondary"
+            # Tooltip dinâmico só no Máx — mostra o período real coberto
+            # (varia conforme estado de gen_historico_completo nas abas
+            # Carga/Geração: sem histórico ~2012, com histórico 2000).
+            # Decisão 5.27. Outros presets (5A/10A) são autoexplicativos.
+            help_text = (
+                f"Máx — desde {min_d.strftime('%d/%m/%Y')}"
+                if is_max else None
+            )
             if st.button(
                 label, use_container_width=True,
                 key=f"{key_prefix}{label}", type=tipo,
+                help=help_text,
             ):
                 if is_max:
                     st.session_state[session_key_ini] = min_d
                 else:
-                    # Clamp em min_d: presets longos (ex: 15A na Carga sem
-                    # histórico completo) podem cair abaixo do range
-                    # disponível. Sem o clamp, o date_input rerun-instanciado
-                    # com value=min_d-X dias estoura StreamlitAPIException
-                    # (default fora de [min_value, max_value]). Quando a
-                    # janela do preset excede o range, ele degenera pra Máx
-                    # — comportamento intencional, melhor que crash.
+                    # Defesa em profundidade: clamp em min_d caso preset
+                    # exceda o range disponível. 15A foi removido por
+                    # degenerar pra Máx no dataset padrão ~14a (decisão
+                    # 5.27), mas o clamp permanece — protege qualquer
+                    # preset futuro contra StreamlitAPIException quando
+                    # date_input é re-instanciado com value < min_value.
                     st.session_state[session_key_ini] = max(
                         min_d, max_d - timedelta(days=delta)
                     )
@@ -2625,9 +2633,11 @@ elif aba == "Geração":
             st.stop()
 
         # Mensal sem "1M": 1 mês dá 1 ponto, cai no guard de <2 pontos.
-        # Sessão 1.5b: presets revisados — Mensal ganha 10A e 15A; Diária
+        # Sessão 1.5b: presets revisados — Mensal ganha 10A; Diária
         # ganha 10A. "Máx" continua respeitando o range do dataset (15a ou
         # completo conforme gen_historico_completo). Decisão 5.17.
+        # 15A removido na Sessão 4a (decisão 5.27): degenerava pra Máx no
+        # dataset padrão (~14a), tooltip dinâmico do Máx esclarece o range.
         if granularidade_gen == "Mensal":
             presets_gen = [
                 ("3M",  90,  False),
@@ -2635,7 +2645,6 @@ elif aba == "Geração":
                 ("12M", 365, False),
                 ("5A",  1825, False),
                 ("10A", 3650, False),
-                ("15A", 5475, False),
                 ("Máx", None, True),
             ]
         elif granularidade_gen == "Dia Típico":
@@ -3498,13 +3507,15 @@ elif aba == "Carga":
             st.stop()
 
         if granularidade_carga == "Mensal":
+            # 15A removido na Sessão 4a (decisão 5.27): degenerava pra Máx
+            # no dataset padrão (~14a), tooltip dinâmico do Máx esclarece
+            # o range real conforme gen_historico_completo.
             presets_carga = [
                 ("3M",  90,   False),
                 ("6M",  180,  False),
                 ("12M", 365,  False),
                 ("5A",  1825, False),
                 ("10A", 3650, False),
-                ("15A", 5475, False),
                 ("Máx", None, True),
             ]
         elif granularidade_carga == "Dia Típico":
