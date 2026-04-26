@@ -109,20 +109,68 @@ SUBMERCADO_MAP = {
 
 ---
 
-## 4. Fonte de dados secundária: GD mensal (ONS)
+## 4. Geração Distribuída (GD) — escopo descartado
 
-### 4.1. Por que separar
-A Geração Distribuída **não** aparece no dataset `balanco_energia_subsistema`. Ela vem:
-- Estimada (não medida) pelo ONS a partir de dados meteorológicos
-- Em granularidade mensal
-- Já incorporada à série de **carga** do ONS a partir de **29/04/2023** (ver seção 7 — quebra metodológica)
+> ⚠️ **Decisão (Sessão 3, 2026-04-26): GD via ONS não é viável.**
+> Esta seção foi reescrita após Fase A de discovery no CKAN ONS desmentir
+> a hipótese original. Ver `CLAUDE.md` decisão 5.26 e
+> `docs/sessao_geracao_status.md` Sessão 3 para o histórico completo.
 
-### 4.2. Implementação
-Criar um `data_loader_ons_gd.py` **separado**, a ser implementado em etapa posterior.
-Por ora, a aba deve funcionar **sem GD**, com um espaço reservado no stacked (faixa de GD desabilitável via toggle).
+### 4.1. Hipótese original (incorreta)
 
-Para a primeira entrega: **implementar apenas o `balanco_energia_subsistema`** e deixar a estrutura
-pronta para receber GD como uma 5ª faixa no topo do stacked.
+A versão inicial desta spec assumia que o ONS publicava uma série de MMGD
+estimada por subsistema em granularidade mensal, e propunha:
+- Loader separado `data_loader_ons_gd.py`
+- 5ª faixa vermelha no topo do stacked
+- Toggle pra ativar/desativar
+
+**A hipótese não foi verificada antes de a spec ser escrita.**
+
+### 4.2. O que a Fase A da Sessão 3 descobriu
+
+Sondagem completa do CKAN ONS (`scripts/inspect_gd.py`) — `package_list`
+80 entries + `package_search` em "geração distribuída", "MMGD", "micro
+minigeração", "fotovoltaica":
+
+1. **Não existe dataset standalone** de MMGD/GD por subsistema no ONS.
+2. **`balanco-energia-subsistema`** (que já usamos) **não tem coluna de
+   GD**. Schema confirmado em parquets 2024/2025/2026: 9 colunas, nenhuma
+   com keyword `gd`/`mmgd`/`distribuid`/`micro`/`mini`. `val_gersolar`
+   é solar **centralizada** (UFV grande), não MMGD.
+3. **MMGD vai embutida na carga.** Notes do ONS confirmam:
+   - `carga-energia` (Diária): *"A partir de 29/04/2023, além dos dados
+     anteriormente considerados, passou a ser incorporado o valor estimado
+     da micro e minigeração distribuída (MMGD), com base em dados
+     meteorológicos previstos."*
+   - `carga-mensal`: idem.
+   - Ambos têm schema minimalista (4 colunas) — **não isolam MMGD** como
+     componente.
+4. **Único dataset com MMGD isolada:** `carga-energia-verificada`
+   (semi-horária, por **área de carga**, via API/Swagger). Custo de
+   integração alto (mapping área→subsistema novo + paginação API + risco
+   de cobertura temporal curta) sem benefício proporcional.
+
+### 4.3. Decisão final
+
+**A aba Geração mantém 4 fontes** (térmica, hidráulica, eólica, solar
+centralizada), sem 5ª faixa de GD. A existência de MMGD na carga é
+comunicada visualmente pela vline + anotação 29/04/2023 (seção 7), que
+**já está implementada e visível no gráfico**.
+
+### 4.4. Caminhos de evolução futura (fora desta aba)
+
+Se em algum momento "GD Brasil" virar projeto:
+
+- **Plano B (ONS `carga-energia-verificada`)**: única fonte ONS com MMGD
+  isolada. Granularidade semi-horária, espacial por área de carga, via
+  API. Investigar cobertura temporal antes de comprometer escopo.
+- **Plano C (ANEEL — cadastro MMGD)**: fonte oficial, mensal, por
+  consumidor/UC. Esforço alto (extra layer de mensalização + mapping
+  estado→subsistema + estimativa de fator de capacidade). Mais coerente
+  como **aba dedicada "GD Brasil"** do que como faixa do stacked atual.
+
+Nenhum dos dois é trivial — fica reservado pra possível Sessão 4+ futura,
+não como continuação natural da aba Geração.
 
 ---
 
@@ -248,9 +296,12 @@ No gráfico, quando o período selecionado **cruzar** 29/04/2023:
 
 Não alterar os dados de carga — apenas sinalizar a quebra.
 
-### 7.2. Ao implementar GD (etapa 2)
-Aí sim faz sentido revisitar: pode ser necessário "subtrair" GD da carga pós-2023 para reconstruir
-uma série consistente. Deixar comentário `# TODO: revisitar quando GD for implementada` no código.
+### 7.2. ~~Ao implementar GD (etapa 2)~~ — descartado
+
+Hipótese original previa subtrair GD da carga pós-2023 pra reconstruir série
+consistente. **Inviável dada a Fase A da Sessão 3** (ver §4): ONS não publica
+MMGD isolada por subsistema. A vline + anotação atual é a forma definitiva
+de tratar a quebra na aba Geração.
 
 ---
 
@@ -414,7 +465,9 @@ Se os números derem fora dessas faixas, há erro na agregação ou na normaliza
 
 ## 13. Etapas futuras (fora desta entrega)
 
-- **Etapa 2:** Implementar `data_loader_ons_gd.py` e adicionar GD ao stacked
+- ~~**Etapa 2:**~~ ~~Implementar `data_loader_ons_gd.py` e adicionar GD ao stacked~~
+  → **descartada na Sessão 3** (ver §4). Possível aba dedicada "GD Brasil" via
+  ANEEL fica como projeto separado, não evolução desta aba.
 - **Etapa 3:** Pequenos múltiplos — 4 mini stacked areas lado a lado (um por submercado)
 - **Etapa 4:** Revisitar quebra de 29/04/2023 ao implementar aba de Carga
 - **Etapa 5:** Aba de curtailment (datasets de restrição + `geracao_usina_2`)

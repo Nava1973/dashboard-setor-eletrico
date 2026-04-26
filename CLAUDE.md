@@ -1386,6 +1386,66 @@ de "média do período em Diária".
   derivada>).mean()` sobre dados horários do mesmo dataset, com Plotly
   X categorial preservando ordem natural.
 
+### 5.26 GD descartada via ONS após Fase A da Sessão 3
+
+**Decisão:** a aba Geração mantém **4 fontes** (térmica, hidráulica,
+eólica, solar centralizada). Não haverá 5ª faixa de GD/MMGD. A
+existência de MMGD na carga pós-29/04/2023 já é comunicada pela vline
++ anotação visual no gráfico — solução suficiente.
+
+**Achado da Fase A** (script `scripts/inspect_gd.py`, sondagem completa
+do CKAN ONS — `package_list` 80 entries + `package_search` em "geração
+distribuída", "MMGD", "micro minigeração", "fotovoltaica"):
+
+1. **Não existe dataset standalone** de MMGD/GD por subsistema no ONS.
+2. **`balanco-energia-subsistema`** (que já usamos) **não tem coluna de
+   GD**. Schema 9 colunas em parquets 2024/2025/2026, nenhuma com
+   keyword `gd`/`mmgd`/`distribuid`/`micro`/`mini`. `val_gersolar` é
+   solar **centralizada** (UFV grande), não MMGD.
+3. **MMGD vai embutida na carga** desde 29/04/2023 — confirmado nas
+   notes do `carga-energia` (Diária) e `carga-mensal`. Ambas com schema
+   minimalista (4 colunas), sem isolar MMGD como componente.
+4. **Único dataset com MMGD isolada:** `carga-energia-verificada`
+   (semi-horária, por **área de carga**, via API/Swagger). Mapping
+   área→subsistema novo + paginação API + risco de cobertura temporal
+   curta (não validada). Custo alto vs benefício de uma única série
+   adicional no stacked.
+
+**Razão da decisão:**
+- A spec original (`docs/aba_geracao_spec.md` §4 antes da revisão) foi
+  escrita sobre **hipótese não verificada** ("ONS publica MMGD mensal
+  por subsistema"). Premissa errada — Fase A só descobriu ao tentar
+  achar o dataset.
+- Vline + anotação 29/04/2023 (`app.py:2898`) já comunica visualmente
+  que carga pós-essa-data inclui MMGD. Cumpre o objetivo informativo
+  sem requerer nova fonte.
+- Plano B (carga-energia-verificada) traria custo de integração alto
+  (API nova, mapping novo) por um único componente extra — assimetria
+  custo/benefício ruim.
+
+**Caminhos reservados pra futuro (NÃO continuação desta aba):**
+- **Plano B (ONS `carga-energia-verificada`)**: viável tecnicamente
+  mas exige Fase A.2 separada (cobertura temporal, schema, mapping)
+  antes de comprometer escopo.
+- **Plano C (ANEEL — cadastro MMGD)**: fonte oficial, mensal, por
+  consumidor/UC. Mais coerente como **aba dedicada "GD Brasil"** do
+  que como faixa do stacked atual. Esforço alto (mensalização +
+  mapping estado→subsistema + estimativa de fator de capacidade).
+
+**O que NÃO removemos do código:**
+- Stub `load_gd_ons()` em `data_loader.py:1754` — fica como marcador
+  histórico. Comentário acima dele descreve a decisão de descarte.
+- `scripts/inspect_gd.py` — artefato de descoberta. Vale como
+  referência pra futuros que queiram revisitar GD via outra fonte.
+- Vline + anotação 29/04/2023 no gráfico — agora é a forma DEFINITIVA
+  de comunicar MMGD na carga, não placeholder até "implementar GD".
+
+**Lição aprendida:** specs que assumem existência de dataset externo
+sem validar via discovery (Fase A) introduzem risco de retrabalho. O
+padrão estabelecido (Reservatórios, ENA, Balanço — todos com Fase A
+prévia documentada em `docs/*_research.md`) é o caminho certo.
+Validar fonte ANTES de prometer feature.
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
@@ -1624,6 +1684,21 @@ ambiente fresh do Cloud.
     `"dia_tipico"` no filename. Apenas 3 pontos divergem do flow
     tradicional: eixo X, vline, formato de export — KPIs/título/legenda/
     hover dos traces continuam reusados sem refator.
+22. **Sessão 3 — GD descartada via ONS (sem código)** — 2026-04-26.
+    Fase A de discovery do CKAN ONS via `scripts/inspect_gd.py` desmentiu
+    a hipótese original da spec (que assumia "ONS publica MMGD mensal por
+    subsistema"). Achado: ONS não publica série standalone de MMGD/GD —
+    `balanco_energia_subsistema` não tem coluna de GD; MMGD vai embutida
+    na carga pós-29/04/2023 (notes do `carga-energia` e `carga-mensal`
+    confirmam); único dataset com MMGD isolada é `carga-energia-verificada`
+    (semi-horária, por área de carga, via API/Swagger — custo/benefício
+    ruim). **Decisão 5.26:** aba Geração mantém 4 fontes (térmica/hidro/
+    eólica/solar centralizada), vline 29/04/2023 já comunica visualmente
+    a existência de MMGD na carga. Plano C (ANEEL) reservado pra possível
+    aba dedicada "GD Brasil" futura, não evolução desta aba. Atualizações:
+    spec §4 reescrita, spec §7.2 e §13 marcadas como descartadas, decisão
+    5.26 nova no CLAUDE.md, Sessão 3 fechada como ✅ SEM CÓDIGO no doc
+    de status. **Roadmap original encerrado.**
 
 ---
 
@@ -1645,6 +1720,9 @@ ambiente fresh do Cloud.
 - **`scripts/validate_reservatorios.py`** — utilitário validação ONS EAR.
 - **`scripts/validate_ena.py`** — utilitário validação ONS ENA.
 - **`scripts/inspect_ena.py`** — utilitário de descoberta CKAN ENA (Fase A).
+- **`scripts/inspect_gd.py`** — utilitário de descoberta CKAN ONS pra GD/MMGD
+  (Sessão 3, 2026-04-26). Resultado: ONS não publica MMGD standalone por
+  subsistema. Decisão 5.26 — GD descartada da aba Geração.
 - **`requirements.txt`** — deps Python com versões.
 - **`config.yaml.example`** — template de configuração de auth.
 - **`.streamlit/config.toml`** — tema Streamlit.

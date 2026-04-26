@@ -1,23 +1,30 @@
 # Status da sessão — Aba Geração (ONS Balanço de Energia)
 
-> **Sessão 2 (Dia Típico) FECHADA em 2026-04-25.** Nova granularidade
-> "Dia Típico" implementada: stacked area com 24 ticks `00:00...23:00`
-> mostrando média horária ao longo do período selecionado (curva de
-> pato canônica). 1 decisão arquitetural nova (5.25) + 5.20 estendida
-> com default 30D pra Dia Típico. Sintaxe ✅ após cada mudança;
-> testes de ponta a ponta validados pelo user.
+> **Sessão 3 (GD) FECHADA SEM CÓDIGO em 2026-04-26.** Fase A de
+> discovery via `scripts/inspect_gd.py` desmentiu a hipótese original
+> da spec ("ONS publica MMGD mensal por subsistema"). Achado: ONS não
+> publica série standalone de MMGD/GD por subsistema — MMGD vai
+> embutida na carga pós-29/04/2023, sem isolamento como componente.
+> Único dataset com MMGD separada (`carga-energia-verificada`) tem
+> custo/benefício ruim (semi-horária, por área de carga, via API).
+> **Decisão 5.26:** aba mantém 4 fontes; vline + anotação 29/04/2023
+> já comunica MMGD na carga. Plano C (ANEEL) reservado pra possível
+> aba dedicada "GD Brasil" futura. **Roadmap original encerrado.**
 >
-> Branch local: **6 commits no main** (5 pushed + 1 a pushar):
+> Branch local: **6 commits no main, todos em `origin/main`** (working tree
+> limpo, 0 ahead) + 1 commit pendente da Sessão 3 (só docs, sem código):
 > - `87a1eb1` — 5 gráficos empilhados (pré-reversão)
 > - `e7db917` — Sessão 1 (reversão pra gráfico único + fixes)
 > - `efc7c38` — Sessão 1.5 (performance: disk-cache + filter sem dt.date)
 > - `9142e9c` — Sessão 1.5b (perf global + default 15a + UX dois eixos)
 > - `1d58509` — Sessão 1.6 (ajustes estéticos + bug retorno de aba)
-> - **(pendente)** Sessão 2 (Dia Típico — perfil 24h)
+> - `a3089a0` — Sessão 2 (Dia Típico — perfil 24h)
+> - **(pendente)** Sessão 3 (docs: GD descartada + decisão 5.26 + script
+>   `inspect_gd.py`)
 >
-> Push da Sessão 2: pendente, aguardando review da mensagem.
->
-> Próxima sessão é a **3 (GD)** — última do roadmap original. Ver §0.
+> Próximas direções de evolução **fora deste roadmap**: aba "Carga"
+> dedicada (Etapa 4 do `aba_geracao_spec.md`), aba curtailment (Etapa 5),
+> ou aba "GD Brasil" via ANEEL (projeto separado, decisão 5.26).
 
 ---
 
@@ -487,11 +494,69 @@ autoexplicativos).
 - **5.20 estendida** com default Dia Típico → 30D (sweet spot UX:
   captura padrão weekday/weekend, dilui anomalias diárias).
 
-### Sessão 3 — GD (Geração Distribuída)
+### Sessão 3 — GD (Geração Distribuída) · ✅ CONCLUÍDA SEM CÓDIGO (2026-04-26)
 
-Implementar `data_loader_ons_gd.py` de verdade (estimativa mensal do
-ONS — hoje é stub). Adicionar GD como **5ª faixa vermelha no topo do
-stacked**. Revisitar tratamento da quebra de 29/04/2023 na carga.
+**Resultado:** decisão arquitetural após Fase A de discovery. **Nenhum
+código de feature implementado** — só script de discovery + atualização
+de docs. Roadmap original encerrado.
+
+**Hipótese original (incorreta):** ONS publica estimativa mensal de
+MMGD por subsistema, daria pra adicionar como 5ª faixa vermelha do
+stacked via novo `data_loader_ons_gd.py`. **Premissa nunca foi validada
+antes da spec ser escrita.**
+
+**Fase A — Discovery (`scripts/inspect_gd.py`):**
+
+Sondagem completa do CKAN ONS — `package_list` 80 entries +
+`package_search` em "geração distribuída", "MMGD", "micro minigeração",
+"fotovoltaica" + verificação direta do schema dos parquets relevantes.
+
+**Achados:**
+
+1. **Não existe dataset standalone** de MMGD/GD por subsistema no ONS.
+2. **`balanco-energia-subsistema`** (que já usamos) **não tem coluna de
+   GD**. Schema 9 colunas em parquets 2024/2025/2026, nenhuma com
+   keyword `gd`/`mmgd`/`distribuid`/`micro`/`mini`. `val_gersolar` é
+   solar **centralizada** (UFV grande), não MMGD.
+3. **MMGD vai embutida na carga** desde 29/04/2023:
+   - `carga-energia` (Diária) note: *"A partir de 29/04/2023, além dos
+     dados anteriormente considerados, passou a ser incorporado o valor
+     estimado da micro e minigeração distribuída (MMGD), com base em
+     dados meteorológicos previstos."*
+   - `carga-mensal`: idem.
+   - Schema minimalista (4 colunas) — não isola MMGD.
+4. **Único dataset com MMGD isolada:** `carga-energia-verificada`
+   (semi-horária, por área de carga, via API/Swagger). Mapping
+   área→subsistema novo + paginação API + risco de cobertura temporal
+   curta. Custo alto vs benefício de UMA série adicional.
+
+**Decisão (5.26 do CLAUDE.md):**
+
+A aba Geração mantém **4 fontes** (térmica, hidráulica, eólica, solar
+centralizada). Vline + anotação 29/04/2023 (`app.py:2898`) já comunica
+visualmente que carga pós-essa-data inclui MMGD — solução suficiente.
+
+**Caminhos reservados pra futuro (NÃO continuação desta aba):**
+- **Plano B (ONS `carga-energia-verificada`)**: viável tecnicamente
+  mas exige Fase A.2 separada antes de comprometer escopo.
+- **Plano C (ANEEL — cadastro MMGD)**: fonte oficial, mais coerente
+  como **aba dedicada "GD Brasil"** do que como faixa do stacked.
+
+**Artefatos da sessão:**
+- `scripts/inspect_gd.py` — mantido no repo como artefato de descoberta.
+- `data_loader.py:1754` `load_gd_ons()` — stub mantido como marcador
+  histórico (comentário acima descreve a decisão 5.26).
+- `docs/aba_geracao_spec.md` §4 reescrito + §7.2 e §13 marcadas como
+  descartadas.
+- `CLAUDE.md` §5.26 nova + entrada 22 da timeline §7.
+
+**Lição aprendida:** specs que assumem existência de dataset externo
+sem validar via discovery (Fase A) introduzem risco de retrabalho. O
+padrão estabelecido (Reservatórios, ENA, Balanço — todos com Fase A
+prévia documentada em `docs/*_research.md`) é o caminho certo. Validar
+fonte ANTES de prometer feature.
+
+---
 
 ---
 
@@ -779,8 +844,7 @@ Próxima sessão é a **Sessão 1.6 (ajustes estéticos & UX)** ou
   pós-guard, **5.25 "Dia Típico" como granularidade não-temporal via
   reagregação por hora-do-dia (Sessão 2)**; 5.14 marcada como SUPERADA
   pela 5.20 + 5.24).
-- Commits relevantes (5 em `origin/main` após push em 2026-04-25 +
-  1 pendente da Sessão 2):
+- Commits relevantes (6 em `origin/main` + 1 pendente da Sessão 3):
   - `87a1eb1` (2026-04-23) — Geração 1ª versão (5 gráficos empilhados,
     antes da reversão).
   - `e7db917` (2026-04-24) — Sessão 1: reversão pra gráfico único +
@@ -796,9 +860,12 @@ Próxima sessão é a **Sessão 1.6 (ajustes estéticos & UX)** ou
   - `1d58509` (2026-04-25) — Sessão 1.6: 7 ajustes estéticos + 3
     bonus + bug retorno de aba + decisões 5.21-5.24 + 5.16/5.19
     estendidas.
-  - **(pendente)** Sessão 2: nova granularidade Dia Típico (perfil
-    24h por hora-do-dia) + decisão 5.25 + 5.20 estendida com default
-    30D.
+  - `a3089a0` (2026-04-25) — Sessão 2: nova granularidade Dia Típico
+    (perfil 24h por hora-do-dia) + decisão 5.25 + 5.20 estendida com
+    default 30D.
+  - **(pendente)** Sessão 3: GD descartada via ONS após Fase A
+    (decisão 5.26) + script `scripts/inspect_gd.py` + atualização de
+    `aba_geracao_spec.md` §4/§7.2/§13.
   - Anteriores (já estavam em `origin/main`): `4be9f33`, `80634b5`,
     `87c8e72`.
 - Disk-caches dos datasets ONS (Sessão 1.5b):
