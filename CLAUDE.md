@@ -1446,6 +1446,92 @@ padrão estabelecido (Reservatórios, ENA, Balanço — todos com Fase A
 prévia documentada em `docs/*_research.md`) é o caminho certo.
 Validar fonte ANTES de prometer feature.
 
+### 5.27 Presets refletem dados disponíveis (sem preset que vira outro)
+
+**Decisão:** botões de preset de período (1M / 3M / 6M / 12M / 5A /
+10A / 15A / Máx) só são oferecidos se o range é REAL no dataset
+corrente. **Preset que silenciosamente clamp-a pra outro não é
+honesto** — usuário clica "15A" esperando 15 anos, recebe "Máx" sem
+feedback visual de que o significado foi degradado. Solução: remover
+o preset enganador, e oferecer **tooltip dinâmico no Máx** que
+explicita a data inicial real do range disponível.
+
+**Caso que motivou (Sessão 4a — Aba Carga, commit `be88e85`):** as
+abas Geração e Carga oferecem 2 estados de range (15 anos default,
+completo via `gen_historico_completo` / `carga_historico_completo`
+— decisão 5.17). No estado default (~14 anos), o preset "15A" da
+granularidade Mensal clampava pra `min_d` real (~01/01/2012) —
+visualmente idêntico a clicar "Máx". Usuário ficou confuso.
+
+**Implementação (3 partes):**
+
+1. **Remoção do 15A** (`app.py:3044-3045` Geração; `app.py:3931`
+   Carga) — lista Mensal nova nas duas abas: `3M / 6M / 12M / 5A /
+   10A / Máx`. Reservatórios/ENA já topavam em 10A, PLD topa em
+   12M — não tinham 15A, não foram afetados.
+
+2. **Tooltip dinâmico no Máx** no helper compartilhado
+   `_render_period_controls` (`app.py:687-694`):
+
+   ```python
+   help_text = (
+       f"Máx — desde {min_d.strftime('%d/%m/%Y')}"
+       if is_max else None
+   )
+   if st.button(label, ..., help=help_text):
+       ...
+   ```
+
+   Aplicado nas 5 abas (PLD, Reservatórios, ENA, Geração, Carga).
+   Outros presets (5A/10A) ficam sem tooltip — autoexplicativos.
+   **Bug colateral fixado em `d6337ed`:** o `help=` envelopa o
+   button num `<div data-testid="stTooltipHoverTarget">`, quebrando
+   `.stButton > button` (combinator filho direto). Fix lateral:
+   trocar pra `.stButton button[kind]` (descendente, com `[kind]`
+   filtrando button interno do tooltip). Não é parte da 5.27, mas é
+   consequência direta da introdução do `help=`.
+
+3. **Clamp em `min_d` como defesa em profundidade**
+   (`app.py:703-711`):
+
+   ```python
+   # Protege qualquer preset futuro contra StreamlitAPIException
+   # quando date_input é re-instanciado com value < min_value,
+   # mesmo após a remoção do 15A.
+   st.session_state[session_key_ini] = max(
+       min_d, max_d - timedelta(days=delta)
+   )
+   ```
+
+   Não dispara em uso normal pós-5.27 (todos os presets cabem), mas
+   previne regressão se um preset novo for adicionado e exceder o
+   range em algum cenário.
+
+**Trade-off aceito:** perda do "15A" como atalho rápido. Aceitável
+porque (a) 15A degenerava pra Máx no dataset default de qualquer
+jeito — o atalho era ilusório, (b) usuário que quer expandir pra
+2000 tem botão dedicado "Estender histórico para 2000" (decisão
+5.17), (c) Máx + tooltip dinâmico cumpre o papel de "ver o range
+completo disponível" com transparência.
+
+**Quando aplicar este padrão:**
+
+- Ao adicionar preset novo: validar se o range cabe no dataset
+  DEFAULT (não só no estendido). Se vai degenerar pra Máx em
+  cenário comum, escolher: cortar o preset OU expandir o default.
+- Tooltip dinâmico em qualquer preset cujo significado depende de
+  estado runtime (range disponível, modo de granularidade, flag de
+  histórico).
+
+**Quando NÃO aplica:**
+
+- Presets curtos que sempre cabem (1M / 3M / 6M / 12M cabem em
+  qualquer dataset com >1 ano de histórico) — não precisam de
+  tooltip nem cuidado especial.
+- Presets com range fixo conhecido, independente de flags (ex:
+  "Período úmido atual" da ENA — derivação calculada sobre dataset
+  completo, sem variação por estado).
+
 ### 5.28 Preset "1D" em granularidade horária do PLD
 
 **Decisão:** quando uma granularidade horária permite seleção de "1
