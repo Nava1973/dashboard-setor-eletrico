@@ -65,6 +65,15 @@ BAUHAUS_CREAM = "#F5F1E8"    # creme (papel) em vez de branco estéril
 BAUHAUS_GRAY = "#4A4A4A"     # cinza escuro legível sobre creme (antes #6B6B6B ficou fraco)
 BAUHAUS_LIGHT = "#E8E3D4"    # creme mais escuro pra elementos sutis
 
+# Paleta canônica de fontes de geração (decisão 5.33)
+# Aplicada em: aba Geração + aba Carga Viz 2.
+# Não confundir com cores Bauhaus estruturais (BAUHAUS_BLUE,
+# BAUHAUS_BLACK) — essas são pra UI (bordas, texto, eixos).
+COR_FONTE_SOLAR   = "#F6BD16"
+COR_FONTE_EOLICA  = "#8FA31E"
+COR_FONTE_HIDRO   = "#4A6FA5"
+COR_FONTE_TERMICA = "#A04B2E"
+
 # Atribuição por submercado
 CORES_SUBMERCADO = {
     "SE": BAUHAUS_RED,
@@ -3424,10 +3433,10 @@ elif aba == "Geração":
     # =======================================================================
 
     CORES_FONTE_GEN = {
-        "termica": BAUHAUS_BLACK,
-        "hidro":   BAUHAUS_BLUE,
-        "eolica":  "#8FA31E",       # verde-oliva
-        "solar":   BAUHAUS_YELLOW,
+        "termica": COR_FONTE_TERMICA,
+        "hidro":   COR_FONTE_HIDRO,
+        "eolica":  COR_FONTE_EOLICA,
+        "solar":   COR_FONTE_SOLAR,
     }
     # Labels no HOVER são curtos (até 10 chars) pra alinhamento em monospace.
     # "Solar centralizada" na legenda deixa explícito que GD não está incluída.
@@ -4598,12 +4607,335 @@ penetração da solar centralizada.
         config={"displaylogo": False},
     )
 
-    # --- Placeholder até o Bloco 5 ---
-    st.info(
-        "⚙️ **Blocos 1-4 concluídos.** "
-        "Viz 2 (decomposição com ordem da carga líquida) vem no próximo "
-        "bloco desta sessão. Viz 3/4/5 ficam pra Sessão 4b."
+    # =========================================================================
+    # VIZ 2 (Bloco 5) — Decomposição com ordem da carga líquida.
+    # Decisões 5.31 + 5.32 do CLAUDE.md.
+    #
+    # Stacked area com 4 camadas (de baixo pra cima):
+    #   solar → eólica → hidro → térmica
+    # Renováveis variáveis embaixo "abatem" da carga total — a altura
+    # cumulativa solar+eólica marca a CARGA LÍQUIDA. Despacháveis
+    # hidro+térmica acima cobrem o que sobra.
+    #
+    # Linha de carga total sobreposta (dot, preto fino) evidencia o
+    # "fecho" do balanço. Em SIN, cola no topo do stack (intercâmbio
+    # internacional ~0). Em submercado, gap entre topo do stack e linha
+    # = intercâmbio interno.
+    #
+    # Intercâmbio é stack-aware híbrido (5.32):
+    #   - SIN: omitido (sem trace)
+    #   - Submercado: trace lines sobreposto (cinza dashdot), preserva sinal
+    #
+    # Dia Típico (xaxis categorial + stackgroup) vem no Sub-bloco 5.5 —
+    # validação separada. Por enquanto, st.info informativo.
+    # =========================================================================
+
+    # Cores das 4 fontes vêm da paleta canônica (constantes
+    # COR_FONTE_* no topo do arquivo — decisão 5.33). Cores
+    # específicas desta viz (intercâmbio + linha de fecho) ficam
+    # locais.
+    COR_INTERC_V2  = "#9B9B9B"  # cinza neutro (5.32)
+    COR_CARGA_V2   = BAUHAUS_BLACK  # linha de fecho dotted
+
+    # Título Bauhaus (mesmo padrão da Viz 1).
+    st.markdown(
+        f'<div style="display:flex; justify-content:space-between; '
+        f'align-items:baseline; '
+        f'font-family:\'Bebas Neue\', sans-serif; '
+        f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
+        f'margin: 2.6rem 0 0.3rem 0; padding-bottom:3px; '
+        f'border-bottom: 2px solid #1A1A1A;">'
+        f'<span>{label_sub_carga} · COMPOSIÇÃO DA CARGA TOTAL</span>'
+        f'<span>{periodo_str_carga}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
     )
+    st.markdown(
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.9rem; color:#1A1A1A; font-weight:500; '
+        f'letter-spacing:0.04em; margin:0 0 0.5rem 0;">'
+        f'{tag_granularidade_carga}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    if granularidade_carga == "Dia Típico":
+        # Stackgroup Plotly + xaxis.type="category" precisam validação
+        # separada (Sub-bloco 5.5). Viz 1 acima continua funcionando em
+        # Dia Típico — usuário tem fallback útil pra duck curve.
+        st.info(
+            "Decomposição em Dia Típico vem no Sub-bloco 5.5. "
+            "Use Diária / Horária / Mensal pra ver Viz 2 nesta sessão."
+        )
+    else:
+        fig_v2 = go.Figure()
+
+        # Convenção desta viz (diverge da Viz 1 deliberadamente):
+        # - name= recebe label LIMPO (sem trailing spaces) — legenda
+        #   tem 6 entradas, fica densa o suficiente sem o truque de
+        #   respiro da Viz 1.
+        # - hover label usa ljust(11) + nbsp pra alinhar siglas em
+        #   monospace no hovermode unified — preserva legibilidade
+        #   independente de sigla curta (Solar/Hidro) ou longa
+        #   (Intercâmbio, Carga total).
+
+        # Trace 1: SOLAR (camada de baixo do stack).
+        solar_lbl = "Solar".ljust(11).replace(" ", "&nbsp;")
+        fig_v2.add_trace(
+            go.Scatter(
+                x=pivot_sel_carga.index,
+                y=pivot_sel_carga["solar"].values,
+                name="Solar",
+                mode="lines",
+                stackgroup="oferta",
+                line=dict(color=COR_FONTE_SOLAR, width=0.5),
+                fillcolor=COR_FONTE_SOLAR,
+                hovertemplate=(
+                    f'<span style="color:{COR_FONTE_SOLAR}; font-weight:700;">'
+                    f'{solar_lbl}</span>'
+                    '&nbsp;&nbsp;'
+                    '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
+                    '<extra></extra>'
+                ),
+            )
+        )
+
+        # Trace 2: EÓLICA (em cima da solar — completa renováveis variáveis).
+        eolica_lbl = "Eólica".ljust(11).replace(" ", "&nbsp;")
+        fig_v2.add_trace(
+            go.Scatter(
+                x=pivot_sel_carga.index,
+                y=pivot_sel_carga["eolica"].values,
+                name="Eólica",
+                mode="lines",
+                stackgroup="oferta",
+                line=dict(color=COR_FONTE_EOLICA, width=0.5),
+                fillcolor=COR_FONTE_EOLICA,
+                hovertemplate=(
+                    f'<span style="color:{COR_FONTE_EOLICA}; font-weight:700;">'
+                    f'{eolica_lbl}</span>'
+                    '&nbsp;&nbsp;'
+                    '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
+                    '<extra></extra>'
+                ),
+            )
+        )
+
+        # Trace 3: HIDRO (despachável, em cima das renováveis variáveis).
+        hidro_lbl = "Hidro".ljust(11).replace(" ", "&nbsp;")
+        fig_v2.add_trace(
+            go.Scatter(
+                x=pivot_sel_carga.index,
+                y=pivot_sel_carga["hidro"].values,
+                name="Hidro",
+                mode="lines",
+                stackgroup="oferta",
+                line=dict(color=COR_FONTE_HIDRO, width=0.5),
+                fillcolor=COR_FONTE_HIDRO,
+                hovertemplate=(
+                    f'<span style="color:{COR_FONTE_HIDRO}; font-weight:700;">'
+                    f'{hidro_lbl}</span>'
+                    '&nbsp;&nbsp;'
+                    '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
+                    '<extra></extra>'
+                ),
+            )
+        )
+
+        # Trace 4: TÉRMICA (topo do stack).
+        termica_lbl = "Térmica".ljust(11).replace(" ", "&nbsp;")
+        fig_v2.add_trace(
+            go.Scatter(
+                x=pivot_sel_carga.index,
+                y=pivot_sel_carga["termica"].values,
+                name="Térmica",
+                mode="lines",
+                stackgroup="oferta",
+                line=dict(color=COR_FONTE_TERMICA, width=0.5),
+                fillcolor=COR_FONTE_TERMICA,
+                hovertemplate=(
+                    f'<span style="color:{COR_FONTE_TERMICA}; font-weight:700;">'
+                    f'{termica_lbl}</span>'
+                    '&nbsp;&nbsp;'
+                    '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
+                    '<extra></extra>'
+                ),
+            )
+        )
+
+        # Trace 5: INTERCÂMBIO — só em submercado (decisão 5.32).
+        # Sinal preservado: positivo = importação líquida, negativo =
+        # exportação líquida. Sinal é EXPLÍCITO no hover via customdata
+        # pré-computado (Plotly hovertemplate não tem if/else nativo).
+        if submercado_carga != "SIN":
+            interc_lbl = "Intercâmbio".ljust(11).replace(" ", "&nbsp;")
+            interc_values = pivot_sel_carga["intercambio"].values
+            interc_hover_strs = [
+                (
+                    f"+{_fmt_br_carga(abs(v), 0)} MWmed (importação líquida)"
+                    if v >= 0
+                    else f"−{_fmt_br_carga(abs(v), 0)} MWmed (exportação líquida)"
+                )
+                for v in interc_values
+            ]
+            fig_v2.add_trace(
+                go.Scatter(
+                    x=pivot_sel_carga.index,
+                    y=interc_values,
+                    name="Intercâmbio (interno)",
+                    mode="lines",
+                    line=dict(
+                        color=COR_INTERC_V2, width=1.5, dash="dashdot",
+                    ),
+                    customdata=interc_hover_strs,
+                    hovertemplate=(
+                        f'<span style="color:{COR_INTERC_V2}; font-weight:700;">'
+                        f'{interc_lbl}</span>'
+                        '&nbsp;&nbsp;'
+                        '<span style="color:#1A1A1A;">%{customdata}</span>'
+                        '<extra></extra>'
+                    ),
+                )
+            )
+
+        # Trace 6: CARGA TOTAL sobreposta — linha dotted preta fina.
+        # Adicionada POR ÚLTIMO pra ficar por cima de tudo (z-order).
+        # Em SIN, cola no topo do stack. Em submercado, gap = intercâmbio.
+        carga_lbl = "Carga total".ljust(11).replace(" ", "&nbsp;")
+        fig_v2.add_trace(
+            go.Scatter(
+                x=pivot_sel_carga.index,
+                y=pivot_sel_carga["carga"].values,
+                name="Carga total",
+                mode="lines",
+                line=dict(color=COR_CARGA_V2, width=1.5, dash="dot"),
+                hovertemplate=(
+                    f'<span style="color:{COR_CARGA_V2}; font-weight:700;">'
+                    f'{carga_lbl}</span>'
+                    '&nbsp;&nbsp;'
+                    '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
+                    '<extra></extra>'
+                ),
+            )
+        )
+
+        # Vline 29/04/2023 (decisão 5.26 + 5.31 ponto 5).
+        # Mesmo padrão da Viz 1.
+        quebra_data_v2 = pd.Timestamp(2023, 4, 29)
+        if (
+            data_ini_efetivo_carga
+            <= quebra_data_v2.date()
+            <= data_fim_carga
+        ):
+            fig_v2.add_vline(
+                x=quebra_data_v2,
+                line_dash="dot",
+                line_color=BAUHAUS_GRAY,
+                line_width=1.2,
+            )
+            fig_v2.add_annotation(
+                x=quebra_data_v2,
+                y=1.02,
+                yref="paper",
+                text="ONS passa a incluir MMGD na carga",
+                showarrow=False,
+                font=dict(
+                    family="Inter, sans-serif",
+                    size=10,
+                    color=BAUHAUS_GRAY,
+                ),
+                align="center",
+            )
+
+        # Layout matching com Viz 1 (height 450, hover unified mono,
+        # legenda Bebas Neue 19, eixos Bauhaus, separators BR ",.").
+        _xaxis_v2_dict = dict(
+            title=None, showgrid=False, showline=True,
+            linewidth=2, linecolor=BAUHAUS_BLACK,
+            ticks="outside", tickcolor=BAUHAUS_BLACK,
+            tickfont=dict(
+                family="Inter, sans-serif",
+                size=13, color=BAUHAUS_BLACK,
+            ),
+            hoverformat=hover_fmt_carga,
+        )
+
+        fig_v2.update_layout(
+            height=450,
+            margin=dict(l=20, r=20, t=40, b=20),
+            paper_bgcolor=BAUHAUS_CREAM,
+            plot_bgcolor=BAUHAUS_CREAM,
+            separators=",.",
+            hovermode="x unified",
+            hoverlabel=dict(
+                bgcolor=BAUHAUS_CREAM,
+                bordercolor=BAUHAUS_BLACK,
+                font=dict(
+                    family="'IBM Plex Mono', 'Courier New', monospace",
+                    size=12, color=BAUHAUS_BLACK,
+                ),
+            ),
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom", y=1.02,
+                xanchor="left", x=0,
+                bgcolor="rgba(0,0,0,0)",
+                font=dict(
+                    family="Bebas Neue, sans-serif",
+                    size=19, color=BAUHAUS_BLACK,
+                ),
+            ),
+            xaxis=_xaxis_v2_dict,
+            yaxis=dict(
+                title=None,
+                showgrid=True, gridcolor=BAUHAUS_LIGHT, gridwidth=1,
+                showline=True, linewidth=2, linecolor=BAUHAUS_BLACK,
+                ticks="outside", tickcolor=BAUHAUS_BLACK,
+                tickfont=dict(
+                    family="Inter, sans-serif",
+                    size=13, color=BAUHAUS_BLACK,
+                ),
+                zeroline=False,
+                tickformat=",.0f",
+            ),
+            font=dict(family="Inter, sans-serif", size=12),
+        )
+
+        st.plotly_chart(
+            fig_v2, use_container_width=True,
+            config={"displaylogo": False},
+        )
+
+        # Sanity check de balanço (atenção 4 do prompt do user):
+        #   carga ≈ (solar + eolica + hidro + termica) + intercambio
+        # Tolerância: desvio médio relativo < 1%. Se quebrar, st.caption
+        # vermelho discreto sinaliza pro Nava investigar pivot/dataset.
+        # CHECK REMOVÍVEL após validação inicial — ver TODO abaixo.
+        # TODO(Sub-bloco 5.6): após Nava confirmar que passa nos 3
+        # cenários representativos (Diária 12M / Horária 7D / Mensal 5A
+        # em SIN e submercado), remover este bloco.
+        _topo_stack_v2 = (
+            pivot_sel_carga["solar"]
+            + pivot_sel_carga["eolica"]
+            + pivot_sel_carga["hidro"]
+            + pivot_sel_carga["termica"]
+        )
+        _residual_v2 = (
+            pivot_sel_carga["carga"]
+            - _topo_stack_v2
+            - pivot_sel_carga["intercambio"]
+        )
+        _carga_mean = pivot_sel_carga["carga"].abs().mean()
+        if _carga_mean > 0:
+            _ratio_v2 = _residual_v2.abs().mean() / _carga_mean
+            if _ratio_v2 > 0.01:
+                st.caption(
+                    f"⚠️ Balanço Viz 2: desvio médio "
+                    f"{_ratio_v2 * 100:.2f}% (esperado <1%) "
+                    f"em {submercado_carga}/{granularidade_carga}. "
+                    f"Investigar pivot ou dataset."
+                )
 
 # =============================================================================
 # RODAPÉ — com espaçamento claro para evitar sobreposição

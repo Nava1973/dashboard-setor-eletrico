@@ -1770,6 +1770,21 @@ porque:
    com Viz 1 (decisão 5.26). Pulada em Dia Típico (decisão 5.25 —
    eixo categorial não casa com Timestamp).
 
+**Display vs conceito:**
+
+"Ordem da carga líquida" é o **conceito interno de empilhamento** —
+a escolha arquitetural de colocar renováveis variáveis (solar+eólica)
+embaixo abatendo da carga, e despacháveis (hidro+térmica) em cima
+cobrindo o resto. Esse termo é vocabulário de design do projeto, não
+jargão público do setor elétrico.
+
+"Composição da carga total" é o **título visível pro usuário** —
+linguagem clara em PT-BR coerente com o vocabulário do app.
+
+Aplica o padrão da decisão 5.30 (display labels separados de variable
+names): conceito interno mantém termo técnico de design; UI fala
+português acessível.
+
 **Trade-off aceito:** "ordem da carga líquida" não é o empilhamento
 intuitivo pra quem nunca viu duck curve. Aceitável porque (a) o
 glossário/KPIs já introduzem o conceito de carga líquida, (b) a
@@ -1860,6 +1875,62 @@ ruído que clareza.
   sempre positivas em qualquer submercado).
 - Casos onde a magnitude da componente é ~zero em todos os recortes
   (não justifica trace separado).
+
+### 5.33 Paleta canônica de fontes de geração
+
+**Decisão:** as 4 fontes de geração elétrica (solar, eólica, hidro,
+térmica) têm UMA cor canônica cada, definida em constantes únicas no
+topo do `app.py` e aplicadas em todas as visualizações que mostram
+fonte como dado:
+
+| Fonte   | Cor       | Constante           |
+|---------|-----------|---------------------|
+| Solar   | `#F6BD16` | `COR_FONTE_SOLAR`   |
+| Eólica  | `#8FA31E` | `COR_FONTE_EOLICA`  |
+| Hidro   | `#4A6FA5` | `COR_FONTE_HIDRO`   |
+| Térmica | `#A04B2E` | `COR_FONTE_TERMICA` |
+
+**Caso que motivou:** durante validação visual da Viz 2 da Carga,
+Nava notou que térmica preto (Geração) ficava como "buraco visual" e
+hidráulica azul-Bauhaus (Geração) misturava papel estrutural com
+dado. A Viz 2 já usava terracota e azul-hidro mais claro, mais
+legíveis. Em vez de manter inconsistência entre abas, consolidou-se
+paleta única.
+
+**Razão das escolhas:**
+
+1. **Térmica terracota (não preto):** preto é cor estrutural do
+   design Bauhaus do projeto (bordas, eixos, texto principal). Usar
+   preto pra dado mistura papéis. Terracota comunica combustão/queima
+   — bate com termelétrica.
+2. **Hidro `#4A6FA5` (não `BAUHAUS_BLUE` `#2A6F97`):** `BAUHAUS_BLUE`
+   é cor estrutural — sidebar, eixos, alguns textos. Usar pra hidro
+   confunde com a Viz 1 da Carga ("Carga Total" em azul) e com a
+   sidebar. `#4A6FA5` é tom mais claro de azul, dedicado a
+   "água/hidro".
+3. **Solar e eólica:** já estavam consistentes entre abas, manter.
+
+**Aplicação atual:**
+
+- Aba Geração: 4 fontes.
+- Aba Carga Viz 2: 4 fontes.
+- Futuras vizs que mostrem fonte de geração: usar as mesmas
+  constantes.
+
+**Quando NÃO aplica:**
+
+- Cores estruturais do design system (`BAUHAUS_BLACK`,
+  `BAUHAUS_BLUE`, `BAUHAUS_CREAM`, `BAUHAUS_YELLOW`) — essas são pra
+  UI, não pra dado.
+- Cores de outras dimensões (linhas de carga, intercâmbio, vlines,
+  marcadores) — têm critérios próprios.
+- Cores de submercado (SE/S/NE/N/SIN) — outra dimensão, outra
+  paleta.
+
+**Trade-off aceito:** se um dia o ONS publicar paleta oficial das
+fontes, adaptamos. Por enquanto, terracota+azul-hidro foram
+calibrados visualmente no contexto do app, não vêm de standard
+externo.
 
 ---
 
