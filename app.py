@@ -1459,10 +1459,10 @@ if aba == "PLD":
         if st.checkbox("N", value=True, key="sel_N"):
             submercados_selecionados.append("N")
     with sel_cols[4]:
-        mostrar_media = st.checkbox("Média BR", value=True, key="sel_media")
+        mostrar_media = st.checkbox("SIN", value=True, key="sel_media")
 
     if not submercados_selecionados and not mostrar_media:
-        st.info("Selecione ao menos um submercado ou a Média BR para visualizar.")
+        st.info("Selecione ao menos um submercado ou o SIN para visualizar.")
     else:
         # =====================================================================
         # Título-dropdown (Fase 3 — integrado ao gráfico).
@@ -1616,6 +1616,67 @@ if aba == "PLD":
                     vertical-align: baseline;
                     line-height: 1.1;
                 }
+
+                /* Dropdown "Submercado dos KPIs" — 1º item da régua de
+                   KPIs. Streamlit emite class="st-key-{key}" no
+                   element-container do widget — usamos isso pra mirar
+                   APENAS este selectbox sem afetar o dropdown global de
+                   granularidade do PLD (que já tem CSS próprio em
+                   app.py linhas ~1495-1525 fazendo flatten Bauhaus).
+                   O wrapper recebe estilo de card (cream + borda +
+                   padding); o selectbox interno fica minimalista (sem
+                   borda, Inter 14px, chevron empurrado pra direita). */
+                .st-key-kpi_submercado_detalhe {
+                    background: #F5F1E8;
+                    border: 2px solid #1A1A1A;
+                    border-radius: 0;
+                    padding: 16px;
+                    min-height: 76px;
+                    display: flex;
+                    align-items: center;
+                    box-sizing: border-box;
+                }
+                .st-key-kpi_submercado_detalhe [data-testid="stSelectbox"] {
+                    width: 100%;
+                }
+                .st-key-kpi_submercado_detalhe [data-testid="stSelectbox"]
+                [data-baseweb="select"] > div {
+                    border: none !important;
+                    border-bottom: none !important;
+                    background: transparent !important;
+                    font-family: 'Inter', sans-serif !important;
+                    font-size: 14px !important;
+                    font-weight: 600 !important;
+                    letter-spacing: 0 !important;
+                    color: #1A1A1A !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                }
+                /* Texto do valor selecionado em Inter 22px 600 — pareia
+                   com o número dos KPIs (R$ 302,38) ao lado. BaseWeb
+                   aninha o valor em divs internos com font-size/weight
+                   próprios, então inheritance da regra acima (font-size
+                   14px no > div) não chega ao texto visível — targeting
+                   via descendant selector `> div *` pega todos. Não afeta:
+                   - Chevron ▾ (pseudo-element ::after do > div, não é
+                     descendant — preserva tamanho atual 1.2em × 14px =
+                     16.8px).
+                   - SVG do BaseWeb (display:none pela regra global linha
+                     1514).
+                   - Opções do menu aberto (portal separado fora do
+                     .st-key-…). */
+                .st-key-kpi_submercado_detalhe [data-baseweb="select"]
+                > div * {
+                    font-size: 22px !important;
+                    font-weight: 600 !important;
+                    line-height: 1.1 !important;
+                    color: #1A1A1A !important;
+                }
+                .st-key-kpi_submercado_detalhe [data-testid="stSelectbox"]
+                [data-baseweb="select"] > div::after {
+                    font-size: 1.2em !important;
+                    margin-left: auto !important;
+                }
                 </style>
                 """,
                 unsafe_allow_html=True,
@@ -1660,25 +1721,29 @@ if aba == "PLD":
                     f'<span class="pld1d-kpi-amount">{n}</span>'
                 )
 
-            # Caption + dropdown auxiliar "Detalhar KPIs:"
-            cap_col, drop_col = st.columns([3, 1.5])
-            with cap_col:
-                st.markdown(
-                    f'<div style="font-family:\'Inter\', sans-serif; '
-                    f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-                    f'margin:0.6rem 0 0 0;">'
-                    f'Indicadores do dia '
-                    f'{data_ini.strftime("%d/%m/%Y")}.'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-            with drop_col:
-                opcoes_sub_kpi = ["SE", "S", "NE", "N", "Média BR"]
+            # Subtítulo (largura cheia — descreve toda a régua de 5
+            # colunas abaixo: dropdown de submercado + 4 KPIs).
+            st.markdown(
+                f'<div style="font-family:\'Inter\', sans-serif; '
+                f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+                f'margin:0.6rem 0 0.4rem 0;">'
+                f'Indicadores do dia '
+                f'{data_ini.strftime("%d/%m/%Y")}.'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+            # Régua: dropdown de submercado (col 0) + 4 KPIs (cols 1-4).
+            opcoes_sub_kpi = ["SE", "S", "NE", "N", "Média BR"]
+            kpi_cols = st.columns(5)
+            with kpi_cols[0]:
                 sub_kpis = st.selectbox(
-                    "Detalhar KPIs:",
+                    "Submercado dos KPIs",
                     options=opcoes_sub_kpi,
                     index=0,  # default SE
-                    key="pld_1d_sub_kpis",
+                    key="kpi_submercado_detalhe",
+                    label_visibility="collapsed",
+                    format_func=lambda x: "SIN" if x == "Média BR" else x,
                 )
 
             # Série do dia (24 valores) pro submercado escolhido
@@ -1688,8 +1753,9 @@ if aba == "PLD":
                 serie_dia = pd.Series(dtype=float)
 
             if serie_dia.empty:
+                sub_kpis_display = "SIN" if sub_kpis == "Média BR" else sub_kpis
                 st.warning(
-                    f"Sem dados pro submercado {sub_kpis} no dia "
+                    f"Sem dados pro submercado {sub_kpis_display} no dia "
                     f"{data_ini.strftime('%d/%m/%Y')}."
                 )
             else:
@@ -1700,8 +1766,7 @@ if aba == "PLD":
                 min_ts = serie_dia.idxmin()
                 spread = max_val - min_val
 
-                kpi_cols = st.columns(4)
-                with kpi_cols[0]:
+                with kpi_cols[1]:
                     st.markdown(
                         _render_kpi_pld_1d(
                             "PLD MÉDIO DIA",
@@ -1709,7 +1774,7 @@ if aba == "PLD":
                         ),
                         unsafe_allow_html=True,
                     )
-                with kpi_cols[1]:
+                with kpi_cols[2]:
                     st.markdown(
                         _render_kpi_pld_1d(
                             "MÁXIMO",
@@ -1718,7 +1783,7 @@ if aba == "PLD":
                         ),
                         unsafe_allow_html=True,
                     )
-                with kpi_cols[2]:
+                with kpi_cols[3]:
                     st.markdown(
                         _render_kpi_pld_1d(
                             "MÍNIMO",
@@ -1727,7 +1792,7 @@ if aba == "PLD":
                         ),
                         unsafe_allow_html=True,
                     )
-                with kpi_cols[3]:
+                with kpi_cols[4]:
                     st.markdown(
                         _render_kpi_pld_1d(
                             "SPREAD",
@@ -1748,15 +1813,17 @@ if aba == "PLD":
                 continue
             is_media = col == "Média BR"
             cor_linha = CORES_SUBMERCADO[col]
-            sigla_label = col if col != "Média BR" else "BR"
-            # Com fonte monoespaçada, basta padronizar todas as siglas em 2 chars.
-            # Siglas de 1 char (S, N) ganham um espaço no final.
-            sigla_fix = sigla_label.ljust(2)
+            sigla_label = col if col != "Média BR" else "SIN"
+            # Com fonte monoespaçada, padronizar todas as siglas em 3 chars
+            # (SIN ocupa 3; SE/NE ganham 1 espaço, S/N ganham 2 espaços ao
+            # final). Garante que "R$" comece na mesma coluna em todas as
+            # linhas do hover unified.
+            sigla_fix = sigla_label.ljust(3)
             fig.add_trace(
                 go.Scatter(
                     x=pivot.index,
                     y=pivot[col],
-                    name=col,
+                    name=("SIN" if col == "Média BR" else col),
                     mode="lines",
                     line=dict(
                         color=cor_linha,
@@ -1909,10 +1976,10 @@ if aba == "PLD":
             f'<span class="kpi-value">R$ {_fmt_br(val)}</span>'
             f'</span>'
         )
-    # Adiciona Média BR no final
+    # Adiciona Média BR (SIN) no final — variável interna mantém nome
     kpi_items.append(
         f'<span class="kpi-item">'
-        f'<span class="kpi-label" style="background:#6B6B6B;">BR</span>'
+        f'<span class="kpi-label" style="background:#6B6B6B;">SIN</span>'
         f'<span class="kpi-value">R$ {_fmt_br(media_br_ultimo)}</span>'
         f'</span>'
     )

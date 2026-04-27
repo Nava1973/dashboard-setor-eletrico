@@ -1534,6 +1534,96 @@ definição (ex: "ENA vs MLT" da aba ENA — `ena_mlt_pct`) são
 autocontidos quando a comparação faz parte da definição da métrica.
 Não são "delta entre 2 leituras independentes".
 
+### 5.30 Display labels separados de variable names
+
+**Decisão:** termos técnicos do setor elétrico brasileiro (SIN, PLD,
+BAR, CAIMI, etc.) ficam exclusivamente na camada de UI; código
+Python mantém nomes pragmáticos historicamente adotados (`media_br`,
+`pld_horario`, etc.). **Camada de display traduz na fronteira do
+rendering** — chaves de dict, colunas de DataFrame intermediário,
+valores de comparação, variáveis Python NÃO acompanham renomeações
+de UI.
+
+**Caso que motivou (sessão pós-PLD 1D):** "Média BR" era termo
+informal usado historicamente no app pra denominar a média dos 4
+submercados (SE/S/NE/N). ANEEL/ONS/CCEE chamam isso de "SIN"
+(Sistema Interligado Nacional) — pediu-se rename pra alinhar com
+vocabulário do setor. Surgiu a pergunta: trocar tudo (data + UI)
+pra "SIN", ou trocar só a UI?
+
+**Decisão tomada — só UI:**
+
+| Camada | Antes | Depois |
+|---|---|---|
+| Checkbox header | `"Média BR"` | `"SIN"` |
+| Dropdown KPI (display) | `"Média BR"` | `"SIN"` (via `format_func`) |
+| Legenda Plotly trace | `name=col` (=`"Média BR"`) | `name=("SIN" if col=="Média BR" else col)` |
+| Hover sigla | `"BR"` | `"SIN"` |
+| Pill do rodapé | `BR` | `SIN` |
+| Mensagens (info/warning) | `"Média BR"` | `"SIN"` |
+| Dict `CORES_SUBMERCADO` | `"Média BR"` | `"Média BR"` (mantém) |
+| Coluna do pivot | `pivot["Média BR"]` | `pivot["Média BR"]` (mantém) |
+| `series_plot.append(…)` | `"Média BR"` | `"Média BR"` (mantém) |
+| Comparações `col == …` | `"Média BR"` | `"Média BR"` (mantém) |
+| Variáveis Python | `media_br_ultimo`, `mostrar_media`, `is_media` | inalteradas |
+
+**Razão pra não trocar o lado de dado:**
+
+1. `"Média BR"` é chave INTERNA calculada no app — não vem de fonte
+   externa (CCEE/ONS). Renomear seria seguro mecanicamente, mas
+   força refator simultâneo de 9 ocorrências sem benefício prático.
+2. **Histórico do código tem peso:** `media_br` aparece em
+   variáveis, helper `_fmt_br()`, comentários antigos. Renomear
+   faz código divergir de git blame, PRs antigos e do raciocínio
+   sedimentado nas sessões anteriores.
+3. **Camada de display é elástica:** se SIN virar outro termo
+   amanhã (improvável, mas possível), só o ponto de tradução muda.
+   Renomear data layer toda vez é custo recorrente.
+
+**Trade-off aceito:** 9 ocorrências de `"Média BR"` no código
+(`app.py:74, 1548, 1737, 1746, 1756, 1809, 1814, 1816, 1826`)
+parecem inconsistência com a UI — não são. São camada de dado,
+justificável e isolada por construção.
+
+**3 padrões de implementação:**
+
+- **Selectbox com `format_func`:** value interno mantém chave
+  pragmática, display via lambda.
+  ```python
+  st.selectbox(
+      ..., options=opcoes,
+      format_func=lambda x: "SIN" if x == "Média BR" else x,
+  )
+  ```
+- **Ternário inline** pra strings que vão direto pra Plotly/HTML:
+  ```python
+  name=("SIN" if col == "Média BR" else col)
+  ```
+- **Variável de display** quando string interna é interpolada em
+  mensagem:
+  ```python
+  sub_kpis_display = "SIN" if sub_kpis == "Média BR" else sub_kpis
+  st.warning(f"Sem dados pro submercado {sub_kpis_display}…")
+  ```
+
+**Quando aplicar este padrão:**
+
+- Refactors de nomenclatura puramente visual (rename "amigável",
+  padronização de vocabulário do setor).
+- Termos técnicos brasileiros do setor (SIN, MWmed, MWmes, MLT,
+  EARmax, ENA, MMGD, etc.) que entram no vocabulário do app via UI
+  mas não mudam estrutura de dado interna.
+
+**Quando NÃO aplica:**
+
+- Mudanças motivadas por fonte externa (ex: nova versão do dataset
+  CCEE muda nome de coluna) — aí o data layer muda pra acompanhar
+  a fonte de verdade.
+- Renomeação de variável Python motivada por ambiguidade REAL no
+  escopo (ex: `df` → `df_carga` quando há 3 dataframes no escopo).
+  Ambiguidade no código justifica refactor; aliança com vocabulário
+  externo de UI não.
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
