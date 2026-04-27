@@ -1710,6 +1710,157 @@ justificável e isolada por construção.
   Ambiguidade no código justifica refactor; aliança com vocabulário
   externo de UI não.
 
+### 5.31 Viz 2 da Carga — ordem da carga líquida (stacked area)
+
+**Decisão:** stacked area com 4 camadas na ordem **solar → eólica →
+hidro → térmica** (de baixo pra cima), satisfazendo a equação de
+balanço `hidro + termica + eolica + solar ≈ carga − intercambio`.
+Renováveis variáveis (solar + eólica) embaixo "abatem" visualmente
+da carga total — a altura cumulativa dessas duas camadas marca a
+**carga líquida**, evidenciando o que as despacháveis (hidro +
+térmica) acima precisam cobrir.
+
+**Caso que motivou (Sessão 4a, Bloco 5):** o bloco original pediu
+"decomposição com **ordem da carga líquida**" — termo técnico do
+setor que distingue do empilhamento por ordem de despacho real.
+Variante alternativa (Variante A no briefing — hidro → térmica →
+eólica → solar → intercâmbio em ordem de despacho real) rejeitada
+porque:
+
+1. **Não casa com o nome do bloco** — "ordem da carga líquida" tem
+   semântica específica.
+2. **Redundância com dashboards genéricos do ONS** — empilhamento
+   por despacho é o pattern padrão de qualquer painel de geração
+   estatística.
+3. **Viz 2 deve ser complementar à Viz 1, não redundante** — Viz 1
+   já mostra carga total vs líquida como linhas; Viz 2 quebra a
+   "área entre" em camadas que explicam o que cobre cada parte.
+
+**Implementação (5 partes):**
+
+1. **Ordem das camadas** (de baixo pra cima): solar → eólica →
+   hidro → térmica. Intercâmbio NÃO entra como camada (ver 5.32).
+
+2. **Linha de carga total sobreposta** (`mode="lines"`,
+   `dash="dot"`, cor cinza-escuro fino) — evidencia o "fecho" do
+   balanço. Em SIN, cola no topo do stack (intercâmbio
+   internacional ~0). Em submercado, **gap** entre topo do stack e
+   linha de carga = intercâmbio interno (vide 5.32).
+
+3. **Paleta:**
+
+   ```
+   solar    = #F6BD16   (BAUHAUS_YELLOW)
+   eólica   = #8FA31E   (oliva — coerente com Geração)
+   hidro    = #4A6FA5   (azul-hidro)
+   térmica  = #A04B2E   (terracota)
+   ```
+
+   *Nota: validar contraste do azul-hidro vs `BAUHAUS_BLUE` da Viz
+   1 (linha "Carga Total") no render real — se confundir, ajustar
+   matiz.*
+
+4. **Dia Típico first-class** — Viz 2 funciona em
+   `xaxis.type="category"` (mesmo padrão da Viz 1, decisão 5.25).
+   Plotly stackgroup respeita eixo categorial. É onde a **duck
+   curve** fica mais legível: ascensão solar das 6-12h, declive da
+   térmica nas horas de pico solar, retomada noturna 18-22h.
+
+5. **Vline 29/04/2023 (quebra MMGD)** — mantida por consistência
+   com Viz 1 (decisão 5.26). Pulada em Dia Típico (decisão 5.25 —
+   eixo categorial não casa com Timestamp).
+
+**Trade-off aceito:** "ordem da carga líquida" não é o empilhamento
+intuitivo pra quem nunca viu duck curve. Aceitável porque (a) o
+glossário/KPIs já introduzem o conceito de carga líquida, (b) a
+paleta + a linha de carga sobreposta tornam a leitura óbvia depois
+de poucos segundos, (c) usuários técnicos do setor reconhecem o
+pattern imediatamente.
+
+**Quando aplicar este padrão:**
+
+- Decomposições de fluxo de energia onde o usuário quer ler a
+  **carga líquida diretamente do gráfico** (não como cálculo
+  separado).
+- Stacked areas onde a posição vertical das camadas conta uma
+  narrativa específica (não é arbitrária).
+
+**Quando NÃO aplica:**
+
+- Decomposições por **ordem cronológica de despacho** (ex: curva
+  de mérito) — usar Variante A nesse caso.
+- Decomposições onde todas as componentes têm o mesmo "papel
+  narrativo" (sem distinção variável vs despachável) — ordem
+  alfabética ou por magnitude basta.
+
+### 5.32 Intercâmbio: stack-aware híbrido por recorte
+
+**Decisão:** intercâmbio recebe tratamento **condicional ao recorte
+de submercado** na Viz 2 da Carga:
+
+| Recorte | Tratamento | Motivo |
+|---|---|---|
+| **SIN** | Omitido (sem camada, sem linha) | Intercâmbio internacional ~0; mostrar polui sem informar |
+| **Submercado individual (SE/S/NE/N)** | Trace `lines` sobreposto com sinal preservado, `dash="dashdot"`, cor `#9B9B9B` (cinza neutro) | Intercâmbio interno é relevante e pode ser positivo ou negativo |
+
+Hover do trace de intercâmbio em submercado explicita o sinal:
+`+importação líquida` / `−exportação líquida`.
+
+**Caso que motivou (Sub-bloco 5.1):** Plotly `stackgroup` não suporta
+valores negativos no mesmo trace — quebra o empilhamento visualmente
+(camada inverte direção, sobrepõe outras). Submercados podem ser
+**exportadores líquidos** em janelas específicas (S em períodos
+úmidos, SE em meses de carga baixa) — nesses momentos
+`intercambio < 0`.
+
+**Estratégias rejeitadas:**
+
+- **C1 — Split em `intercambio_pos` + `intercambio_neg` como camadas
+  (ambos absolutizados):** "exportação" como camada empilhada não
+  comunica saída do sistema — visualmente confuso, narrativa
+  quebrada.
+- **C2 — Linha sobreposta SEMPRE (inclusive no SIN):** poluiria o
+  SIN com informação irrelevante (intercâmbio internacional ~0).
+  Carga cognitiva sem benefício.
+- **C3 — Valor absoluto + cor diferente:** perde o sinal — usuário
+  não distingue importação de exportação.
+
+**Implicação visual em submercados:** carga total + intercâmbio
+sobreposto comunicam o balanço completo:
+
+```
+carga ≈ topo_do_stack + intercambio   (com sinal)
+```
+
+- `intercambio > 0` (importação): linha de intercâmbio fica acima
+  do stack — gap = volume importado.
+- `intercambio < 0` (exportação): linha de intercâmbio fica abaixo
+  do stack — gap negativo = volume exportado.
+
+Documentar a convenção no glossário da aba.
+
+**Trade-off aceito:** comportamento da Viz 2 muda quando user troca
+SIN ↔ submercado. Aceitável porque (a) a mudança é semanticamente
+justificada (intercâmbio internacional vs interno são fenômenos
+diferentes), (b) o usuário típico da aba Carga é técnico do setor e
+reconhece a distinção, (c) alternativa "uniforme" (C2) traria mais
+ruído que clareza.
+
+**Quando aplicar este padrão:**
+
+- Decomposições de geração/carga onde o recorte muda a **semântica**
+  de uma componente (interno ↔ externo, agregado ↔ desagregado).
+- Vizs onde uma série pode ser positiva ou negativa e o **sinal**
+  carrega significado (não é só magnitude).
+
+**Quando NÃO aplica:**
+
+- Decomposições onde todas as componentes têm semântica estável
+  independente do recorte (ex: Viz 1 com carga total/líquida — ambas
+  sempre positivas em qualquer submercado).
+- Casos onde a magnitude da componente é ~zero em todos os recortes
+  (não justifica trace separado).
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
