@@ -1446,6 +1446,94 @@ padrão estabelecido (Reservatórios, ENA, Balanço — todos com Fase A
 prévia documentada em `docs/*_research.md`) é o caminho certo.
 Validar fonte ANTES de prometer feature.
 
+### 5.28 Preset "1D" em granularidade horária do PLD
+
+**Decisão:** quando uma granularidade horária permite seleção de "1
+dia específico" como caso de uso frequente (análise de spread
+intradiário, perfil de pico/vale), o atalho fica como **preset** —
+não como granularidade separada no dropdown. Os 5 presets do PLD
+horário são: **1D / 1S / 1M / 3M / Máx**.
+
+**Marcador de "modo single-day" é puro derivativo de runtime:**
+`data_ini == data_fim`. Sem session_state dedicada, sem sentinela
+extra. Inferência da UI por estado dos dados.
+
+**Helper `_render_period_controls` ganhou parâmetro opcional**
+`single_day_preset_label: str | None = None`. Quando passado:
+- O preset com esse label é considerado ativo se `data_ini ==
+  data_fim` (sobrescreve detecção por `delta_days`, que daria 0 =
+  degenerado).
+- Os 2 date_inputs ("Data inicial" / "Data final") são substituídos
+  por **1 date_input "Dia"** + **1 botão "Último dia"** — mesmas
+  larguras de coluna.
+
+**Pattern de execução do botão "Último dia"** (lição da Sessão PLD
+1D): o botão é renderizado VISUALMENTE à direita do date_input
+(`with cols[n+2]:`), mas sua **chamada de código vem ANTES** do
+`st.date_input`. Isso replica o pattern dos botões de preset (que
+já estão validados): clique seta `state[session_key_ini] = max_d` +
+`st.rerun()`, interrompendo o helper antes do widget date_input ser
+instanciado nesse render. No próximo rerun, o widget é instanciado
+pela primeira vez com o valor novo. **Sem flag intermediário**
+(decisão 5.12 não é necessária aqui) e **sem one-rerun-behind**.
+
+**Anteriormente considerado e descartado** (1ª iteração da Sessão
+PLD 1D): granularidade `horario_1d` separada no dropdown. Foi
+removida porque conceitualmente "1D" é período (1 dia), não
+granularidade. Coerência com 1M/3M/etc.
+
+**Trade-off vs decisão 5.9 (Geração):** lá criamos helper paralelo
+`_render_period_controls_horaria` com `data_base + window`. Aqui o
+caso é mais simples (sempre 1 dia, sem janela variável), então
+parâmetro opcional no helper original é mais barato que duplicar.
+
+**Defesa contra widget cleanup do `data_fim` em single-day mode:**
+como o widget "Data final" não é instanciado no single-day, o
+Streamlit pode descartar `state["data_fim"]`. Cleanup recovery no
+caller PLD: se `data_fim` ausente em state, copia de `data_ini`
+(consistente com single-day). Em granularidade não-horária, o
+gatilho `range_degenerado_fora_horario` (data_ini == data_fim)
+detecta o estado e dispara reset full pra default 90d.
+
+**Sincronização `data_fim ← data_ini` no single-day:** callback
+`on_change` do date_input "Dia" copia `state[session_key_ini]` em
+`state[session_key_fim]`. Streamlit roda callbacks ANTES do main
+rerun, então o filter no próximo render já vê ambas iguais (sem
+flash de range de 2 dias).
+
+### 5.29 KPI cards devem ser auto-suficientes e não-redundantes com o gráfico
+
+**Decisão:** KPI cards devem mostrar apenas indicadores
+**autocontidos do recorte ativo** (ex: PLD médio, máximo, mínimo,
+spread). Comparações temporais (vs ontem, vs ano, vs média móvel)
+ficam pra feature dedicada de "comparar com" no futuro — não
+misturam no card individual.
+
+**Caso que motivou (Sessão PLD 1D):** durante o design dos KPIs do
+PLD horário 1D considerou-se um 5º card "VS MÉDIA DO MÊS" (delta %
+entre PLD médio do dia e média do mês calendário). Removido porque:
+1. **Denominador móvel:** a "média do mês" inclui o próprio dia
+   selecionado, ruído conceitual.
+2. **Pouca acionabilidade:** delta % isolado num card não substitui
+   ver a curva inteira — o gráfico abaixo já mostra contexto
+   temporal.
+3. **Redundância visual:** o gráfico do PLD horário acima já
+   permite "olhar pro lado" e ver outros dias do mês.
+
+**Aplicação na Sessão PLD 1D:** os 4 cards finais são `PLD MÉDIO
+DIA / MÁXIMO (com horário) / MÍNIMO (com horário) / SPREAD`. Todos
+derivam SÓ da série de 24 valores do dia selecionado.
+
+**Quando reconsiderar:** se uma feature dedicada "comparar com"
+aparecer (ex: aba PLD com modo "comparação multi-dias"), aí faz
+sentido ter cards de delta % — mas como produto inteiro daquela
+feature, não enxertados num KPI bar de outro contexto.
+
+**Quando NÃO aplica:** indicadores que JÁ SÃO comparações por
+definição (ex: "ENA vs MLT" da aba ENA — `ena_mlt_pct`) são
+autocontidos quando a comparação faz parte da definição da métrica.
+Não são "delta entre 2 leituras independentes".
+
 ---
 
 ## 6. Fluxo de Desenvolvimento

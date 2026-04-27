@@ -627,22 +627,43 @@ components.html(
 # =============================================================================
 def _render_period_controls(
     *,
-    presets,          # list[tuple[str, int|None, bool]]: (label, delta_days, is_max)
-    session_key_ini,  # str: chave em session_state pra data_ini
-    session_key_fim,  # str: chave em session_state pra data_fim
-    key_prefix,       # str: prefixo dos keys dos botões (ex: "btn_" ou "btn_res_")
+    presets,                  # list[tuple[str, int|None, bool]]: (label, delta_days, is_max)
+    session_key_ini,          # str: chave em session_state pra data_ini
+    session_key_fim,          # str: chave em session_state pra data_fim
+    key_prefix,               # str: prefixo dos keys dos botões (ex: "btn_" ou "btn_res_")
     min_d,
     max_d,
+    single_day_preset_label=None,  # str|None: label do preset que ativa modo single-day (decisão 5.28)
 ):
     """Renderiza atalhos + 2 date_inputs numa linha, com botão "primary"
     amarelo pro preset ativo. Reset de mudança de dataset é responsabilidade
-    do caller (feito antes de chamar esta função)."""
+    do caller (feito antes de chamar esta função).
+
+    `single_day_preset_label` (decisão 5.28): quando passado (ex: "1D"),
+    o preset com esse label é considerado ativo se `data_ini == data_fim`
+    (sobrescreve detecção por delta_days, que daria 0 = degenerado). E
+    quando o modo single-day está ativo, os 2 date_inputs (data inicial/
+    final) são substituídos por **1 date_input "Dia"** + **1 botão
+    "Último dia"** — mesmo espaço, mesmas larguras de coluna.
+    """
     data_ini_atual = st.session_state[session_key_ini]
     data_fim_atual = st.session_state[session_key_fim]
 
-    # Detecta preset ativo comparando com cada entrada da lista
+    # Modo single-day: ativo quando data_ini == data_fim e o caller
+    # passou um label de preset designado.
+    is_single_day_active = (
+        single_day_preset_label is not None
+        and data_ini_atual == data_fim_atual
+    )
+
+    # Detecta preset ativo comparando com cada entrada da lista.
+    # No modo single-day, o preset designado fica ativo independente da
+    # data escolhida — user pode mexer no date_input "Dia" sem perder o
+    # destaque do preset.
     preset_atual = None
-    if data_fim_atual == max_d:
+    if is_single_day_active:
+        preset_atual = single_day_preset_label
+    elif data_fim_atual == max_d:
         for label, delta, is_max in presets:
             if is_max and data_ini_atual == min_d:
                 preset_atual = label
@@ -691,16 +712,52 @@ def _render_period_controls(
                 st.session_state[session_key_fim] = max_d
                 st.rerun()
 
-    with cols[n + 1]:
-        st.date_input(
-            "Data inicial", min_value=min_d, max_value=max_d,
-            key=session_key_ini,
-        )
-    with cols[n + 2]:
-        st.date_input(
-            "Data final", min_value=min_d, max_value=max_d,
-            key=session_key_fim,
-        )
+    if is_single_day_active:
+        # Callback de sincronização: quando o user muda o date_input
+        # "Dia", `data_fim` precisa acompanhar `data_ini` ANTES do
+        # próximo main script run (pra que o filter use ambas iguais
+        # e não exiba range de 2 dias num flash). Streamlit roda
+        # callbacks ANTES do main rerun.
+        def _sync_single_day_fim():
+            st.session_state[session_key_fim] = (
+                st.session_state[session_key_ini]
+            )
+
+        # ORDEM IMPORTA: botão "Último dia" é EXECUTADO ANTES do
+        # date_input — segue pattern dos botões de preset (que sabem
+        # setar state[session_key_ini] e dar st.rerun()). Quando user
+        # clica, o widget date_input ainda NÃO foi instanciado nesse
+        # render, então o set programático é seguro (sem
+        # StreamlitAPIException). Visualmente, `with cols[n+1]/[n+2]`
+        # garantem date_input à esquerda + botão à direita —
+        # independente da ordem de execução do código.
+        with cols[n + 2]:
+            if st.button(
+                "Último dia", use_container_width=True,
+                key=f"{key_prefix}sd_ultimo",
+                help="Volta pro último dia disponível",
+            ):
+                st.session_state[session_key_ini] = max_d
+                st.session_state[session_key_fim] = max_d
+                st.rerun()
+
+        with cols[n + 1]:
+            st.date_input(
+                "Dia", min_value=min_d, max_value=max_d,
+                key=session_key_ini,
+                on_change=_sync_single_day_fim,
+            )
+    else:
+        with cols[n + 1]:
+            st.date_input(
+                "Data inicial", min_value=min_d, max_value=max_d,
+                key=session_key_ini,
+            )
+        with cols[n + 2]:
+            st.date_input(
+                "Data final", min_value=min_d, max_value=max_d,
+                key=session_key_fim,
+            )
 
 
 def _render_period_controls_horaria(
@@ -1254,8 +1311,22 @@ if aba == "PLD":
     # Granularidade é atualizada pelo dropdown no título (selectbox com
     # on_change callback) antes do script rodar, então aqui já temos o
     # valor correto na session_state.
+    #
+    # Backup paralelo (decisão 5.18) — defesa preventiva: se o
+    # widget-state cleanup do Streamlit descartar `granularidade` ao
+    # trocar de aba e voltar, o backup restaura. `granularidade` é
+    # gerenciada pelo callback do selectbox, não é widget-state direto,
+    # mas o pattern é barato e cobre cenários inesperados.
+    _PLD_GRAN_BACKUP = "_pld_granularidade_backup"
+    if (
+        "granularidade" not in st.session_state
+        and _PLD_GRAN_BACKUP in st.session_state
+    ):
+        st.session_state["granularidade"] = st.session_state[_PLD_GRAN_BACKUP]
+
     st.session_state.setdefault("granularidade", "diario")
     granularidade = st.session_state["granularidade"]
+    st.session_state[_PLD_GRAN_BACKUP] = granularidade
     with st.spinner("Carregando dados da CCEE…"):
         try:
             df = get_pld_df(granularidade)
@@ -1282,10 +1353,37 @@ if aba == "PLD":
     min_d = df["data"].min().date()
     max_d = df["data"].max().date()
 
+    # Defesa contra widget cleanup do data_fim em single-day mode
+    # (decisão 5.16 estendida): em horário com 1D ativo, o widget
+    # "Data final" não é instanciado e Streamlit descarta
+    # state["data_fim"]. Próximo rerun (ex: clique no botão "Último
+    # dia" ou troca de granularidade) lê data_fim → KeyError.
+    # Restauramos antes do reset block: assume == data_ini (consistente
+    # com single-day). Se a granularidade for não-horária, o gatilho
+    # `range_degenerado_fora_horario` abaixo vai capturar o estado
+    # degenerado e disparar reset full pra default 90d.
+    if (
+        "data_fim" not in st.session_state
+        and "data_ini" in st.session_state
+    ):
+        st.session_state["data_fim"] = st.session_state["data_ini"]
+
+    # Gatilho extra (decisão 5.28): se user estava em horário com 1D
+    # ativo (data_ini == data_fim) e troca pra Diário/Semanal/Mensal,
+    # o range degenerado de 1 dia ficaria horrível nessas
+    # granularidades. Reset pro default 90d nesse caso.
+    range_degenerado_fora_horario = (
+        granularidade != "horario"
+        and "data_ini" in st.session_state
+        and "data_fim" in st.session_state
+        and st.session_state["data_ini"] == st.session_state["data_fim"]
+    )
+
     if (
         "data_ini" not in st.session_state
         or st.session_state.get("_dataset_max") != max_d
         or st.session_state.get("_dataset_min") != min_d
+        or range_degenerado_fora_horario
     ):
         st.session_state["data_ini"] = max(min_d, max_d - timedelta(days=90))
         st.session_state["data_fim"] = max_d
@@ -1293,8 +1391,8 @@ if aba == "PLD":
         st.session_state["_dataset_min"] = min_d
 
     # --- Filtrar por data (usando session_state, não widgets) ---
-    # Os widgets de Período ficam mais abaixo, mas o filtro precisa acontecer
-    # aqui para os KPIs já mostrarem os dados corretos.
+    # Os widgets de Período ficam mais abaixo, mas o filtro precisa
+    # acontecer aqui para os KPIs já mostrarem os dados corretos.
     data_ini = st.session_state["data_ini"]
     data_fim = st.session_state["data_fim"]
 
@@ -1310,20 +1408,40 @@ if aba == "PLD":
         st.stop()
 
     # --- Período (atalhos + date_inputs) — via helper reusado ---
-    _render_period_controls(
-        presets=[
-            ("1M", 30, False),
-            ("3M", 90, False),
-            ("6M", 180, False),
-            ("12M", 365, False),
-            ("Máx", None, True),
-        ],
-        session_key_ini="data_ini",
-        session_key_fim="data_fim",
-        key_prefix="btn_",
-        min_d=min_d,
-        max_d=max_d,
-    )
+    # Granularidade horária ganha preset "1D" (decisão 5.28) que ativa
+    # modo single-day no helper: 2 date_inputs viram 1 + botão "Último
+    # dia". Outras granularidades mantêm presets atuais.
+    if granularidade == "horario":
+        _render_period_controls(
+            presets=[
+                ("1D", 0, False),
+                ("1S", 7, False),
+                ("1M", 30, False),
+                ("3M", 90, False),
+                ("Máx", None, True),
+            ],
+            session_key_ini="data_ini",
+            session_key_fim="data_fim",
+            key_prefix="btn_",
+            min_d=min_d,
+            max_d=max_d,
+            single_day_preset_label="1D",
+        )
+    else:
+        _render_period_controls(
+            presets=[
+                ("1M", 30, False),
+                ("3M", 90, False),
+                ("6M", 180, False),
+                ("12M", 365, False),
+                ("Máx", None, True),
+            ],
+            session_key_ini="data_ini",
+            session_key_fim="data_fim",
+            key_prefix="btn_",
+            min_d=min_d,
+            max_d=max_d,
+        )
 
     # --- Seletor de submercados (antes do gráfico) ---
     sel_cols = st.columns([1, 1, 1, 1, 1.3, 4])
@@ -1429,6 +1547,195 @@ if aba == "PLD":
         submercados_presentes = [s for s in SUBMERCADOS_ORD if s in pivot.columns]
         pivot["Média BR"] = pivot[submercados_presentes].mean(axis=1)
 
+        # =====================================================================
+        # KPIs do single-day mode (decisão 5.28).
+        # Renderizados ENTRE o título-dropdown e o gráfico — quando
+        # granularidade=horário e data_ini==data_fim (1D ativo).
+        # 5 cards: PLD médio do dia / Máximo+hora / Mínimo+hora / Spread /
+        # vs Média do mês. Submercado escolhido via dropdown auxiliar
+        # "Detalhar KPIs:" (default SE).
+        # =====================================================================
+        single_day_active = (
+            granularidade == "horario" and data_ini == data_fim
+        )
+
+        if single_day_active:
+            st.markdown(
+                """
+                <style>
+                .pld1d-kpi-card {
+                    background: #F5F1E8;
+                    border: 2px solid #1A1A1A;
+                    padding: 16px;
+                    border-radius: 0;
+                }
+                /* Header do card: label à esquerda, meta opcional à
+                   direita (ex: horário "18:00" nos cards Máximo/Mínimo).
+                   Cards sem meta ficam só com label — espaço à direita
+                   permanece vazio sem afetar alinhamento. */
+                .pld1d-kpi-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: baseline;
+                    gap: 8px;
+                }
+                .pld1d-kpi-label {
+                    font-family: 'Bebas Neue', sans-serif;
+                    font-size: 11px;
+                    text-transform: uppercase;
+                    letter-spacing: 0.08em;
+                    color: #1A1A1A;
+                    font-weight: 400;
+                    line-height: 1.2;
+                }
+                .pld1d-kpi-meta {
+                    font-family: 'Inter', sans-serif;
+                    font-size: 11px;
+                    font-weight: 500;
+                    color: #6B6B6B;
+                    white-space: nowrap;
+                }
+                .pld1d-kpi-value-row {
+                    display: flex;
+                    align-items: baseline;
+                    margin-top: 0.4rem;
+                }
+                .pld1d-kpi-currency {
+                    font-family: 'Inter', sans-serif;
+                    font-size: 13px;
+                    font-weight: 400;
+                    color: #6B6B6B;
+                    vertical-align: baseline;
+                    margin-right: 4px;
+                }
+                .pld1d-kpi-amount {
+                    font-family: 'Inter', sans-serif;
+                    font-size: 22px;
+                    font-weight: 600;
+                    color: #1A1A1A;
+                    vertical-align: baseline;
+                    line-height: 1.1;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            def _render_kpi_pld_1d(label, num, meta_right=""):
+                """Card KPI do single-day mode. Layout:
+                  [LABEL ............... meta_right]   <- header (flex)
+                  [R$ XX,XX]                            <- value row
+
+                `num` vem como HTML pronto do `_fmt_pld_1d` (spans
+                currency + amount). `meta_right` opcional — usado só
+                nos cards MÁXIMO/MÍNIMO pra mostrar o horário do
+                pico/vale alinhado à direita do label.
+                """
+                meta_html = (
+                    f'<span class="pld1d-kpi-meta">{meta_right}</span>'
+                    if meta_right else ""
+                )
+                return (
+                    f'<div class="pld1d-kpi-card">'
+                    f'<div class="pld1d-kpi-header">'
+                    f'<span class="pld1d-kpi-label">{label}</span>'
+                    f'{meta_html}'
+                    f'</div>'
+                    f'<div class="pld1d-kpi-value-row">{num}</div>'
+                    f'</div>'
+                )
+
+            def _fmt_pld_1d(v):
+                """Retorna HTML com 'R$' e o número em spans separados —
+                hierarquia tipográfica: R$ secundário (Inter 13px cinza),
+                número primário (Inter 22px bold preto)."""
+                if v is None or pd.isna(v):
+                    return "—"
+                n = (
+                    f"{v:,.2f}"
+                    .replace(",", "X").replace(".", ",").replace("X", ".")
+                )
+                return (
+                    f'<span class="pld1d-kpi-currency">R$</span>'
+                    f'<span class="pld1d-kpi-amount">{n}</span>'
+                )
+
+            # Caption + dropdown auxiliar "Detalhar KPIs:"
+            cap_col, drop_col = st.columns([3, 1.5])
+            with cap_col:
+                st.markdown(
+                    f'<div style="font-family:\'Inter\', sans-serif; '
+                    f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+                    f'margin:0.6rem 0 0 0;">'
+                    f'Indicadores do dia '
+                    f'{data_ini.strftime("%d/%m/%Y")}.'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+            with drop_col:
+                opcoes_sub_kpi = ["SE", "S", "NE", "N", "Média BR"]
+                sub_kpis = st.selectbox(
+                    "Detalhar KPIs:",
+                    options=opcoes_sub_kpi,
+                    index=0,  # default SE
+                    key="pld_1d_sub_kpis",
+                )
+
+            # Série do dia (24 valores) pro submercado escolhido
+            if sub_kpis in pivot.columns:
+                serie_dia = pivot[sub_kpis].dropna()
+            else:
+                serie_dia = pd.Series(dtype=float)
+
+            if serie_dia.empty:
+                st.warning(
+                    f"Sem dados pro submercado {sub_kpis} no dia "
+                    f"{data_ini.strftime('%d/%m/%Y')}."
+                )
+            else:
+                pld_medio_dia = serie_dia.mean()
+                max_val = serie_dia.max()
+                max_ts = serie_dia.idxmax()
+                min_val = serie_dia.min()
+                min_ts = serie_dia.idxmin()
+                spread = max_val - min_val
+
+                kpi_cols = st.columns(4)
+                with kpi_cols[0]:
+                    st.markdown(
+                        _render_kpi_pld_1d(
+                            "PLD MÉDIO DIA",
+                            _fmt_pld_1d(pld_medio_dia),
+                        ),
+                        unsafe_allow_html=True,
+                    )
+                with kpi_cols[1]:
+                    st.markdown(
+                        _render_kpi_pld_1d(
+                            "MÁXIMO",
+                            _fmt_pld_1d(max_val),
+                            meta_right=max_ts.strftime("%H:00"),
+                        ),
+                        unsafe_allow_html=True,
+                    )
+                with kpi_cols[2]:
+                    st.markdown(
+                        _render_kpi_pld_1d(
+                            "MÍNIMO",
+                            _fmt_pld_1d(min_val),
+                            meta_right=min_ts.strftime("%H:00"),
+                        ),
+                        unsafe_allow_html=True,
+                    )
+                with kpi_cols[3]:
+                    st.markdown(
+                        _render_kpi_pld_1d(
+                            "SPREAD",
+                            _fmt_pld_1d(spread),
+                        ),
+                        unsafe_allow_html=True,
+                    )
+
         # --- Construir gráfico ---
         fig = go.Figure()
 
@@ -1518,12 +1825,20 @@ if aba == "PLD":
                 # então preferimos o início puro. Se o usuário quiser
                 # ver o range, mudar hovermode pra "x" e passar customdata
                 # por trace com fim = data + timedelta(days=6).
-                hoverformat={
-                    "horario": "%d/%m/%Y %H:%M",
-                    "diario":  "%d/%m/%Y",
-                    "semanal": "%d/%m/%Y",
-                    "mensal":  "%b %Y",
-                }[granularidade],
+                # Em horário + single-day (data_ini == data_fim), só
+                # `HH:MM` no hover — a data é redundante porque o
+                # gráfico mostra 24h de UM dia. Range > 1 dia mantém
+                # data + hora pra desambiguar entre dias.
+                hoverformat=(
+                    "%H:%M"
+                    if granularidade == "horario" and data_ini == data_fim
+                    else {
+                        "horario": "%d/%m/%Y %H:%M",
+                        "diario":  "%d/%m/%Y",
+                        "semanal": "%d/%m/%Y",
+                        "mensal":  "%b %Y",
+                    }[granularidade]
+                ),
             ),
             yaxis=dict(
                 title=dict(
