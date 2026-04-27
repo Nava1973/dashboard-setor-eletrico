@@ -290,8 +290,18 @@ st.markdown(
         color: {BAUHAUS_BLACK} !important;
     }}
 
-    /* Botões principais (fora da sidebar) — altura igual aos date inputs */
-    .stButton > button {{
+    /* Botões principais (fora da sidebar) — altura igual aos date inputs.
+       Seletor é DESCENDENTE (espaço, não `>`) com filtro [kind] pra cobrir
+       2 estruturas DOM:
+       - Sem help=: <div class="stButton"><button kind="…">…</button></div>
+       - Com help=: <div class="stButton"><div data-testid="stTooltipHoverTarget">
+                       <button kind="…">…</button></div></div>
+       O wrapper stTooltipHoverTarget quebra `.stButton > button` (filho
+       direto), causando o bug "Máx amarelo indevido" da Sessão 4a — apenas
+       Máx tem help=, então só ele perdia o estilo Bauhaus. Filtro [kind]
+       evita atingir o button interno do stTooltipIcon (caso exista — não
+       tem atributo kind). */
+    .stButton button[kind] {{
         border-radius: 0 !important;
         border: 2px solid {BAUHAUS_BLACK} !important;
         background: {BAUHAUS_CREAM} !important;
@@ -304,7 +314,7 @@ st.markdown(
         height: 2.4rem !important;
         transition: all 0.15s ease !important;
     }}
-    .stButton > button:hover {{
+    .stButton button[kind]:hover {{
         background: {BAUHAUS_YELLOW} !important;
         color: {BAUHAUS_BLACK} !important;
     }}
@@ -418,17 +428,30 @@ st.markdown(
     }}
 
     /* Botões "primary" do Streamlit (atalhos de período ativos em PLD e
-       Reservatórios): amarelo Bauhaus com borda preta. Hover = vermelho. */
-    .stButton > button[kind="primary"] {{
+       Reservatórios): amarelo Bauhaus com borda preta. Hover = vermelho.
+       Mesmo seletor descendente do bloco principal acima — cobre botões
+       com help= (Máx) que ganham wrapper stTooltipHoverTarget. */
+    .stButton button[kind="primary"] {{
         background: {BAUHAUS_YELLOW} !important;
         color: {BAUHAUS_BLACK} !important;
         border: 2px solid {BAUHAUS_BLACK} !important;
         font-weight: 700 !important;
     }}
-    .stButton > button[kind="primary"]:hover {{
+    .stButton button[kind="primary"]:hover {{
         background: {BAUHAUS_RED} !important;
         color: {BAUHAUS_CREAM} !important;
         border-color: {BAUHAUS_BLACK} !important;
+    }}
+
+    /* Botão "Estender histórico para 2000" colado nos presets de período
+       (Geração + Carga). Streamlit emite `class="st-key-{{key}}"` no
+       element-container do widget quando ele recebe key=. Ataca os 2
+       containers (ambas as abas usam a mesma estratégia, decisão Sessão
+       4a) com margin-top negativo pra colapsar o gap default do
+       stVerticalBlock. */
+    .st-key-btn_gen_historico_completo,
+    .st-key-btn_carga_historico_completo {{
+        margin-top: -0.8rem !important;
     }}
 
     /* Divisor */
@@ -862,19 +885,19 @@ def _aplica_default_periodo_carga(granularidade, min_d, max_d):
         st.session_state["carga_horaria_window_dias"] = 1
 
 
-@st.dialog("Carregar histórico completo")
+@st.dialog("Estender histórico para 2000")
 def _confirmar_historico_completo_gen():
     """Modal de confirmação pra expandir o range do dataset Geração de
     15 anos pra completo (2000-presente). Decisão 5.17 do CLAUDE.md
     (dois eixos: range do dataset vs período visível).
 
-    Setado pelo botão "📈 Carregar histórico completo" na aba Geração.
-    Confirmar marca gen_historico_completo=True na sessão; cancelar fecha.
-    @st.dialog requer Streamlit ≥1.32 (testado no 1.56).
+    Setado pelo botão "Estender histórico para 2000" nas abas Geração e
+    Carga (compartilham gen_historico_completo). Confirmar marca a flag
+    como True; cancelar fecha. @st.dialog requer Streamlit ≥1.32.
     """
     st.markdown(
-        "Carregar dados de **2000-2010** (mais 11 anos)?  \n"
-        "Vai baixar mais ~12MB do ONS — pode levar ~25s na primeira vez. "
+        "Adicionar dados de **2000-2010** ao range disponível (mais 11 anos)?  \n"
+        "Vai baixar mais ~12MB do ONS — pode levar ~30s na primeira vez. "
         "Em sessões seguintes carrega do cache em ~1s."
     )
     st.caption(
@@ -2681,26 +2704,32 @@ elif aba == "Geração":
         data_ini_gen = st.session_state["gen_data_ini"]
         data_fim_gen = st.session_state["gen_data_fim"]
 
-    # --- Botão "Carregar histórico completo" (Sessão 1.5b) ---
+    # --- Botão "Estender histórico para 2000" (Sessão 1.5b + 4a) ---
     # Eixo separado dos presets de período: presets navegam DENTRO do range
     # carregado; este botão EXPANDE o range. Decisão 5.17 (dois eixos).
-    # Discreto (Inter cinza) — não compete com presets.
+    # Sessão 4a: rename + tooltip explicativo + estado ativo claro.
     if historico_completo_gen:
+        # Estado ativo: feedback visual de que o histórico foi estendido.
+        # margin-top negativo cola o texto nos botões de preset acima
+        # (informação relacionada — range coberto pelo "Máx").
         st.markdown(
             '<div style="font-family:\'Inter\', sans-serif; '
-            'font-size:0.8rem; color:#6B6B6B; font-style:italic; '
-            'margin:0.4rem 0 0 0;">'
-            '✓ Histórico completo carregado (2000-presente)'
+            'font-size:0.8rem; color:#4A4A4A; font-weight:500; '
+            'margin:-0.8rem 0 0 0;">'
+            '✓ Histórico estendido ativo (desde 2000)'
             '</div>',
             unsafe_allow_html=True,
         )
     else:
+        # Botão inativo cola nos presets via CSS global que ataca
+        # .st-key-btn_gen_historico_completo (Streamlit emite essa class
+        # no element-container quando widget tem key=). Ver bloco CSS no
+        # topo do app.py.
         if st.button(
-            "📈 Carregar histórico completo (2000-2010)",
+            "Estender histórico para 2000",
             key="btn_gen_historico_completo",
-            help="Adiciona 11 anos pré-2011 ao dataset. Útil pra análises "
-                 "longas; não recomendado pra uso típico (matriz era ~85% "
-                 "hidro, dinâmica diferente).",
+            help="Adiciona dados de 2000-2010 ao range disponível. "
+                 "Demora ~30s na primeira vez (depois fica em cache).",
         ):
             _confirmar_historico_completo_gen()
 
@@ -2863,9 +2892,10 @@ elif aba == "Geração":
                 st.rerun()
         st.stop()
 
-    # --- Caption: última atualização + nota intercâmbio + nota GD + nota
-    # condicional 29/04/2023. Tag de granularidade renderizada perto do
-    # gráfico (entre título Bauhaus e plot), não aqui.
+    # --- Variáveis usadas DOWNSTREAM (notas, vline da quebra, tag de
+    # granularidade do título do gráfico). As notas em si são renderizadas
+    # ABAIXO do gráfico (Sessão 4a — manter espaço above-the-fold pros KPIs
+    # e gráfico, em vez de empurrá-los pra baixo com 3-4 linhas de contexto).
     ultima_data_gen = df_gen["data_hora"].max()
     tag_granularidade_gen = {
         "Mensal":     "Média mensal · MWmed",
@@ -2875,31 +2905,7 @@ elif aba == "Geração":
             "Dia típico (média horária do período selecionado) · MWmed"
         ),
     }[granularidade_gen]
-    notas_gen = [
-        f'Dados atualizados diariamente pelo ONS. Última atualização no '
-        f'dataset: {ultima_data_gen.strftime("%d/%m/%Y %H:%M")}.',
-        "A diferença entre a linha de carga e o total de geração "
-        "corresponde ao intercâmbio líquido com outros subsistemas "
-        "(importação/exportação) e perdas técnicas.",
-        "Solar inclui apenas geração centralizada (usinas). Geração "
-        "distribuída (MMGD, telhados/fachadas) será adicionada em etapa "
-        "futura.",
-    ]
     quebra_data = pd.Timestamp(2023, 4, 29)
-    if data_ini_efetivo_gen <= quebra_data.date() <= data_fim_gen:
-        notas_gen.append(
-            "Linha pontilhada vertical em 29/04/2023: ONS passou a incluir "
-            "MMGD (geração distribuída) na série de carga."
-        )
-    st.markdown(
-        "".join(
-            f'<div style="font-family:\'Inter\', sans-serif; '
-            f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-            f'margin:0.4rem 0 0 0;">{n}</div>'
-            for n in notas_gen
-        ),
-        unsafe_allow_html=True,
-    )
 
     # --- KPIs do submercado selecionado (4 cards) ---
     # Médias da janela visível, recalculadas ao trocar submercado. %renov
@@ -2927,10 +2933,13 @@ elif aba == "Geração":
         if ger_total_media and ger_total_media > 0 else float("nan")
     )
 
+    # Caption colado nos KPIs: margin-bottom negativo neutraliza o gap
+    # default do stVerticalBlock entre elementos Streamlit, deixando o
+    # caption visualmente "agarrado" no bloco de KPIs (Sessão 4a).
     st.markdown(
         f'<div style="font-family:\'Inter\', sans-serif; '
         f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-        f'margin:0.6rem 0 0.2rem 0;">'
+        f'margin:0.6rem 0 -0.8rem 0;">'
         f'Médias do período selecionado ({NOME_SUB_LONGO[submercado_gen]}).'
         f'</div>',
         unsafe_allow_html=True,
@@ -3071,12 +3080,14 @@ elif aba == "Geração":
 
     label_sub = LABELS_SUBSISTEMA_GEN[submercado_gen]
 
+    # margin-top aumentado de 1.2rem → 2.6rem na Sessão 4a pra separar
+    # visualmente o bloco "caption + KPIs" do bloco "título + gráfico".
     st.markdown(
         f'<div style="display:flex; justify-content:space-between; '
         f'align-items:baseline; '
         f'font-family:\'Bebas Neue\', sans-serif; '
         f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
-        f'margin: 1.2rem 0 0.3rem 0; padding-bottom:3px; '
+        f'margin: 2.6rem 0 0.3rem 0; padding-bottom:3px; '
         f'border-bottom: 2px solid #1A1A1A;">'
         f'<span>{label_sub}</span>'
         f'<span>{periodo_str_gen}</span>'
@@ -3224,6 +3235,34 @@ elif aba == "Geração":
     st.plotly_chart(
         fig_c, use_container_width=True,
         config={"displaylogo": False},
+    )
+
+    # --- Notas de contexto (abaixo do gráfico) ---
+    # Movidas pra cá na Sessão 4a pra preservar espaço above-the-fold dos
+    # KPIs+gráfico. A 4ª nota (vline 29/04/2023) é condicional — só aparece
+    # se a quebra está dentro do período visível.
+    notas_gen = [
+        f'Dados atualizados diariamente pelo ONS. Última atualização no '
+        f'dataset: {ultima_data_gen.strftime("%d/%m/%Y %H:%M")}.',
+        "A diferença entre a linha de carga e o total de geração "
+        "corresponde ao intercâmbio líquido com outros subsistemas "
+        "(importação/exportação) e perdas técnicas.",
+        "Solar = apenas geração centralizada. MMGD não é publicada pelo "
+        "ONS isoladamente — aparece embutida na carga desde 29/04/2023.",
+    ]
+    if data_ini_efetivo_gen <= quebra_data.date() <= data_fim_gen:
+        notas_gen.append(
+            "Linha pontilhada vertical em 29/04/2023: ONS passou a incluir "
+            "MMGD (geração distribuída) na série de carga."
+        )
+    st.markdown(
+        "".join(
+            f'<div style="font-family:\'Inter\', sans-serif; '
+            f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+            f'margin:0.4rem 0 0 0;">{n}</div>'
+            for n in notas_gen
+        ),
+        unsafe_allow_html=True,
     )
 
     # --- Export CSV ---
@@ -3548,22 +3587,26 @@ elif aba == "Carga":
         data_ini_carga = st.session_state["carga_data_ini"]
         data_fim_carga = st.session_state["carga_data_fim"]
 
-    # --- Botão histórico completo (compartilhado com Geração) ---
+    # --- Botão "Estender histórico para 2000" (compartilhado com Geração) ---
+    # margin-top negativo (texto ativo) + CSS global em st-key-btn_carga_…
+    # (botão inativo) colam ambos nos presets acima — mesma estratégia da
+    # Geração pra coerência visual.
     if historico_completo_carga:
         st.markdown(
             '<div style="font-family:\'Inter\', sans-serif; '
-            'font-size:0.8rem; color:#6B6B6B; font-style:italic; '
-            'margin:0.4rem 0 0 0;">'
-            '✓ Histórico completo carregado (2000-presente)'
+            'font-size:0.8rem; color:#4A4A4A; font-weight:500; '
+            'margin:-0.8rem 0 0 0;">'
+            '✓ Histórico estendido ativo (desde 2000)'
             '</div>',
             unsafe_allow_html=True,
         )
     else:
         if st.button(
-            "📈 Carregar histórico completo (2000-2010)",
+            "Estender histórico para 2000",
             key="btn_carga_historico_completo",
-            help="Adiciona 11 anos pré-2011 ao dataset (compartilhado com a "
-                 "aba Geração — afeta as duas).",
+            help="Adiciona dados de 2000-2010 ao range disponível "
+                 "(compartilhado com a aba Geração — afeta as duas). "
+                 "Demora ~30s na primeira vez (depois fica em cache).",
         ):
             _confirmar_historico_completo_gen()
 
@@ -3783,10 +3826,16 @@ elif aba == "Carga":
         )
 
     # Caption acima dos KPIs — segue padrão da Geração ("Médias do período...").
+    # margin-bottom 0 (não -0.8rem como na Geração): na Carga o bloco
+    # <style> dos cards foi declarado ANTES do caption (linha ~3728), então
+    # só há UM gap default do stVerticalBlock entre caption e cards. Na
+    # Geração, o <style> vem entre caption e cards (~2945), criando 2 gaps
+    # — daí o -0.8rem agressivo lá funciona. Aqui margem zero deixa o gap
+    # natural do Streamlit dar o respiro visual entre caption e KPIs.
     st.markdown(
         f'<div style="font-family:\'Inter\', sans-serif; '
         f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-        f'margin:0.6rem 0 0.2rem 0;">'
+        f'margin:0.6rem 0 0 0;">'
         f'Indicadores do período selecionado '
         f'({NOME_SUB_LONGO_CARGA[submercado_carga]}). '
         f'Passe o mouse sobre cada KPI pra ver a definição.'
@@ -3968,12 +4017,15 @@ penetração da solar centralizada.
 
     label_sub_carga = LABELS_SUBSISTEMA_CARGA[submercado_carga]
 
+    # margin-top aumentado de 1.2rem → 2.6rem na Sessão 4a pra separar
+    # visualmente o bloco "caption + KPIs" do bloco "título + gráfico".
+    # Mesmo valor da Geração — coerência visual entre as 2 abas.
     st.markdown(
         f'<div style="display:flex; justify-content:space-between; '
         f'align-items:baseline; '
         f'font-family:\'Bebas Neue\', sans-serif; '
         f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
-        f'margin: 1.2rem 0 0.3rem 0; padding-bottom:3px; '
+        f'margin: 2.6rem 0 0.3rem 0; padding-bottom:3px; '
         f'border-bottom: 2px solid #1A1A1A;">'
         f'<span>{label_sub_carga} · CARGA TOTAL VS LÍQUIDA</span>'
         f'<span>{periodo_str_carga}</span>'

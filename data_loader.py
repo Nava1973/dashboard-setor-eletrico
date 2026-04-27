@@ -1742,29 +1742,28 @@ def load_balanco_subsistema(
 
 
 # =============================================================================
-# GERAÇÃO DISTRIBUÍDA (ONS) — STUB ESTRUTURAL
+# GERAÇÃO DISTRIBUÍDA (ONS) — STUB HISTÓRICO (DESCARTADO)
 # =============================================================================
-# Não implementado nesta entrega. Placeholder pra receber o dataset mensal
-# estimado de MMGD do ONS (spec aba_geracao seção 4). Quando implementado,
-# deve retornar long-form compatível com load_balanco_subsistema (fonte='gd'),
-# pra aba Geração incluir como 5ª camada no topo do stacked sem refactor.
+# Sessão 3 (2026-04-26) descartou GD via ONS após Fase A de discovery:
+# - Não existe dataset standalone de MMGD/GD por subsistema no CKAN ONS.
+# - balanco-energia-subsistema (que já usamos) não tem coluna de GD.
+# - MMGD vai embutida na carga desde 29/04/2023 (notes do carga-energia
+#   confirmam) — vline + anotação 29/04/2023 nos gráficos já comunica isso.
+# - Único dataset com MMGD isolada é carga-energia-verificada (semi-horária
+#   por área de carga, via API/Swagger) — custo/benefício ruim pra UMA série.
+#
+# Decisão 5.26 do CLAUDE.md. Plano C reservado pra possível aba dedicada
+# "GD Brasil" via ANEEL (não evolução desta aba). Stub mantido como marcador
+# histórico — script de discovery em scripts/inspect_gd.py.
 # =============================================================================
 
 
 def load_gd_ons() -> pd.DataFrame:
-    """Stub — retorna DataFrame vazio com schema compatível.
+    """Stub histórico — descartado na Sessão 3 (decisão 5.26 do CLAUDE.md).
 
-    Quando implementado, schema esperado:
-      data_hora  datetime64  timestamp (provavelmente 1º do mês, granularidade mensal)
-      submercado str         'SE'|'S'|'NE'|'N'|'SIN'
-      fonte      str         'gd'
-      mwmed      float       MWmed estimado pelo ONS
-
-    TODO: revisitar quebra metodológica da carga em 29/04/2023 quando GD
-    virar realidade — pós essa data, val_carga do balanço já inclui MMGD,
-    então somar GD com carga duplicaria. Decisão a tomar: subtrair GD da
-    carga pós-2023 pra reconstruir série consistente, ou manter ambas
-    visíveis anotando a quebra.
+    Retorna DataFrame vazio. Não usar como caminho de evolução desta aba —
+    GD via ONS foi descartada após Fase A de discovery. Veja docstring do
+    bloco acima e scripts/inspect_gd.py pra contexto completo.
     """
     return pd.DataFrame(columns=["data_hora", "submercado", "fonte", "mwmed"])
 
