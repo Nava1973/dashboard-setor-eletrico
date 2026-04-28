@@ -4,42 +4,51 @@
 > roadmap original da aba Geração** (que se encerrou em 2026-04-26 com
 > a Sessão 3 — ver `docs/sessao_geracao_status.md`).
 >
-> Atualizado: **2026-04-26** (após encerramento do roadmap da Geração).
+> Atualizado: **2026-04-28** (após Sessão PLD 1D + Sessão 4a parcial — Vizs 1+2 da Carga).
 >
 > Convenção: cada item lista escopo, fontes de dado conhecidas/a
 > investigar, e se precisa Fase A de discovery antes de codar.
 
 ---
 
-## Sessão 4 — Aba Carga (escopo enxuto)
+## Sessão 4a — Aba Carga (em andamento)
 
-**Status:** próxima na fila. **Não precisa Fase A** — reaproveita o
-`balanco_energia_subsistema` que já carregamos pra aba Geração (coluna
-`val_carga` por subsistema horária 2000-2026).
+**Status:** em andamento. Iniciada em 2026-04-27. Aba Carga reaproveita
+o `balanco_energia_subsistema` que já carregamos pra aba Geração
+(coluna `val_carga` por subsistema horária 2000-2026) — **sem Fase A**.
 
-**4 visualizações planejadas:**
+**Concluído na Sessão 4a até agora:**
 
-1. **Carga total vs líquida** — série temporal mostrando a quebra de
-   29/04/2023 (pré: carga "líquida de GD"; pós: inclui MMGD).
-2. **Decomposição** — separar componentes da carga até onde o dataset
-   permitir (térmica/hidro/eólica/solar/intercâmbio bate carga ±
-   intercâmbio internacional).
-3. **Comparação histórica** — sobrepor anos pra ver trend (ex: 2024 vs
-   2023 vs média 2015-2023). Útil pra mostrar crescimento e impacto
-   COVID 2020.
-4. **Curva de carga tipo (load duration curve)** — eixo X = % do tempo,
-   eixo Y = MWmed ordenado decrescente. Padrão clássico do setor pra
-   ver pico e base.
+- Setup da aba (radio na sidebar, dataset, granularidades).
+- KPIs (régua de 4 cards autocontidos — decisão 5.29).
+- Glossário inline.
+- **Viz 1** — Carga total vs líquida (vline 29/04/2023 marcando
+  quebra MMGD).
+- **Viz 2** — Composição da carga total (stacked area com ordem da
+  carga líquida — decisão 5.31; intercâmbio stack-aware híbrido por
+  recorte — decisão 5.32; paleta canônica — decisão 5.33).
 
-**Reuso esperado:**
-- `load_balanco_subsistema` (default 15a + flag completo) já cobre o dado.
+**Pendências do Bloco 5 (Viz 2):**
+
+- **Sub-bloco 5.5** — adaptação da Viz 2 pra granularidade Dia Típico
+  (xaxis categorial + stackgroup, mesmo pattern da decisão 5.25 já
+  aplicado na Viz 1).
+- **Sub-bloco 5.6** — validação visual nos 4 cenários (SIN×Mensal,
+  SIN×Diária, Submercado×Diária, Dia Típico) + remoção do sanity
+  check inline usado durante desenvolvimento.
+- **Sub-bloco 5.7** — limpeza final + atualizar Seção 7 do
+  `CLAUDE.md` + commit fechando Sessão 4a.
+
+**Sessão 4b (futura):** Vizs 3 e 4 do escopo original — Comparação
+histórica (sobreposição de anos) e Curva de carga tipo (load duration
+curve). Ficam pra sessão dedicada após fechamento da 4a.
+
+**Reuso já validado na 4a:**
+- `load_balanco_subsistema` (default 15a + flag completo).
 - `_render_period_controls` + `_format_periodo_br` + reset block 5.20
-  + disk-cache 5.15 + tag de granularidade 5.22 — pattern já validado.
-- Decisões 5.16/5.18/5.19 (sentinela + backup paralelo) — aplicar
-  preventivamente em widgets da nova aba.
-
-**Esforço estimado:** **1 sessão** (sem Fase A, todo o pipeline já
-existe). Maior parte é UI nova + 4 plots Plotly distintos.
+  + disk-cache 5.15 + tag de granularidade 5.22.
+- Decisões 5.16/5.18/5.19 (sentinela + backup paralelo) aplicadas
+  preventivamente.
 
 ---
 
@@ -91,8 +100,8 @@ legítima da customização do user.
   visível, mas range do dataset (`gen_historico_completo`) continua
   sendo flag explícita do user.
 
-**Decisão arquitetural nova (5.28)** consolidaria o pattern (5.27 foi
-usada na Sessão 4a pelo ajuste de presets/tooltip do Máx).
+**Decisão arquitetural nova (próximo número disponível, atualmente 5.34)**
+consolidaria o pattern.
 
 **Esforço estimado:** **2-3h** — UI inalterada, todo o trabalho fica
 no reset block + backup paralelo de cada aba. Maior risco é
@@ -140,74 +149,85 @@ desconhecido.
 
 ---
 
-## Sessão futura (prioridade média) — PLD horário com seleção de dia
+## Sessão futura (prioridade média) — Aba GD Brasil via ANEEL
 
-**Status:** prioridade média — depois de Sessão 4a/4b da Carga, antes ou
-junto com Curtailment.
+**Status:** prioridade média. **Plano C separado da decisão 5.26** —
+que descartou camada de GD na Viz 1 da Carga porque ONS não publica
+MMGD standalone por subsistema (vline 29/04/2023 cumpre o papel
+informativo lá). Esta é uma abordagem diferente: **aba dedicada** com
+dataset ANEEL próprio, não camada empilhada na Carga.
 
-Hoje a aba PLD tem 4 granularidades (Horário/Diário/Semanal/Mensal) num
-dropdown, mas a granularidade Horária mostra todo o range de período
-selecionado — em janela longa fica ilegível (8.760 pontos × 12 meses).
+**Fontes a investigar (Fase A obrigatória):**
+- Portal de dados abertos ANEEL (CIEFSE? SCG? outro?).
+- Cadastro de unidades consumidoras com micro/minigeração distribuída.
+- Granularidade provável: mensal, por estado/distribuidora.
+- Cobertura provável: 2014+ (regulamentação MMGD veio em 2012, dado
+  acumulado começa ~2014).
 
-**Mudança proposta:** modo "1D" análogo ao da Geração (decisão 5.9).
-1 `date_input` "Data base" + presets de janela curta (1D/7D), mostrando
-as 24h × N dias do dia selecionado.
+**Visualizações esperadas (a definir após Fase A):**
+- Capacidade instalada acumulada por estado/subsistema ao longo do
+  tempo.
+- Crescimento mensal/anual (incremento de novas instalações).
+- Composição por fonte (solar fotovoltaica >> outras no Brasil).
 
-**Útil pra:**
-- Análise de spike intradiário (PLD nas horas de pico).
-- Comparação entre dias específicos (ex: feriado vs dia útil).
-- Análise regulatória de momentos críticos.
-
-**Reuso esperado:**
-- `_render_period_controls_horaria` (5.9) já existe.
-- Loader `load_pld_horaria()` já existe — só precisa do switch de UI.
-
-**Esforço estimado:** ~1-1.5h. Maior parte é UI (switch granularidade
-Horária → modo "Data base + janela", sem mexer em loader). Bug previsto:
-session_state da granularidade do PLD precisa do mesmo padrão de reset
-block unificado (5.20) que a Geração ganhou.
+**Esforço estimado:** 2-3 sessões — Fase A pesada (fonte nova, schema
+desconhecido, mapping estado→subsistema) + implementação + ajustes UX.
 
 ---
 
-## Sessão futura (prioridade média) — UX: Comportamento do preset 15A quando dados não cobrem
+## Sessão futura (prioridade média) — Feature "comparar com" / aba histórico
 
-**Status:** prioridade média — fix técnico do crash já aplicado na
-Sessão 4a (clamp em `min_d` no `_render_period_controls`,
-`app.py:650-655`). Sessão futura discute apenas a UX do clamp.
+**Status:** prioridade média. **Origem: consequência da decisão 5.29**
+(KPI cards autocontidos, comparações temporais ficam pra feature
+dedicada).
 
-**Comportamento atual (pós-fix):** quando preset pede período maior que
-`(max_d - min_d).days` (ex: 15A na Carga sem histórico completo →
-data_ini=2011-04-28 < min_d=2012-01-01), o clamp em `min_d` faz a
-seleção degenerar pra equivalente de "Máx". Resultado: botão "Máx" fica
-amarelo silenciosamente, 15A não fica destacado. Honesto sobre dados
-disponíveis, mas pode confundir user que esperava "15 anos".
+**Motivação:** durante design dos KPIs do PLD horário 1D, o card "vs
+média do mês" foi descartado porque (a) denominador móvel cria ruído
+conceitual, (b) delta % isolado num card não substitui ver a curva, (c)
+gráfico abaixo já permite "olhar pro lado" e comparar dias. Mas a
+necessidade de comparação temporal continua válida — só não como card
+enxertado em outro contexto.
 
-**3 alternativas a discutir:**
+**Escopo provável:**
+- Comparações típicas: vs ontem, vs ano anterior, vs média móvel 30d,
+  vs média histórica do mês/ano.
+- UX provável: toggle ou aba dedicada dentro de cada aba (ex: PLD
+  Histórico, Carga Histórico).
+- Aplicável a: PLD, Carga, possivelmente Geração (PLD é candidato
+  natural por ter granularidade horária + 4 submercados).
 
-(a) **Manter atual** — Máx amarelo, sem caption. Honesto sobre dados
-disponíveis, zero ruído visual. Custo: user pode não notar que pediu
-15A e recebeu 14a.
+**Esforço estimado:** 2 sessões — design UX (definir formato:
+toggle? aba? overlay?) + implementação por aba.
 
-(b) **Sugerir ativar histórico completo via caption** — quando o clamp
-acontece, mostrar caption pequena "15A não disponível com dataset atual.
-Carregue o histórico completo (botão acima) pra ver os 15 anos."
-Educativo, conecta os 2 eixos da decisão 5.17. Custo: caption fica
-visível em todo render desse cenário, pode virar ruído se o user
-explicitamente quer ficar nos 15a.
+---
 
-(c) **Manter 15A amarelo + caption explicativo** — preserva sinal do
-preset clicado mesmo após clamp + esclarece o que aconteceu. Mais
-complexo (a detecção de "preset ativo" da linha 624 usa
-`(max_d - data_ini).days == delta`, que não bate após clamp — exigiria
-flag adicional `_<aba>_preset_clicado` em session_state). Trade-off:
-mais state pra manter consistente, mas UX mais expressiva.
+## Sessão futura (prioridade média) — Responsividade mobile
 
-**Preferência inicial:** (b) — adiciona valor educativo sem complicar
-state. Mas vale conversar com user antes.
+**Status:** prioridade média. Problema conhecido reportado pelo user
+em viewports estreitos (iPhone).
 
-**Esforço estimado:** **~30 min** (caso (b)) ou **~1h** (caso (c)).
-Mudança contida ao `_render_period_controls` + caller (caption
-condicional após o helper).
+**Sintomas observados:**
+- Presets de período (1M/3M/6M/12M/Máx) ficam empilhados verticalmente
+  em vez de horizontal — quebra a régua de botões.
+- KPIs em régua de 4-5 cards perdem alinhamento — alguns cards
+  estouram a largura, outros encolhem.
+- Dropdowns lado-a-lado (granularidade + submercado da Geração)
+  podem sobrepor.
+- Tipografia Bauhaus em telas estreitas pode ficar ilegível em alguns
+  títulos.
+
+**Escopo:** revisão CSS dos elementos com layout horizontal fixo. 5
+abas afetadas (PLD, Reservatórios, ENA, Geração, Carga). Princípio:
+breakpoints CSS no `<style>` global do `app.py` (linhas ~58-400) com
+ajuste pra `max-width: 768px` (tablet) e `max-width: 480px` (mobile).
+
+**Trade-off:** Streamlit tem comportamento responsivo default
+(columns viram empilhadas em mobile), mas nossos overrides Bauhaus
+(width fixo, primary button amarelo, etc.) podem brigar com isso.
+Precisa testar caso a caso.
+
+**Esforço estimado:** 1-2 sessões — auditoria visual em devtools mobile
+(Chrome) + breakpoints + validação manual em iPhone.
 
 ---
 
