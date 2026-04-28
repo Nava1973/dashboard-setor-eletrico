@@ -4,51 +4,10 @@
 > roadmap original da aba Geração** (que se encerrou em 2026-04-26 com
 > a Sessão 3 — ver `docs/sessao_geracao_status.md`).
 >
-> Atualizado: **2026-04-28** (após Sessão PLD 1D + Sessão 4a parcial — Vizs 1+2 da Carga).
+> Atualizado: **2026-04-29** (após fechamento da Sessão 4a — Vizs 1+2 da Carga prontas; Vizs 3+4 ficam pra Sessão 4b).
 >
 > Convenção: cada item lista escopo, fontes de dado conhecidas/a
 > investigar, e se precisa Fase A de discovery antes de codar.
-
----
-
-## Sessão 4a — Aba Carga (em andamento)
-
-**Status:** em andamento. Iniciada em 2026-04-27. Aba Carga reaproveita
-o `balanco_energia_subsistema` que já carregamos pra aba Geração
-(coluna `val_carga` por subsistema horária 2000-2026) — **sem Fase A**.
-
-**Concluído na Sessão 4a até agora:**
-
-- Setup da aba (radio na sidebar, dataset, granularidades).
-- KPIs (régua de 4 cards autocontidos — decisão 5.29).
-- Glossário inline.
-- **Viz 1** — Carga total vs líquida (vline 29/04/2023 marcando
-  quebra MMGD).
-- **Viz 2** — Composição da carga total (stacked area com ordem da
-  carga líquida — decisão 5.31; intercâmbio stack-aware híbrido por
-  recorte — decisão 5.32; paleta canônica — decisão 5.33).
-
-**Pendências do Bloco 5 (Viz 2):**
-
-- **Sub-bloco 5.5** — adaptação da Viz 2 pra granularidade Dia Típico
-  (xaxis categorial + stackgroup, mesmo pattern da decisão 5.25 já
-  aplicado na Viz 1).
-- **Sub-bloco 5.6** — validação visual nos 4 cenários (SIN×Mensal,
-  SIN×Diária, Submercado×Diária, Dia Típico) + remoção do sanity
-  check inline usado durante desenvolvimento.
-- **Sub-bloco 5.7** — limpeza final + atualizar Seção 7 do
-  `CLAUDE.md` + commit fechando Sessão 4a.
-
-**Sessão 4b (futura):** Vizs 3 e 4 do escopo original — Comparação
-histórica (sobreposição de anos) e Curva de carga tipo (load duration
-curve). Ficam pra sessão dedicada após fechamento da 4a.
-
-**Reuso já validado na 4a:**
-- `load_balanco_subsistema` (default 15a + flag completo).
-- `_render_period_controls` + `_format_periodo_br` + reset block 5.20
-  + disk-cache 5.15 + tag de granularidade 5.22.
-- Decisões 5.16/5.18/5.19 (sentinela + backup paralelo) aplicadas
-  preventivamente.
 
 ---
 
@@ -201,6 +160,37 @@ toggle? aba? overlay?) + implementação por aba.
 
 ---
 
+## Sessão futura (prioridade média) — Glossário inline embaixo das vizs
+
+**Status:** prioridade média. Origem: pergunta da Nava no Sub-bloco 5.5
+sobre o gap visual entre topo do stack e linha de carga total na Viz 2
+da Carga.
+
+**Sintoma:** usuário tem dúvidas conceituais durante leitura do gráfico
+(ex: "o que significa o gap entre topo do stack e linha de carga
+total?", "por que SE exportador líquido tem intercâmbio positivo?") e
+o glossário atual fica no TOPO da aba, longe do contexto visual onde
+a dúvida surge.
+
+**Escopo:** adicionar glossário curto inline embaixo de cada viz,
+explicando os elementos visuais específicos daquela viz. Pode ser:
+- Caption discreto com 2-3 linhas de explicação dos elementos
+  principais (cores, gaps, sinais).
+- Ou expander "❓ Como ler este gráfico?" colapsado por default.
+
+**Aplicação esperada inicial:** Carga Vizs 1 e 2 (origem da pergunta
+que motivou o item). Possível extensão futura pra outras abas (PLD,
+Reservatórios, ENA, Geração) avaliada caso a caso após primeiro
+experimento na Carga.
+
+**Trade-off:** aumenta scroll, mas reduz carga cognitiva inicial e
+melhora retenção da audiência não-técnica.
+
+**Esforço estimado:** 1-2 sessões — design (definir formato: caption?
+expander? hover-tooltip?) + implementação por viz.
+
+---
+
 ## Sessão futura (prioridade média) — Responsividade mobile
 
 **Status:** prioridade média. Problema conhecido reportado pelo user
@@ -228,6 +218,30 @@ Precisa testar caso a caso.
 
 **Esforço estimado:** 1-2 sessões — auditoria visual em devtools mobile
 (Chrome) + breakpoints + validação manual em iPhone.
+
+---
+
+## Sessão futura (prioridade baixa) — Override CSS Bauhaus afetando st.caption
+
+**Status:** prioridade baixa. Detectado durante diagnóstico do
+Sub-bloco 5.5 da Sessão 4a (commit `8478f38`).
+
+**Sintoma:** `st.caption` usado pra avisos discretos fica praticamente
+invisível — letras brancas (do `textColor: "#f2f2f2"` do tema dark do
+projeto) sobre fundo cream `BAUHAUS_CREAM` (`#F5F1E8`). Praticamente
+o mesmo problema da decisão 5.23 (override de `stAlert`), mas pro
+`stCaption`.
+
+**Provável causa:** o tema dark do `.streamlit/config.toml` define
+`textColor` pra todo o app, mas `BAUHAUS_CREAM` é a cor de fundo nossa.
+`stCaption` não tem override próprio — herda o `textColor` branco e
+fica ilegível.
+
+**Solução provável:** adicionar regra CSS específica pra
+`[data-testid="stCaptionContainer"]` (similar à 5.23 pra `stAlert`),
+forçando `color: BAUHAUS_BLACK` ou `BAUHAUS_GRAY`. ~5 linhas de CSS.
+
+**Esforço estimado:** ~15 minutos. Mudança contida, sem regressão.
 
 ---
 

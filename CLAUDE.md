@@ -2209,14 +2209,79 @@ ambiente fresh do Cloud.
     5.26 nova no CLAUDE.md, Sessão 3 fechada como ✅ SEM CÓDIGO no doc
     de status. **Roadmap original encerrado.**
 
+23. **Sessão PLD 1D — preset "1D" em granularidade horária + KPIs do dia**
+    — commit `c60283d` (2026-04-26) + refactor `aa2199a` (mesma data).
+    Adiciona modo single-day no PLD horário: 5 presets
+    (1D / 1S / 1M / 3M / Máx), substituindo os 2 `date_input` do range
+    tradicional por **1 `date_input` "Dia" + 1 botão "Último dia"**
+    quando o preset 1D está ativo. **Marcador de modo single-day é puro
+    derivativo de runtime** (`data_ini == data_fim`) — sem session_state
+    dedicada (decisão 5.28). Helper `_render_period_controls` ganhou
+    parâmetro opcional `single_day_preset_label` que reusa toda a
+    infraestrutura existente (presets + tooltip dinâmico no Máx + clamp
+    em `min_d` da decisão 5.27). **4 KPIs do dia** acima do gráfico
+    (PLD médio dia / máximo com horário / mínimo com horário / spread)
+    — todos autocontidos, calculados sobre as 24 horas do dia
+    selecionado (decisão 5.29). **Refactor lateral (`aa2199a`):**
+    dropdown de submercado movido pra cima do gráfico, e termo informal
+    "Média BR" passa a ser exibido como **"SIN"** seguindo vocabulário
+    oficial do setor — chaves internas (`"Média BR"`) preservadas,
+    tradução só na camada de display via `format_func` (decisão 5.30).
+    Card "vs média do mês" descartado durante design (decisão 5.29) por
+    (a) denominador móvel, (b) baixa acionabilidade, (c) redundância
+    com o gráfico — comparações temporais ficam pra feature dedicada
+    futura ("comparar com").
+
+24. **Sessão 4a — Aba Carga (Blocos 1-5: Setup + KPIs + Glossário +
+    Vizs 1 e 2)** — 5 commits entre 2026-04-27 e 2026-04-29 (`85be849`
+    → `ac488a7` → `6768e2d` → `8478f38` → `7b5673a`). Aba nova
+    reaproveitando `load_balanco_subsistema` da Geração (sem Fase A,
+    mesmo pipeline + disk-cache 5.15 + reset block 5.20).
+    **Bloco 1 (Setup):** radio na sidebar, dropdowns de granularidade
+    (Diária/Mensal/Horária/Dia Típico) + submercado, presets de período
+    compartilhados.
+    **Bloco 2 (KPIs):** régua de 4 cards autocontidos (decisão 5.29).
+    **Bloco 3 (Glossário):** explicação inline no topo da aba dos
+    termos "Carga Total", "Carga Líquida", "MMGD", "Intercâmbio".
+    **Bloco 4 — Viz 1 (Carga Total vs Líquida):** série temporal com
+    2 linhas (azul = Total, vermelha = Líquida) + área verde-oliva
+    entre elas representando "Renováveis variáveis cobriram"
+    (eólica + solar) + vline 29/04/2023 marcando quebra MMGD.
+    **Bloco 5 — Viz 2 (Composição da carga total):** stacked area com
+    4 fontes na **ordem da carga líquida** (solar → eólica → hidro →
+    térmica de baixo pra cima — decisão 5.31), linha dotted preta da
+    Carga total sobreposta como linha de fecho, intercâmbio
+    **stack-aware híbrido por recorte** (omitido em SIN, trace dashdot
+    em submercado — decisão 5.32). Suporta as 4 granularidades
+    incluindo Dia Típico (xaxis categorial + stackgroup, mesmo pattern
+    da decisão 5.25 já aplicado na Viz 1).
+    **Bug crítico descoberto durante Sub-bloco 5.5:** sanity check
+    inicial (`carga ≈ stack + intercambio`) disparou aviso de 27.62%
+    em SE×Dia Típico×5A. Diagnóstico empírico via comparação numérica
+    revelou que dataset ONS usa convenção `intercambio > 0 = exportação`
+    (oposto do esperado por estereótipo do setor) — fixes aplicados em
+    `_residual_v2`, hovertemplate e decisão 5.32 (commit `8478f38`).
+    **Lição registrada na 5.32:** convenções de sinal de datasets
+    externos não devem ser inferidas — sempre validar numericamente
+    quando o sinal carrega significado direcional.
+    **Paleta canônica (decisão 5.33):** as 4 fontes ganharam constantes
+    únicas (`COR_FONTE_SOLAR/EOLICA/HIDRO/TERMICA`) consistentes entre
+    Geração e Carga — térmica terracota em vez de preto `BAUHAUS_BLACK`,
+    hidro `#4A6FA5` em vez de `BAUHAUS_BLUE` (separa cor estrutural de
+    cor de dado).
+    **Sessão 4b futura** cobre Vizs 3 e 4 do escopo original
+    (Comparação histórica + Curva de carga tipo).
+
 ---
 
 ## 8. Referências Cruzadas
 
-- **`docs/roadmap.md`** — roadmap futuro do projeto (pós-encerramento
-  do roadmap original da Geração). Sessão 4 Carga (próxima na fila),
-  Curtailment (alta prioridade), + 3 sessões futuras de menor prioridade
-  (carga por classe, componentes da carga, carga vs PIB).
+- **`docs/roadmap.md`** — roadmap futuro do projeto (Sessão 4a fechada
+  em 2026-04-29; sessões concluídas registradas na Seção 7 acima).
+  Próximas sessões em ordem de prioridade: UX preservar estado entre
+  abas e Curtailment (alta); GD ANEEL, comparar com, glossário inline
+  e responsividade mobile (média); CSS caption (baixa); carga por
+  classe, componentes da carga e carga vs PIB (menor).
 - **`docs/sessao_geracao_status.md`** — status da aba Geração: roadmap
   de 3+1 sessões, histórico das mudanças, bugs descobertos/corrigidos
   na Sessão 1 (referenciados pelas decisões 5.11-5.13).
