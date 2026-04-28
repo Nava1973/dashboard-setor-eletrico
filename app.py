@@ -4903,39 +4903,6 @@ penetração da solar centralizada.
         config={"displaylogo": False},
     )
 
-    # Sanity check de balanço:
-    #   carga ≈ (solar + eolica + hidro + termica) − intercambio
-    # Convenção dataset ONS: intercambio > 0 = exportação,
-    # intercambio < 0 = importação (descoberto empiricamente no
-    # Sub-bloco 5.5).
-    # Tolerância: desvio médio relativo < 1%. Se quebrar, st.caption
-    # vermelho discreto sinaliza pro Nava investigar pivot/dataset.
-    # CHECK REMOVÍVEL após validação inicial — ver TODO abaixo.
-    # TODO(Sub-bloco 5.6): após Nava confirmar que passa nos 3
-    # cenários representativos (Diária 12M / Horária 7D / Mensal 5A
-    # em SIN e submercado), remover este bloco.
-    _topo_stack_v2 = (
-        pivot_sel_carga["solar"]
-        + pivot_sel_carga["eolica"]
-        + pivot_sel_carga["hidro"]
-        + pivot_sel_carga["termica"]
-    )
-    _residual_v2 = (
-        pivot_sel_carga["carga"]
-        - _topo_stack_v2
-        + pivot_sel_carga["intercambio"]
-    )
-    _carga_mean = pivot_sel_carga["carga"].abs().mean()
-    if _carga_mean > 0:
-        _ratio_v2 = _residual_v2.abs().mean() / _carga_mean
-        if _ratio_v2 > 0.01:
-            st.caption(
-                f"⚠️ Balanço Viz 2: desvio médio "
-                f"{_ratio_v2 * 100:.2f}% (esperado <1%) "
-                f"em {submercado_carga}/{granularidade_carga}. "
-                f"Investigar pivot ou dataset."
-            )
-
 # =============================================================================
 # RODAPÉ — com espaçamento claro para evitar sobreposição
 # =============================================================================
