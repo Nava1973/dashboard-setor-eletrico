@@ -1819,14 +1819,14 @@ de submercado** na Viz 2 da Carga:
 | **Submercado individual (SE/S/NE/N)** | Trace `lines` sobreposto com sinal preservado, `dash="dashdot"`, cor `#9B9B9B` (cinza neutro) | Intercâmbio interno é relevante e pode ser positivo ou negativo |
 
 Hover do trace de intercâmbio em submercado explicita o sinal:
-`+importação líquida` / `−exportação líquida`.
+`+exportação líquida` / `−importação líquida`.
 
 **Caso que motivou (Sub-bloco 5.1):** Plotly `stackgroup` não suporta
 valores negativos no mesmo trace — quebra o empilhamento visualmente
 (camada inverte direção, sobrepõe outras). Submercados podem ser
 **exportadores líquidos** em janelas específicas (S em períodos
 úmidos, SE em meses de carga baixa) — nesses momentos
-`intercambio < 0`.
+`intercambio > 0`.
 
 **Estratégias rejeitadas:**
 
@@ -1844,13 +1844,18 @@ valores negativos no mesmo trace — quebra o empilhamento visualmente
 sobreposto comunicam o balanço completo:
 
 ```
-carga ≈ topo_do_stack + intercambio   (com sinal)
+carga ≈ topo_do_stack - intercambio   (com sinal)
 ```
 
-- `intercambio > 0` (importação): linha de intercâmbio fica acima
-  do stack — gap = volume importado.
-- `intercambio < 0` (exportação): linha de intercâmbio fica abaixo
-  do stack — gap negativo = volume exportado.
+- `intercambio > 0` (exportação): linha de intercâmbio fica em y
+  positivo (acima do eixo zero, abaixo do stack); gap entre topo do
+  stack e linha de carga total fica negativo (carga total cola
+  dentro do stack ou abaixo do topo) — exportação significa "sobrou
+  geração".
+- `intercambio < 0` (importação): linha de intercâmbio fica em y
+  negativo (abaixo do eixo zero); gap entre topo do stack e linha
+  de carga total fica positivo (carga total acima do topo) —
+  importação significa "geração local não basta".
 
 Documentar a convenção no glossário da aba.
 
@@ -1875,6 +1880,24 @@ ruído que clareza.
   sempre positivas em qualquer submercado).
 - Casos onde a magnitude da componente é ~zero em todos os recortes
   (não justifica trace separado).
+
+**Convenção descoberta empiricamente:**
+
+A convenção de sinal do `intercambio` no dataset ONS
+`balanco_subsistema` foi descoberta empiricamente durante a validação
+do Sub-bloco 5.5 da Sessão 4a. O sanity check inicial assumia
+`carga ≈ stack + intercambio` (fórmula A) e disparou aviso de 27.62%
+de desvio em SE × Dia Típico × 5A. Diagnóstico via comparação numérica
+das 2 fórmulas candidatas (A: stack+interc, B: stack-interc) revelou
+que a fórmula B fecha com ratio 0.00% — confirmando que o dataset usa
+a convenção `positivo = saída/exportação`.
+
+**Lição:** convenções de sinal de datasets externos não devem ser
+inferidas a partir de nomes de coluna ou estereótipos do setor (ex:
+"SE é exportador") — sempre validar numericamente quando o sinal
+carrega significado direcional. Mesmo que o pipeline visual pareça
+correto (Plotly plota o `y` literal sem interpretar sinal), texto de
+hover e cálculos de balanço dependem da convenção certa.
 
 ### 5.33 Paleta canônica de fontes de geração
 
