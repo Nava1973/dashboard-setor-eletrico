@@ -11,7 +11,7 @@ Estrutura (sub-abas internas):
     4. Por grupo         - Por grupo econômico               (em construção)
     5. Debug mapeamento  - Cobertura Excel ↔ ONS             (em construção)
 
-Granularidades: Diária, Semanal, Mensal, Trimestral.
+Granularidades: Diária, Mensal, Trimestral.
 Presets de período: 30D, 90D, 6M, 12M, Máx.
 
 Mapeamento de proprietário:
@@ -82,14 +82,13 @@ LABELS_RAZAO = {
 # Granularidade UI → chave interna do utils_periodos
 GRANS_UI = {
     "Diária":     "DIARIO",
-    "Semanal":    "SEMANAL",
     "Mensal":     "MENSAL",
     "Trimestral": "TRIMESTRAL",
 }
 
 # =============================================================================
 # Presets de período por granularidade.
-# - Diária/Semanal: presets em dias contados pra trás (sem encaixe).
+# - Diária: presets em dias contados pra trás (sem encaixe).
 # - Mensal: encaixe em fronteira de mês (1M = mês atual desde dia 1).
 # - Trimestral: encaixe em fronteira de trimestre (6M = 2 trimestres).
 # Cada tuple: (label, data_ini_fn, is_max). data_ini_fn é Callable[[date], date]
@@ -100,16 +99,6 @@ GRANS_UI = {
 PRESETS_BY_GRAN = {
     "DIARIO": {
         "default": "30D",
-        "presets": [
-            ("30D",  lambda mx: mx - timedelta(days=30),  False),
-            ("90D",  lambda mx: mx - timedelta(days=90),  False),
-            ("6M",   lambda mx: mx - timedelta(days=180), False),
-            ("12M",  lambda mx: mx - timedelta(days=365), False),
-            ("Máx",  None, True),
-        ],
-    },
-    "SEMANAL": {
-        "default": "6M",
         "presets": [
             ("30D",  lambda mx: mx - timedelta(days=30),  False),
             ("90D",  lambda mx: mx - timedelta(days=90),  False),
@@ -164,7 +153,7 @@ def _fmt_pct_curt(x, casas: int = 2) -> str:
 # =============================================================================
 # Helpers de fronteira temporal (mês/trimestre)
 # Usados pelos presets adaptativos por granularidade — Mensal e Trimestral
-# encaixam em fronteira de mês/trimestre, Diária e Semanal não encaixam.
+# encaixam em fronteira de mês/trimestre, Diária não encaixa.
 # =============================================================================
 
 
@@ -512,7 +501,7 @@ def _render_visao_geral(
         ))
 
     # TODO(curtailment): xaxis.type="category" funciona bem em Mensal/
-    # Trimestral/Semanal (poucos pontos), mas vai ficar amontoado em
+    # Trimestral (poucos pontos), mas vai ficar amontoado em
     # Diária + 12M (~365 labels). Resolver na próxima iteração com
     # detecção condicional: granularidade=="DIARIO" → datetime + hoverformat
     # como na Geração; senão → category. Issue conhecida documentada.
@@ -976,7 +965,7 @@ def render_aba_curtailment() -> None:
         granularidade_ui = st.selectbox(
             "Granularidade",
             list(GRANS_UI.keys()),
-            index=2,  # default: Mensal
+            index=1,  # default: Mensal
             key="curt_granularidade",
         )
     with ctrl_cols[1]:
