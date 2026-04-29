@@ -2034,6 +2034,12 @@ Utilitários de manutenção, **não executados pelo app**. Rodar manualmente.
 - **`validate_reservatorios.py`** — valida schema/integridade do loader ONS.
   Rodar após ONS publicar novo ano ou se suspeitar de mudança no dataset.
   Checa shape, códigos de subsistema, cálculo do SIN com amostras.
+- **`validar_casamento_excel_ons.py`** — valida casamento entre o Excel
+  de proprietários (`data/Excel_Curtailment_Base.xlsx`) e os nomes de
+  usinas no ONS. Rodar após atualização do Excel ou quando o ONS publicar
+  dados de novas usinas. Gera relatórios em `relatorio_casamento/`
+  (gitignorado). Não modifica nada — só lê e reporta.
+  `venv\Scripts\python.exe scripts/validar_casamento_excel_ons.py`.
 
 ### 6.5 Validação de deploy após mexer em `requirements.txt`
 

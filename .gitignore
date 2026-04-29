@@ -13,6 +13,9 @@ __pycache__/
 # Pytest
 .pytest_cache/
 
+# Output regenerável do scripts/validar_casamento_excel_ons.py
+relatorio_casamento/
+
 # Config com credenciais reais — JAMAIS commitar
 config.yaml
 
