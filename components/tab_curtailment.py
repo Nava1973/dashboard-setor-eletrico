@@ -236,6 +236,12 @@ _CSS_KPI_CURT = """
     margin-left: 0.4rem;
 }
 
+/* Variantes de cor pra cards KPI (sub-aba "Por estado").
+   Default (sem modifier class) mantém preto BAUHAUS_BLACK. */
+.curt-kpi-card.variante-vermelho .curt-kpi-value-num { color: #D62828; }
+.curt-kpi-card.variante-azul .curt-kpi-value-num { color: #2A6F97; }
+.curt-kpi-card.variante-cinza .curt-kpi-value-num { color: #4A4A4A; }
+
 /* Tabs internas (st.tabs) — fix de cor pra legibilidade.
    Nota: seletor .stTabs é global, mas como o CSS só muda COR DE TEXTO
    (não layout/tamanho/padding), o impacto em outras abas que usem
@@ -252,12 +258,22 @@ _CSS_KPI_CURT = """
 """
 
 
-def _render_kpi_curt(label: str, num: str, unit: str = "") -> str:
+def _render_kpi_curt(
+    label: str, num: str, unit: str = "", variante: str = "default",
+) -> str:
+    """Renderiza card KPI Bauhaus.
+
+    variante: "default" (preto, padrão da visão geral), "vermelho", "azul",
+    "cinza" — controla cor do número via CSS modifier class.
+    """
     unit_html = (
         f'<span class="curt-kpi-value-unit">{unit}</span>' if unit else ""
     )
+    classe = "curt-kpi-card"
+    if variante != "default":
+        classe += f" variante-{variante}"
     return (
-        f'<div class="curt-kpi-card">'
+        f'<div class="{classe}">'
         f'<div class="curt-kpi-label">{label}</div>'
         f'<div class="curt-kpi-value">'
         f'<span class="curt-kpi-value-num">{num}</span>{unit_html}'
@@ -652,6 +668,118 @@ def _carregar_geojson_estados() -> dict:
     )
 
 
+def _nome_estado(uf: str) -> str:
+    """Retorna nome do estado em português (ex: 'BA' → 'Bahia').
+
+    Usa GeoJSON cacheado via _carregar_geojson_estados.
+    Fallback: retorna a própria UF se não encontrar.
+    """
+    gj = _carregar_geojson_estados()
+    for f in gj["features"]:
+        if f["properties"]["sigla"] == uf:
+            return f["properties"]["name"]
+    return uf
+
+
+def _calcular_kpis_escopo(df: pd.DataFrame) -> dict:
+    """Calcula % curtailment + decomposição por razão (fórmula ONS).
+
+        % X = sum(FRUSTRADO_X) / (sum(FRUSTRADO_TOTAL) + sum(OUTPUT))
+
+    Retorna ratios 0-1 (não percentuais 0-100) — compatível com
+    _fmt_pct_curt que multiplica por 100 ao formatar.
+
+    Garantia matemática: pct_ene + pct_cnf + pct_rel == pct_total.
+    """
+    fr_total = float(df["FRUSTRADO_MWH"].sum())
+    ot_total = float(df["OUTPUT_MWH"].sum())
+    denom = fr_total + ot_total
+    if denom <= 0:
+        return {"pct_total": 0.0, "pct_ene": 0.0, "pct_cnf": 0.0, "pct_rel": 0.0}
+    fr_ene = float(df.loc[df["RAZAO"] == "ENE", "FRUSTRADO_MWH"].sum())
+    fr_cnf = float(df.loc[df["RAZAO"] == "CNF", "FRUSTRADO_MWH"].sum())
+    fr_rel = float(df.loc[df["RAZAO"] == "REL", "FRUSTRADO_MWH"].sum())
+    return {
+        "pct_total": fr_total / denom,
+        "pct_ene":   fr_ene   / denom,
+        "pct_cnf":   fr_cnf   / denom,
+        "pct_rel":   fr_rel   / denom,
+    }
+
+
+def _render_kpis_por_estado(
+    df_filtrado: pd.DataFrame,
+    uf_selecionada: Optional[str],
+    fonte_label: str,
+) -> None:
+    """Renderiza row de KPIs reativos por estado.
+
+    - uf_selecionada=None  → 4 cards do Brasil agregado.
+    - uf_selecionada='XX'  → 5 cards (4 do estado + 1 do Brasil pra comparação).
+
+    Cores Bauhaus:
+      - Card 1 (% Curtailment do escopo): vermelho — destaque principal
+      - Cards 2/3/4 (ENE/CNF/REL): azul — decomposição secundária
+      - Card 5 (% Brasil, só em modo estado): cinza — referência
+    """
+    kpis_br = _calcular_kpis_escopo(df_filtrado)
+
+    if uf_selecionada is None:
+        label_total = "% Curtailment Brasil"
+        cols = st.columns(4)
+        valores = kpis_br
+    else:
+        df_estado = df_filtrado[df_filtrado["UF"] == uf_selecionada]
+        valores = _calcular_kpis_escopo(df_estado)
+        nome = _nome_estado(uf_selecionada)
+        label_total = f"% Curtailment {uf_selecionada} — {nome}"
+        cols = st.columns(5)
+
+    with cols[0]:
+        st.markdown(
+            _render_kpi_curt(
+                label_total, _fmt_pct_curt(valores["pct_total"]),
+                variante="vermelho",
+            ),
+            unsafe_allow_html=True,
+        )
+    with cols[1]:
+        st.markdown(
+            _render_kpi_curt(
+                "Energético (ENE)", _fmt_pct_curt(valores["pct_ene"]),
+                variante="azul",
+            ),
+            unsafe_allow_html=True,
+        )
+    with cols[2]:
+        st.markdown(
+            _render_kpi_curt(
+                "Confiabilidade (CNF)", _fmt_pct_curt(valores["pct_cnf"]),
+                variante="azul",
+            ),
+            unsafe_allow_html=True,
+        )
+    with cols[3]:
+        st.markdown(
+            _render_kpi_curt(
+                "Elétrico (REL)", _fmt_pct_curt(valores["pct_rel"]),
+                variante="azul",
+            ),
+            unsafe_allow_html=True,
+        )
+
+    if uf_selecionada is not None:
+        with cols[4]:
+            st.markdown(
+                _render_kpi_curt(
+                    "% Curtailment Brasil",
+                    _fmt_pct_curt(kpis_br["pct_total"]),
+                    variante="cinza",
+                ),
+                unsafe_allow_html=True,
+            )
+
+
 def _render_mapa_estado(
     df_filtrado: pd.DataFrame,
     fonte_label: str,
@@ -961,6 +1089,25 @@ def render_aba_curtailment() -> None:
         if df_filtrado.empty:
             st.info("Sem dados de curtailment no período selecionado.")
         else:
+            ufs_disponiveis = sorted(
+                df_filtrado.loc[df_filtrado["FRUSTRADO_MWH"] > 0, "UF"]
+                .dropna().unique()
+            )
+            opcoes = ["— Brasil —"] + [
+                f"{uf} — {_nome_estado(uf)}" for uf in ufs_disponiveis
+            ]
+            selecao = st.selectbox(
+                "Selecione um estado",
+                opcoes,
+                key="curt_estado_select",
+            )
+            uf_selecionada = (
+                None if selecao == "— Brasil —"
+                else selecao.split(" — ")[0]
+            )
+
+            _render_kpis_por_estado(df_filtrado, uf_selecionada, fonte_label)
+
             fig_mapa = _render_mapa_estado(df_filtrado, fonte_label)
             st.plotly_chart(fig_mapa, use_container_width=True)
     with tab_usina:
