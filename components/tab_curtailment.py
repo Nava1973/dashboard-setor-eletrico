@@ -574,7 +574,14 @@ def _render_visao_geral(
             "financeiro segue regras específicas da ANEEL conforme razão "
             "(REL ressarcível, ENE não-ressarcível, CNF parcialmente). "
             "Esse dashboard mostra volume físico de curtailment, não "
-            "quantifica ressarcimento financeiro."
+            "quantifica ressarcimento financeiro.\n\n"
+            "**Comparação com Power BI público do ONS**: pequenas diferenças "
+            "(~2-3%) podem ocorrer ao comparar com o Power BI público do ONS. "
+            "O dashboard consome o dataset oficial de Constrained-off (ONS "
+            "Dados Abertos, conforme REN 1030/2022), idêntico ao consultado "
+            "pelo Power BI ONS. O gap residual é inerente a possíveis "
+            "cruzamentos adicionais ou refinamentos na apresentação do "
+            "Power BI ONS, e não pode ser eliminado apenas no dashboard."
         )
 
     # =========================================================================
