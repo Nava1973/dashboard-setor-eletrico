@@ -27,6 +27,7 @@ from data_loader import (
     is_balanco_cache_fresh,
     clear_cache,
 )
+from components.tab_curtailment import render_aba_curtailment
 
 # Mapa de granularidade → loader. Usado por get_pld_df().
 # Fase 1: só "diario" é ativado (session_state hardcoded).
@@ -1290,7 +1291,7 @@ with st.sidebar:
 
     aba = st.radio(
         "NAVEGAÇÃO",
-        ["PLD", "Reservatórios", "ENA/Chuva", "Geração", "Carga"],
+        ["PLD", "Reservatórios", "ENA/Chuva", "Geração", "Carga", "Curtailment"],
         label_visibility="collapsed",
     )
 
@@ -4902,6 +4903,9 @@ penetração da solar centralizada.
         fig_v2, use_container_width=True,
         config={"displaylogo": False},
     )
+
+elif aba == "Curtailment":
+    render_aba_curtailment()
 
 # =============================================================================
 # RODAPÉ — com espaçamento claro para evitar sobreposição
