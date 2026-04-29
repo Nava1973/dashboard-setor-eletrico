@@ -1088,6 +1088,12 @@ def render_aba_curtailment() -> None:
         if df_filtrado.empty:
             st.info("Sem dados de curtailment no período selecionado.")
         else:
+            # Aviso quando granularidade é Trimestral (não se aplica ao mapa)
+            if granularidade == "TRIMESTRAL":
+                st.info(
+                    "A granularidade trimestral não altera a visualização Por estado. "
+                    "O mapa abaixo mostra dados agregados do período selecionado."
+                )
             ufs_disponiveis = sorted(
                 df_filtrado.loc[df_filtrado["FRUSTRADO_MWH"] > 0, "UF"]
                 .dropna().unique()
