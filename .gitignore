@@ -7,6 +7,12 @@ __pycache__/
 *.pyo
 *.pyd
 
+# Cache de parquets ONS (versionado via path — ver decisão 5.34)
+.cache/
+
+# Pytest
+.pytest_cache/
+
 # Config com credenciais reais — JAMAIS commitar
 config.yaml
 

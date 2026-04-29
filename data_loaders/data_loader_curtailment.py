@@ -79,8 +79,11 @@ SUBMERCADO_ALIASES = {
 SUBMERCADOS_VALIDOS = {"SE", "S", "NE", "N"}
 RAZOES_VALIDAS = {"REL", "CNF", "ENE", "PAR"}
 
-# Cache local (parquet consolidado por mês) - acelera reload
-CACHE_DIR = Path(".cache/curtailment")
+# Cache local (parquet consolidado por mês) - acelera reload.
+# Path versionado: bump quando schema do parquet mudar (coluna nova,
+# tipo diferente, mudança no cálculo derivado em _padronizar).
+# Ver decisão 5.34 do CLAUDE.md.
+CACHE_DIR = Path(".cache/curtailment_v3")
 
 
 # ---------------------------------------------------------------------------

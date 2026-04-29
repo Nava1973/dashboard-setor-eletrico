@@ -1955,6 +1955,45 @@ fontes, adaptamos. Por enquanto, terracota+azul-hidro foram
 calibrados visualmente no contexto do app, não vêm de standard
 externo.
 
+### 5.34 Cache versionado pra evitar armadilha de schema cacheado
+
+**Decisão:** o path do cache local de parquets ONS no
+`data_loader_curtailment.py` carrega um sufixo de versão
+(`.cache/curtailment_v3/` em vez de `.cache/curtailment/`).
+Toda mudança no schema do parquet cacheado — coluna nova,
+coluna renomeada, mudança de tipo, mudança no cálculo de
+campo derivado em `_padronizar()` — exige bump da versão.
+
+**Caso que motivou:** durante a sessão de implementação da aba
+Curtailment, ao corrigir o bug de `val_disponibilidade` ausente
+(commit `0ff920b`), o cache de parquet existente continuava
+retornando DataFrames sem a nova coluna `VAL_DISPONIBILIDADE_MW`.
+O loader entrava silenciosamente em fallback baseado em
+`val_geracaolimitada` e o cálculo do `FRUSTRADO_MWH` ficava
+errado em ~10×, sem nenhum erro visível. Detectar isso custou
+tempo. Versionar o path força re-fetch do ONS quando o schema
+muda — caches antigos viram órfãos no disco mas não são
+consumidos.
+
+**Como aplicar:**
+
+1. Bump `CACHE_DIR = Path(".cache/curtailment_vN")` em
+   `data_loaders/data_loader_curtailment.py`.
+2. Documentar o bump no commit message do schema-change
+   (ex: "bump cache vN→vN+1: adiciona coluna X").
+3. Caches antigos (`.cache/curtailment_v<N-1>/...`) ficam no
+   disco do dev sem incomodar — limpeza opcional via
+   `rm -rf .cache/curtailment_v*` quando convier.
+
+**Quando NÃO aplica:** mudanças que NÃO afetam o conteúdo do
+parquet cacheado — alteração só na UI, no `utils_curtailment`,
+em CSS, etc. Se em dúvida, bump.
+
+**Trade-off aceito:** primeiro `streamlit run` após bump demora
+vários minutos pra re-popular o cache (download dos 12 meses de
+parquet do ONS). Aceitável vs o custo de debugar schema stale
+silencioso.
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
@@ -1980,7 +2019,7 @@ externo.
 - **Commit só com aprovação explícita do usuário.** Nunca commit automático.
 - Mensagem padrão: `<tipo>(<escopo>): <resumo>`.
   Tipos: `feat`, `fix`, `refactor`, `docs`, `chore`.
-- Rodapé: `Co-Authored-By: Claude <noreply@anthropic.com>` (Opus 4.7).
+- Sem rodapé `Co-Authored-By` (modelo de IA é ferramenta, não co-autor).
 - Push pra `origin main` triggera redeploy automático no Streamlit Cloud.
 - Antes de commitar: `git status` pra confirmar que `config.yaml` NÃO está
   na lista (nunca commitar segredos).
