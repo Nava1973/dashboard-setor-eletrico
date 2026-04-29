@@ -304,16 +304,21 @@ def aplicar_rateio(
         df_curt["PARTICIPACAO_RATEIO"] = 1.0
         return df_curt.drop(columns=["__CHAVE"])
 
+    # FONTE preservada na chave de merge: 7 NOME_NORM aparecem em ambas as
+    # abas (Solar+Eólica) do Excel — complexos híbridos como BABILÔNIA SUL.
+    # Sem FONTE no merge, uma linha eólica do ONS daria match com 2 linhas
+    # do Excel (Solar+Eólica) e duplicaria volume após PARTICIPACAO_RATEIO.
     df_grupos_join = df_grupos[
-        ["NOME_NORM", "PARTICIPACAO", "PROPRIETARIO", "NOME_USINA"]
+        ["NOME_NORM", "PARTICIPACAO", "PROPRIETARIO", "NOME_USINA", "FONTE"]
     ].rename(columns={
         "NOME_NORM": "__CHAVE",
         "NOME_USINA": "NOME_USINA_DASH",
         "PARTICIPACAO": "PARTICIPACAO_RATEIO",
     })
 
-    # 3. Merge: cada linha do curtailment pode virar N linhas (uma por sócio)
-    df_join = df_curt.merge(df_grupos_join, on="__CHAVE", how="left")
+    # 3. Merge: cada linha do curtailment pode virar N linhas (uma por sócio
+    # da MESMA fonte). Sem FONTE na chave, complexos híbridos duplicariam.
+    df_join = df_curt.merge(df_grupos_join, on=["__CHAVE", "FONTE"], how="left")
 
     # 4. Linhas sem match: marcar como Other (sem mapeamento)
     sem_match = df_join["PROPRIETARIO"].isna()

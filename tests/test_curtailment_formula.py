@@ -10,6 +10,7 @@ import pytest
 
 from utils.utils_curtailment import calcular_pct_curtailment
 from data_loaders.data_loader_curtailment import _padronizar
+from data_loaders.data_loader_grupos_excel import aplicar_rateio
 
 
 def test_ons_formula_3_razoes_sinteticas():
@@ -57,3 +58,37 @@ def test_loader_frustrado_calc_matches_sheet1_template():
     assert out["FRUSTRADO_MWH"].iloc[0] == pytest.approx(15.0)
     assert out["OUTPUT_MWH"].iloc[0] == pytest.approx(50.0 * 0.5)
     assert out["RAZAO"].iloc[0] == "ENE"
+
+
+def test_aplicar_rateio_cross_fonte_nao_duplica():
+    """BABILÔNIA SUL aparece em ambas as abas (Solar+Eólica) do Excel real.
+    Bug histórico: merge sem FONTE duplicava linhas eólicas com match Solar,
+    inflando volume agregado em ~5% Eólica.
+    Fix: merge on ["__CHAVE", "FONTE"] mantém isolamento entre fontes."""
+    df_curt = pd.DataFrame({
+        "USINA":                ["CONJ. BABILÔNIA SUL"],
+        "FONTE":                ["EOLICA"],
+        "FRUSTRADO_MWH":        [100.0],
+        "OUTPUT_MWH":           [900.0],
+        "GERACAO_MW":           [50.0],
+        "GERACAO_REF_FINAL_MW": [60.0],
+        "FRUSTRADO_MW":         [10.0],
+    })
+    df_grupos = pd.DataFrame({
+        "NOME_NORM":    ["BABILONIASUL",         "BABILONIASUL"],
+        "FONTE":        ["SOLAR",                "EOLICA"],
+        "PARTICIPACAO": [1.0,                    1.0],
+        "PROPRIETARIO": ["X (Solar)",            "Y (Eolica)"],
+        "NOME_USINA":   ["BABILÔNIA SUL Solar",  "BABILÔNIA SUL Eólica"],
+    })
+    aliases = {}
+
+    df_post = aplicar_rateio(df_curt, df_grupos, aliases)
+
+    # Não duplicou: 1 linha Eólica → 1 linha pós-rateio (não 2)
+    assert len(df_post) == 1
+    # Volume preservado integralmente
+    assert df_post["FRUSTRADO_MWH"].sum() == pytest.approx(100.0)
+    assert df_post["OUTPUT_MWH"].sum() == pytest.approx(900.0)
+    # Match correto: Eólica casou com proprietário Eólica, não Solar
+    assert df_post["PROPRIETARIO"].iloc[0] == "Y (Eolica)"

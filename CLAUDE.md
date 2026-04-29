@@ -2086,6 +2086,19 @@ Essa regra é especialmente importante porque o venv local **não re-resolve
 constraints automaticamente** (armadilha 4.5) — erro de dep só aparece no
 ambiente fresh do Cloud.
 
+### 6.6 Pendências de manutenção
+
+**Drift entre `validar_casamento_excel_ons.py` e produção**
+
+O script utilitário usa normalização ligeiramente diferente da função
+`normalizar_nome` em produção, gerando falsos positivos de "ONS sem par".
+Casos confirmados (Apr/2026): EÓLICA CATAVENTOS DO ACARAÚ I, CONJ. BOM NOME,
+CONJ. EOL. VENTOS SANTA EUGÊNIA — todos batem corretamente em produção.
+
+Próxima manutenção do Excel: alinhar normalização do validator com
+`normalizar_nome` de `data_loader_grupos_excel.py` antes de tomar decisões
+baseadas no relatório.
+
 ---
 
 ## 7. Histórico de Features (timeline)
