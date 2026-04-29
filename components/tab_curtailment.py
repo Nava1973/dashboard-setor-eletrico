@@ -206,20 +206,31 @@ _CSS_KPI_CURT = """
     border: 2px solid #1A1A1A;
     padding: 8px 12px;
     border-radius: 0;
+    text-align: center;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 6rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
 }
 .curt-kpi-label {
     font-family: 'Inter', sans-serif;
-    font-size: 0.85rem;
+    font-size: 0.75rem;
     text-transform: uppercase;
-    letter-spacing: 0.16em;
+    letter-spacing: 0.08em;
     color: #1A1A1A;
     font-weight: 700;
     line-height: 1.2;
+    word-break: keep-all;
+    overflow-wrap: normal;
+    hyphens: none;
 }
 .curt-kpi-value {
     display: flex;
     align-items: baseline;
-    margin-top: 0.15rem;
+    justify-content: center;
+    margin-top: 0.5rem;
 }
 .curt-kpi-value-num {
     font-family: 'Bebas Neue', sans-serif;
@@ -725,14 +736,13 @@ def _render_kpis_por_estado(
     kpis_br = _calcular_kpis_escopo(df_filtrado)
 
     if uf_selecionada is None:
-        label_total = "% Curtailment Brasil"
+        label_total = "Curtailment Brasil"
         cols = st.columns(4)
         valores = kpis_br
     else:
         df_estado = df_filtrado[df_filtrado["UF"] == uf_selecionada]
         valores = _calcular_kpis_escopo(df_estado)
-        nome = _nome_estado(uf_selecionada)
-        label_total = f"% Curtailment {uf_selecionada} — {nome}"
+        label_total = f"Curtailment {uf_selecionada}"
         cols = st.columns(5)
 
     with cols[0]:
@@ -746,7 +756,7 @@ def _render_kpis_por_estado(
     with cols[1]:
         st.markdown(
             _render_kpi_curt(
-                "Energético (ENE)", _fmt_pct_curt(valores["pct_ene"]),
+                "Energético<br>(ENE)", _fmt_pct_curt(valores["pct_ene"]),
                 variante="azul",
             ),
             unsafe_allow_html=True,
@@ -754,7 +764,7 @@ def _render_kpis_por_estado(
     with cols[2]:
         st.markdown(
             _render_kpi_curt(
-                "Confiabilidade (CNF)", _fmt_pct_curt(valores["pct_cnf"]),
+                "Confiabilidade<br>(CNF)", _fmt_pct_curt(valores["pct_cnf"]),
                 variante="azul",
             ),
             unsafe_allow_html=True,
@@ -762,7 +772,7 @@ def _render_kpis_por_estado(
     with cols[3]:
         st.markdown(
             _render_kpi_curt(
-                "Elétrico (REL)", _fmt_pct_curt(valores["pct_rel"]),
+                "Elétrico<br>(REL)", _fmt_pct_curt(valores["pct_rel"]),
                 variante="azul",
             ),
             unsafe_allow_html=True,
@@ -772,7 +782,7 @@ def _render_kpis_por_estado(
         with cols[4]:
             st.markdown(
                 _render_kpi_curt(
-                    "% Curtailment Brasil",
+                    "Curtailment Brasil",
                     _fmt_pct_curt(kpis_br["pct_total"]),
                     variante="cinza",
                 ),
