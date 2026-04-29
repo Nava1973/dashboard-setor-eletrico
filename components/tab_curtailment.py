@@ -634,6 +634,143 @@ def _render_visao_geral(
 
 
 # =============================================================================
+# Sub-aba: Por estado (mapa choropleth)
+# =============================================================================
+
+
+@st.cache_data
+def _carregar_geojson_estados() -> dict:
+    """Carrega GeoJSON simplificado dos 27 estados BR (data/brazil_states.geojson).
+
+    Cache por sessão Streamlit evita re-leitura/parse do arquivo a cada rerun.
+    Chave de join: properties.sigla casa direto com df_post.UF (12/12 match).
+    """
+    import json
+    from pathlib import Path
+    return json.loads(
+        Path("data/brazil_states.geojson").read_text(encoding="utf-8")
+    )
+
+
+def _render_mapa_estado(
+    df_filtrado: pd.DataFrame,
+    fonte_label: str,
+) -> go.Figure:
+    """Mapa choropleth do Brasil com % Curtailment por UF.
+
+    - Estados COM dados: gradiente Bauhaus creme→amarelo→vermelho.
+    - Estados SEM dados: cinza claro com tooltip "sem curtailment no período".
+    - Hover rico no trace colorido: % Curtailment + Frustrado (MWh + MWmed).
+
+    Função NÃO chama st.plotly_chart — retorna go.Figure pra integrador
+    decidir layout (st.columns etc).
+
+    Args:
+        df_filtrado: DataFrame pós-aplicar_rateio + filtro fonte/janela.
+                     Precisa colunas UF, FRUSTRADO_MWH, OUTPUT_MWH, DATA_HORA.
+        fonte_label: "Solar" ou "Eólica" (futuro: usar em título).
+    """
+    gj = _carregar_geojson_estados()
+    todas_siglas = [f["properties"]["sigla"] for f in gj["features"]]
+    nomes_pt = {f["properties"]["sigla"]: f["properties"]["name"]
+                for f in gj["features"]}
+
+    # Agrega por UF (denominador = Output + Frustrado, fórmula ONS)
+    agg = df_filtrado.groupby("UF", dropna=False).agg(
+        FRUSTRADO_MWH=("FRUSTRADO_MWH", "sum"),
+        OUTPUT_MWH=("OUTPUT_MWH", "sum"),
+    ).reset_index()
+    denom = agg["FRUSTRADO_MWH"] + agg["OUTPUT_MWH"]
+    agg["PCT"] = (agg["FRUSTRADO_MWH"] / denom.replace(0, pd.NA) * 100).fillna(0)
+
+    # Horas reais do período pra calcular MWmed (span de DATA_HORA)
+    if "DATA_HORA" in df_filtrado.columns and len(df_filtrado) > 0:
+        horas = max(
+            (df_filtrado["DATA_HORA"].max() - df_filtrado["DATA_HORA"].min())
+            .total_seconds() / 3600,
+            0.5,
+        )
+    else:
+        horas = 1.0
+    agg["MWMED"] = agg["FRUSTRADO_MWH"] / horas
+    agg["NOME_PT"] = agg["UF"].map(lambda u: nomes_pt.get(u, u))
+    agg["FRUSTRADO_FMT"] = agg["FRUSTRADO_MWH"].apply(lambda v: _fmt_br_curt(v, 0))
+    agg["MWMED_FMT"] = agg["MWMED"].apply(lambda v: _fmt_br_curt(v, 0))
+
+    cd_colored = list(zip(
+        agg["NOME_PT"], agg["FRUSTRADO_FMT"], agg["MWMED_FMT"],
+    ))
+
+    # Trace 1: estados sem dados (cinza, background)
+    ufs_sem = [s for s in todas_siglas if s not in agg["UF"].values]
+    trace_cinza = go.Choropleth(
+        geojson=gj,
+        featureidkey="properties.sigla",
+        locations=ufs_sem,
+        z=[0] * len(ufs_sem),
+        colorscale=[[0, "#E5E5E5"], [1, "#E5E5E5"]],
+        showscale=False,
+        customdata=[[nomes_pt[u]] for u in ufs_sem],
+        hovertemplate=(
+            "<b>%{customdata[0]}</b><br>"
+            "sem curtailment no período<extra></extra>"
+        ),
+        marker=dict(line=dict(color=BAUHAUS_BLACK, width=0.5)),
+        name="sem dados",
+    )
+
+    # Trace 2: estados com dados (gradiente Bauhaus, foreground)
+    trace_colored = go.Choropleth(
+        geojson=gj,
+        featureidkey="properties.sigla",
+        locations=agg["UF"].tolist(),
+        z=agg["PCT"].tolist(),
+        colorscale=[[0, BAUHAUS_CREAM], [0.5, BAUHAUS_YELLOW], [1, BAUHAUS_RED]],
+        customdata=cd_colored,
+        hovertemplate=(
+            "<b>%{customdata[0]}</b><br>"
+            "% Curtailment: %{z:.2f}%<br>"
+            "Frustrado: %{customdata[1]} MWh "
+            "(%{customdata[2]} MWmed)<extra></extra>"
+        ),
+        marker=dict(line=dict(color=BAUHAUS_BLACK, width=0.5)),
+        colorbar=dict(
+            title=dict(
+                text="% Curt.",
+                font=dict(family="Inter, sans-serif", size=12,
+                          color=BAUHAUS_BLACK),
+            ),
+            thickness=12, len=0.7,
+            tickfont=dict(family="Inter, sans-serif", size=10,
+                          color=BAUHAUS_BLACK),
+            ticksuffix="%", tickformat=".1f",
+        ),
+        name="com dados",
+    )
+
+    fig = go.Figure(data=[trace_cinza, trace_colored])
+    fig.update_geos(
+        visible=False,
+        fitbounds="locations",
+        projection_type="mercator",
+    )
+    fig.update_layout(
+        height=500,
+        margin=dict(l=0, r=0, t=0, b=0),
+        paper_bgcolor=BAUHAUS_CREAM,
+        plot_bgcolor=BAUHAUS_CREAM,
+        font=dict(family="Inter, sans-serif", size=12, color=BAUHAUS_BLACK),
+        hoverlabel=dict(
+            bgcolor=BAUHAUS_CREAM,
+            bordercolor=BAUHAUS_BLACK,
+            font=dict(family="Inter, sans-serif", size=12,
+                      color=BAUHAUS_BLACK),
+        ),
+    )
+    return fig
+
+
+# =============================================================================
 # Função principal da aba
 # =============================================================================
 
@@ -821,7 +958,11 @@ def render_aba_curtailment() -> None:
             data_ini, data_fim,
         )
     with tab_estado:
-        _placeholder_em_construcao()
+        if df_filtrado.empty:
+            st.info("Sem dados de curtailment no período selecionado.")
+        else:
+            fig_mapa = _render_mapa_estado(df_filtrado, fonte_label)
+            st.plotly_chart(fig_mapa, use_container_width=True)
     with tab_usina:
         _placeholder_em_construcao()
     with tab_grupo:
