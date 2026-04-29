@@ -1994,6 +1994,34 @@ vários minutos pra re-popular o cache (download dos 12 meses de
 parquet do ONS). Aceitável vs o custo de debugar schema stale
 silencioso.
 
+### 5.35 Métrica de curtailment alinhada com Power BI ONS público
+
+**Decisão:** o cálculo de % curtailment usa a definição ONS pública
+(`% = frustrado_total / (output + frustrado_total)`), não a definição
+BBI Utilities (que excluía REL do numerador). A soma das 3 razões
+(ENE + CNF + REL) bate exatamente com o total.
+
+**Caso que motivou:** divergência observada entre o dashboard local e
+o Power BI oficial do ONS
+(https://www.ons.org.br/Paginas/faq_curtailment.aspx). Eólica 6M
+(11/2025 a 04/2026): dashboard mostrava 14,85% (BBI), Power BI ONS
+mostrava 17,5%. Diferença explicada pela exclusão de REL no numerador
+BBI.
+
+**Como aplicar:** `calcular_pct_curtailment` e `serie_temporal` em
+`utils/utils_curtailment.py` somam todas as razões (CNF + ENE + REL)
+no numerador. Decomposição por razão usa o mesmo denominador
+(geração potencial), garantindo soma consistente.
+
+**Quando NÃO aplica:** se análise específica exigir métrica financeira
+de "perda não-ressarcível" (estilo BBI Utilities), calcular
+separadamente — não substituir a métrica pública. REN 1030/2022 dá
+tratamento detalhado de ressarcimento que não está implementado
+neste dashboard.
+
+**Trade-off aceito:** perda da semântica "perda financeira do gerador"
+(BBI). Ganho de aderência à fonte oficial pública.
+
 ---
 
 ## 6. Fluxo de Desenvolvimento

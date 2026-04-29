@@ -68,7 +68,7 @@ COR_FONTE_EOLICA = "#8FA31E"
 CORES_RAZAO = {
     "ENE": BAUHAUS_RED,     # energético (sobreoferta) — ~98% do total histórico
     "CNF": BAUHAUS_YELLOW,  # confiabilidade
-    "REL": BAUHAUS_BLUE,    # elétrico (ressarcível)
+    "REL": BAUHAUS_BLUE,    # elétrico (indisponibilidade externa)
     "PAR": BAUHAUS_BLACK,   # parecer de acesso (raramente usado, opt-in)
 }
 
@@ -398,7 +398,7 @@ def _render_visao_geral(
     kpi_cols = st.columns(4)
     with kpi_cols[0]:
         st.markdown(
-            _render_kpi_curt("% NÃO-RESSARCÍVEL", _fmt_pct_curt(pct_total)),
+            _render_kpi_curt("% CURTAILMENT", _fmt_pct_curt(pct_total)),
             unsafe_allow_html=True,
         )
     with kpi_cols[1]:
@@ -551,22 +551,30 @@ def _render_visao_geral(
     # =========================================================================
     with st.expander("ⓘ Como é calculado"):
         st.markdown(
-            "**Metodologia adotada**: BBI Utilities Curtailment Tracker.\n\n"
-            "**Numerador**: energia frustrada **não-ressarcível** (CNF + ENE), em MWh. "
-            "Inclui apenas curtailment por confiabilidade e energético — restrição elétrica "
-            "(REL) é ressarcida pelo ONS e portanto não conta como perda financeira.\n\n"
-            "**Denominador**: geração potencial total (MWh) = `Output + CNF + ENE + REL`. "
+            "**Metodologia adotada**: definição pública do ONS, conforme "
+            "dashboard oficial em https://www.ons.org.br/Paginas/faq_curtailment.aspx "
+            "(Acompanhamento das Restrições de Geração UEE/UFV).\n\n"
+            "**Numerador**: GNRa (Geração Não Realizada apurada) por razão "
+            "ou total, em MWh.\n\n"
+            "**Denominador**: geração potencial total (MWh) = "
+            "`Geração Verificada + GNRa total` = `Output + (CNF + ENE + REL)`. "
             "Representa o que a usina poderia ter gerado se não houvesse restrição.\n\n"
-            "**% Não-Ressarcível** = (CNF + ENE) / (Output + CNF + ENE + REL)\n\n"
-            "**Decomposição por razão**: cada razão é exibida com o **mesmo denominador** "
-            "(geração potencial). Por isso `% ENE + % CNF + % REL ≠ % Não-Ressarcível` — "
-            "a soma das três razões representa o curtailment total bruto, mas o KPI "
-            "principal exclui REL por ser ressarcível.\n\n"
+            "**% Curtailment** = (CNF + ENE + REL) / (Output + CNF + ENE + REL)\n\n"
+            "**Decomposição por razão**: cada razão é exibida com o **mesmo "
+            "denominador**, então `% ENE + % CNF + % REL = % Curtailment` "
+            "(matematicamente consistente).\n\n"
             "**Tipos de restrição**:\n"
-            "- **ENE** (energético): sobreoferta de energia no sistema (~98% do total)\n"
+            "- **ENE** (energético): sobreoferta de energia no sistema\n"
             "- **CNF** (confiabilidade): restrição por confiabilidade operativa\n"
-            "- **REL** (elétrico/ressarcível): restrição elétrica passível de ressarcimento — **não soma no Total**\n"
-            "- **PAR** (parecer de acesso): restrição contratual prévia (excluído por padrão)"
+            "- **REL** (elétrico/indisponibilidade externa): restrição em "
+            "instalações externas (Rede Básica/DITs)\n"
+            "- **PAR** (parecer de acesso): restrição contratual prévia "
+            "(excluído por padrão)\n\n"
+            "**Nota sobre ressarcimento (REN 1030/2022)**: o ressarcimento "
+            "financeiro segue regras específicas da ANEEL conforme razão "
+            "(REL ressarcível, ENE não-ressarcível, CNF parcialmente). "
+            "Esse dashboard mostra volume físico de curtailment, não "
+            "quantifica ressarcimento financeiro."
         )
 
     # =========================================================================
@@ -587,7 +595,7 @@ def _render_visao_geral(
         "FRUSTRADO_REL_MWH":     "Frustrado REL (MWh)",
         "FRUSTRADO_CNF_MWH":     "Frustrado CNF (MWh)",
         "FRUSTRADO_ENE_MWH":     "Frustrado ENE (MWh)",
-        "PCT_TOTAL":             "% Não-Ressarcível",
+        "PCT_TOTAL":             "% Curtailment",
         "PCT_REL":               "% Elétrico",
         "PCT_CNF":               "% Confiabilidade",
         "PCT_ENE":               "% Energético",

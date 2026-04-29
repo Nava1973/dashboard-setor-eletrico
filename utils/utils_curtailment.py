@@ -4,11 +4,12 @@ utils_curtailment.py
 
 Cálculos de curtailment para o dashboard.
 
-Metodologia: BBI Utilities Curtailment Tracker (financeira), validada
-contra DG109 do tracker BBI (Solar Mensal Abr/26 = 25,03%).
+Metodologia: definição pública do ONS, conforme Power BI oficial em
+https://www.ons.org.br/Paginas/faq_curtailment.aspx (Acompanhamento das
+Restrições de Geração UEE/UFV).
 
 ==================================================================
-FÓRMULA (BBI, financeira)
+FÓRMULA (ONS, definição pública)
 ==================================================================
 
 Para cada linha do ONS (passo semi-horário, valores em MWmed):
@@ -19,34 +20,37 @@ Para cada linha do ONS (passo semi-horário, valores em MWmed):
         ELSE:
             FRUSTRADO_MWH = MAX(MIN(disponibilidade, geracao_ref) - geracao, 0) * 0.5
 
-    Denominador (BBI):
-        OUTPUT_MWH = geracao * 0.5
-        DENOM_BBI  = sum(OUTPUT_MWH) + sum(FRUSTRADO_MWH)
-                   = geração potencial total
-                   = Output + CNF + ENE + REL (todas razões)
+    Denominador (geração potencial):
+        OUTPUT_MWH      = geracao * 0.5
+        DENOM_POTENCIAL = sum(OUTPUT_MWH) + sum(FRUSTRADO_MWH)
+                        = Geração Verificada + GNRa total
+                        = Output + (CNF + ENE + REL)
 
-    % Não-Ressarcível = (CNF + ENE) / DENOM_BBI
-        ↑ apenas curtailment FINANCEIRAMENTE relevante.
-        REL (restrição elétrica) é ressarcida pelo ONS — não é perda
-        financeira, então conceitualmente é como se a usina "tivesse
-        gerado" do ponto de vista do dono. Por isso REL entra no
-        denominador (geração potencial), não no numerador.
+    % Curtailment = sum(FRUSTRADO_MWH) / DENOM_POTENCIAL
+                  = (CNF + ENE + REL) / (Output + CNF + ENE + REL)
 
 ==================================================================
 DECOMPOSIÇÃO POR TIPO DE RAZÃO (REL/CNF/ENE):
 ==================================================================
-    Cada razão usa o MESMO denominador (DENOM_BBI):
+    Cada razão usa o MESMO denominador (DENOM_POTENCIAL):
 
-        % REL = sum(FRUSTRADO_MWH onde razao=REL) / DENOM_BBI
-        % CNF = sum(FRUSTRADO_MWH onde razao=CNF) / DENOM_BBI
-        % ENE = sum(FRUSTRADO_MWH onde razao=ENE) / DENOM_BBI
+        % REL = sum(FRUSTRADO_MWH onde razao=REL) / DENOM_POTENCIAL
+        % CNF = sum(FRUSTRADO_MWH onde razao=CNF) / DENOM_POTENCIAL
+        % ENE = sum(FRUSTRADO_MWH onde razao=ENE) / DENOM_POTENCIAL
 
-    Atenção: % ENE + % CNF + % REL ≠ % Não-Ressarcível
-        - soma das três = curtailment total bruto
-        - % Não-Ressarcível exclui REL por ser ressarcível
-    Inconsistência intencional — exibimos as 3 razões para
-    transparência operativa, mas o KPI principal isola a perda
-    financeira efetiva.
+    Soma fechada: % REL + % CNF + % ENE = % Curtailment
+    (matematicamente consistente — mesmo denominador, numeradores
+    disjuntos somando ao numerador total).
+
+==================================================================
+NOTA SOBRE RESSARCIMENTO (REN 1030/2022)
+==================================================================
+    O ressarcimento financeiro segue regras específicas da ANEEL
+    conforme razão (REL ressarcível, ENE não-ressarcível, CNF
+    parcial). Este módulo expõe volume físico de curtailment, NÃO
+    quantifica ressarcimento financeiro. Para análise estilo
+    BBI Utilities (% perda não-ressarcível), calcular separadamente;
+    não substituir a métrica pública.
 
 ==================================================================
 COLUNAS REQUERIDAS no DataFrame de entrada:
@@ -109,38 +113,31 @@ def calcular_pct_curtailment(
     incluir_par: bool = False,
 ) -> dict:
     """
-    Calcula % de curtailment (metodologia BBI Utilities Curtailment Tracker).
+    Calcula % de curtailment (definição pública do ONS).
 
-    Fórmula financeira:
-        denom_bbi = sum(OUTPUT_MWH) + sum(FRUSTRADO_MWH)
-                  = geração potencial total (Output + CNF + ENE + REL)
+    Fórmula:
+        denom_potencial = sum(OUTPUT_MWH) + sum(FRUSTRADO_MWH)
+                        = Geração Verificada + GNRa total
+                        = geração potencial (Output + CNF + ENE + REL)
 
-        pct_total        = (CNF + ENE) / denom_bbi   ← NÃO-RESSARCÍVEL
-        pct_por_razao[r] = f_r / denom_bbi           ← cada razão / mesmo denom
+        pct_total        = sum(FRUSTRADO_MWH) / denom_potencial
+                         = (CNF + ENE + REL) / denom_potencial
+        pct_por_razao[r] = f_r / denom_potencial
 
-    Diferença vs fórmula operacional anterior:
-      - Numerador exclui REL (restrição elétrica é ressarcível pelo ONS,
-        não é perda financeira — entra no denominador como se a usina
-        tivesse gerado).
-      - Denominador é geração potencial (Output + frustrado), não
-        geração realizada.
-
-    Consequência intencional:
-        pct_por_razao["ENE"] + pct_por_razao["CNF"]
-            + pct_por_razao["REL"] ≠ pct_total
-        Total exclui REL por ser ressarcível; cada razão é mostrada
-        individualmente para transparência operativa.
+    Soma fechada: pct_por_razao[CNF] + pct_por_razao[ENE]
+                + pct_por_razao[REL] = pct_total
+    (mesmo denominador, numeradores disjuntos somando ao total).
 
     Returns:
         dict com chaves:
             output_mwh             : geração realizada (sum OUTPUT_MWH)
             ref_total_mwh          : alias backward-compat = output_mwh
-            frustrado_mwh          : numerador bruto (CNF + ENE + REL)
+            frustrado_mwh          : numerador (CNF + ENE + REL)
             frustrado_filtrado_mwh : numerador apenas das `razoes` solicitadas
-            denom_bbi_mwh          : geração potencial (Output + frustrado)
-            pct_total              : (CNF + ENE) / denom_bbi  [não-ressarcível]
-            pct_filtrado           : frustrado_filtrado / denom_bbi
-            pct_por_razao          : dict {razao: f_r / denom_bbi}
+            denom_potencial_mwh    : Output + frustrado (geração potencial)
+            pct_total              : frustrado_mwh / denom_potencial
+            pct_filtrado           : frustrado_filtrado / denom_potencial
+            pct_por_razao          : dict {razao: f_r / denom_potencial}
             n_linhas               : número de linhas processadas
     """
     if len(df) == 0 or "FRUSTRADO_MWH" not in df.columns:
@@ -149,7 +146,7 @@ def calcular_pct_curtailment(
             "ref_total_mwh": 0.0,  # alias backward-compat
             "frustrado_mwh": 0.0,
             "frustrado_filtrado_mwh": 0.0,
-            "denom_bbi_mwh": 0.0,
+            "denom_potencial_mwh": 0.0,
             "pct_total": 0.0,
             "pct_filtrado": 0.0,
             "pct_por_razao": {},
@@ -158,30 +155,23 @@ def calcular_pct_curtailment(
 
     df_calc = _filtrar_par(df, incluir_par)
 
-    # Componentes do denominador BBI
     output_total = float(df_calc["OUTPUT_MWH"].sum())
     frustrado_total = float(df_calc["FRUSTRADO_MWH"].sum())  # CNF + ENE + REL
-    denom_bbi = output_total + frustrado_total               # geração potencial
+    denom_potencial = output_total + frustrado_total          # geração potencial
 
-    # Frustrado por razão (todas, com o mesmo denominador BBI)
     razoes_decomp = list(RAZOES_TODAS) if incluir_par else list(RAZOES_OPERATIVAS)
     f_por_razao = {
         r: float(_frustrado_por_razao(df_calc, [r]).sum())
         for r in razoes_decomp
     }
 
-    # KPI principal: NÃO-RESSARCÍVEL = CNF + ENE (exclui REL, ressarcível).
-    # PAR não entra mesmo com incluir_par=True: é uso operativo, não financeiro.
-    nao_ressarcivel = f_por_razao.get("CNF", 0.0) + f_por_razao.get("ENE", 0.0)
-
-    # Frustrado filtrado: razões solicitadas pelo caller
     frustrado_filtrado = float(_frustrado_por_razao(df_calc, razoes).sum())
 
-    pct_total = (nao_ressarcivel / denom_bbi) if denom_bbi > 0 else 0.0
-    pct_filtrado = (frustrado_filtrado / denom_bbi) if denom_bbi > 0 else 0.0
+    pct_total = (frustrado_total / denom_potencial) if denom_potencial > 0 else 0.0
+    pct_filtrado = (frustrado_filtrado / denom_potencial) if denom_potencial > 0 else 0.0
 
     pct_por_razao = {
-        r: ((f_por_razao[r] / denom_bbi) if denom_bbi > 0 else 0.0)
+        r: ((f_por_razao[r] / denom_potencial) if denom_potencial > 0 else 0.0)
         for r in razoes_decomp
     }
 
@@ -190,7 +180,7 @@ def calcular_pct_curtailment(
         "ref_total_mwh": output_total,  # alias backward-compat (UI antiga)
         "frustrado_mwh": frustrado_total,
         "frustrado_filtrado_mwh": frustrado_filtrado,
-        "denom_bbi_mwh": denom_bbi,
+        "denom_potencial_mwh": denom_potencial,
         "pct_total": pct_total,
         "pct_filtrado": pct_filtrado,
         "pct_por_razao": pct_por_razao,
@@ -341,19 +331,18 @@ def serie_temporal(
     incluir_par: bool = False,
 ) -> pd.DataFrame:
     """
-    Monta série temporal agregada por período (metodologia BBI).
+    Monta série temporal agregada por período (definição ONS).
 
     Fórmula por período:
-        DENOM_BBI = OUTPUT_MWH + FRUSTRADO_CNF + FRUSTRADO_ENE + FRUSTRADO_REL
-                  (= geração potencial do período)
+        DENOM_POTENCIAL = OUTPUT_MWH + FRUSTRADO_TOTAL_MWH
+                        = Geração Verificada + GNRa total
+                        (= Output + CNF + ENE + REL)
 
-        PCT_TOTAL    = (FRUSTRADO_CNF + FRUSTRADO_ENE) / DENOM_BBI
-                       ← curtailment NÃO-RESSARCÍVEL apenas
-        PCT_<razao>  = FRUSTRADO_<razao> / DENOM_BBI
+        PCT_TOTAL    = FRUSTRADO_TOTAL_MWH / DENOM_POTENCIAL
+                       = (CNF + ENE + REL) / denom_potencial
+        PCT_<razao>  = FRUSTRADO_<razao> / DENOM_POTENCIAL
 
-    REL é mantido na decomposição (aparece no gráfico empilhado para
-    transparência operativa), mesmo não somando ao PCT_TOTAL — REL é
-    ressarcível pelo ONS, então não é perda financeira.
+    Soma fechada: PCT_REL + PCT_CNF + PCT_ENE = PCT_TOTAL.
 
     Pré-requisito: df já passou por adicionar_chave_periodo().
 
@@ -362,11 +351,11 @@ def serie_temporal(
             PERIODO_CHAVE, PERIODO_LABEL, PERIODO_INICIO, PERIODO_FIM,
             OUTPUT_MWH                : geração realizada do período
             REF_FINAL_MWH             : alias backward-compat = OUTPUT_MWH
-            DENOM_BBI_MWH             : Output + frustrado (geração potencial)
-            FRUSTRADO_TOTAL_MWH       : numerador bruto (CNF + ENE + REL)
+            DENOM_POTENCIAL_MWH       : Output + frustrado (geração potencial)
+            FRUSTRADO_TOTAL_MWH       : numerador (CNF + ENE + REL)
             FRUSTRADO_REL_MWH, FRUSTRADO_CNF_MWH, FRUSTRADO_ENE_MWH,
-            PCT_TOTAL                 : (CNF + ENE) / denom_bbi
-            PCT_REL, PCT_CNF, PCT_ENE : cada razão / denom_bbi
+            PCT_TOTAL                 : frustrado_total / denom_potencial
+            PCT_REL, PCT_CNF, PCT_ENE : cada razão / denom_potencial
     """
     if len(df) == 0 or "PERIODO_CHAVE" not in df.columns:
         return pd.DataFrame()
@@ -400,18 +389,12 @@ def serie_temporal(
     # Alias backward-compat
     g["REF_FINAL_MWH"] = g["OUTPUT_MWH"]
 
-    # Denominador BBI: geração potencial = Output + todo frustrado do período
-    g["DENOM_BBI_MWH"] = g["OUTPUT_MWH"] + g["FRUSTRADO_TOTAL_MWH"]
-    denom = g["DENOM_BBI_MWH"].replace(0, pd.NA)
+    # Denominador (geração potencial) = Output + frustrado_total do período
+    g["DENOM_POTENCIAL_MWH"] = g["OUTPUT_MWH"] + g["FRUSTRADO_TOTAL_MWH"]
+    denom = g["DENOM_POTENCIAL_MWH"].replace(0, pd.NA)
 
-    # PCT_TOTAL: somente CNF + ENE (não-ressarcível). REL ressarcível, fora.
-    nao_ressarcivel = pd.Series(0.0, index=g.index)
-    if "FRUSTRADO_CNF_MWH" in g.columns:
-        nao_ressarcivel = nao_ressarcivel + g["FRUSTRADO_CNF_MWH"]
-    if "FRUSTRADO_ENE_MWH" in g.columns:
-        nao_ressarcivel = nao_ressarcivel + g["FRUSTRADO_ENE_MWH"]
-
-    g["PCT_TOTAL"] = (nao_ressarcivel / denom).fillna(0.0)
+    # PCT_TOTAL = frustrado_total / denom (inclui CNF + ENE + REL, fórmula ONS).
+    g["PCT_TOTAL"] = (g["FRUSTRADO_TOTAL_MWH"] / denom).fillna(0.0)
     for r in razoes_decomp:
         g[f"PCT_{r}"] = (g[f"FRUSTRADO_{r}_MWH"] / denom).fillna(0.0)
 
