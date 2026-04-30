@@ -108,7 +108,7 @@ PRESETS_BY_GRAN = {
         ],
     },
     "MENSAL": {
-        "default": "12M",
+        "default": "3M",
         "presets": [
             ("1M",   lambda mx: _inicio_mes_anterior(mx, 0),  False),
             ("3M",   lambda mx: _inicio_mes_anterior(mx, 2),  False),
@@ -118,7 +118,7 @@ PRESETS_BY_GRAN = {
         ],
     },
     "TRIMESTRAL": {
-        "default": "24M",
+        "default": "6M",
         "presets": [
             ("6M",   lambda mx: _inicio_trimestre_anterior(mx, 1),  False),
             ("12M",  lambda mx: _inicio_trimestre_anterior(mx, 3),  False),
