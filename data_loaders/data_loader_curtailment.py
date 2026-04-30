@@ -497,16 +497,19 @@ def carregar_curtailment(
     dfs = []
 
     # Paralelismo via ThreadPoolExecutor.
-    # max_workers=8: paralelismo agressivo mas seguro. ONS S3 tolera bem,
-    # 8 workers da ganho ~5x real. Container do Cloud (1GB RAM) suporta —
-    # cada worker carrega parquet ~3MB, pico de memoria ~24MB extra.
-    # Reduz cold start de ~60-120s pra ~12-25s no caso tipico (12 parquets).
+    # max_workers=2: paralelismo conservador pra respeitar limite de 1GB
+    # RAM do Streamlit Cloud free tier. Tentativas anteriores com 4 e 8
+    # workers geraram OOM kill silencioso ao expandir granularidades em
+    # cima do default (3M/6M). Cada worker mantem em RAM (df_bruto + out
+    # padronizado + intermediarios) ~10MB; com 2 workers o pico ~20MB
+    # extra cabe folgadamente. Tempo Cloud estimado: 30-45s pra 12 parquets,
+    # bem dentro do timeout HTTP (~90-120s).
     # Cada worker faz: _carregar_mes_com_cache (HTTP + cache local + parsing).
     # _http_get e _padronizar tem try/except próprios — exceptions ficam
     # contidas no worker. _registrar_erro pode falhar em thread workers
     # (st.session_state não-thread-safe) mas tem fallback pra print().
     tasks = [(fonte, ano, mes) for fonte in fontes for ano, mes in meses]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         future_to_task = {
             executor.submit(_carregar_mes_com_cache, fonte, ano, mes): (fonte, ano, mes)
             for fonte, ano, mes in tasks
