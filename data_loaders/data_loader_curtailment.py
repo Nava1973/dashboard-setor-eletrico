@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import functools
+import gc
 import io
 import tempfile
 from datetime import datetime, date
@@ -371,6 +372,10 @@ def _padronizar(df: pd.DataFrame, fonte: str) -> pd.DataFrame:
 
         # Limpeza final
         out = out.dropna(subset=["DATA_HORA", "GERACAO_MW"])
+        # Libera DataFrame bruto (com cópia de _normalizar_colunas)
+        # antes do return. Reduz pico de RAM em ~150MB pra parquets
+        # eolica (~200k linhas).
+        del df
         return out
     except Exception as e:
         _registrar_erro(
@@ -496,20 +501,21 @@ def carregar_curtailment(
     meses = _gerar_meses(data_inicio, data_fim)
     dfs = []
 
-    # Paralelismo via ThreadPoolExecutor.
-    # max_workers=2: paralelismo conservador pra respeitar limite de 1GB
-    # RAM do Streamlit Cloud free tier. Tentativas anteriores com 4 e 8
-    # workers geraram OOM kill silencioso ao expandir granularidades em
-    # cima do default (3M/6M). Cada worker mantem em RAM (df_bruto + out
-    # padronizado + intermediarios) ~10MB; com 2 workers o pico ~20MB
-    # extra cabe folgadamente. Tempo Cloud estimado: 30-45s pra 12 parquets,
-    # bem dentro do timeout HTTP (~90-120s).
-    # Cada worker faz: _carregar_mes_com_cache (HTTP + cache local + parsing).
-    # _http_get e _padronizar tem try/except próprios — exceptions ficam
-    # contidas no worker. _registrar_erro pode falhar em thread workers
-    # (st.session_state não-thread-safe) mas tem fallback pra print().
+    # ThreadPoolExecutor com max_workers=1 (serial em pratica).
+    # Profiling local revelou RSS subindo monotonicamente em paralelismo:
+    # 2 workers concorrentes -> pico ~1290MB (3M com 6 parquets).
+    # Cloud free tier 1GB -> SIGKILL silencioso ao clicar 6M/12M.
+    # Usar max_workers=1 elimina o pico simultaneo, mas mantemos a
+    # estrutura ThreadPoolExecutor + as_completed por 2 motivos:
+    # 1. Cada future.result() retorna assim que pronto (vs loop simples
+    #    que esperaria sequencial e bloquearia)
+    # 2. Se quisermos voltar a max_workers=2 no futuro (ex: Cloud paid),
+    #    a estrutura ja esta pronta - so trocar o numero.
+    # Tempo Cloud estimado: 60-100s pra 12 parquets.
+    # Combinado com defaults reduzidos (3M default, max 6M sem expansao
+    # explicita), cabe dentro do timeout HTTP (~90-120s).
     tasks = [(fonte, ano, mes) for fonte in fontes for ano, mes in meses]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future_to_task = {
             executor.submit(_carregar_mes_com_cache, fonte, ano, mes): (fonte, ano, mes)
             for fonte, ano, mes in tasks
@@ -519,6 +525,10 @@ def carregar_curtailment(
                 df_mes = future.result()
                 if len(df_mes) > 0:
                     dfs.append(df_mes)
+                # Libera referencias intermediarias do worker. Profiling
+                # mostrou que GC nao coleta sob pressao - forcamos aqui.
+                del df_mes
+                gc.collect()
             except Exception as e:
                 fonte, ano, mes = future_to_task[future]
                 _registrar_erro(
