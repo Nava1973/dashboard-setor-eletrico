@@ -903,6 +903,23 @@ def _render_mapa_estado(
 
 
 def render_aba_curtailment() -> None:
+    """Wrapper defensivo. Captura crash e exibe stack trace na tela em vez
+    de propagar pra Streamlit (que mostraria 'Oh no' no lugar)."""
+    try:
+        _render_aba_curtailment_impl()
+    except Exception:
+        import traceback
+        st.error("⚠️ Erro ao carregar aba Curtailment (debug ativo)")
+        st.code(traceback.format_exc(), language="python")
+        st.caption(
+            "Este erro foi capturado para investigação. "
+            "Por favor, copie o stack trace acima e reporte."
+        )
+        # NOTA: sem re-raise para preservar st.error/st.code na tela.
+        # O Streamlit capturaria a exception e mostraria "Oh no" no lugar.
+
+
+def _render_aba_curtailment_impl() -> None:
     """Renderiza a aba completa de Curtailment."""
 
     # ---- Título h1 (padrão das outras abas: app.py:2192, 2785, 3741) ----

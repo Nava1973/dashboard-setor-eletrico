@@ -29,7 +29,9 @@ Saída padronizada:
 
 from __future__ import annotations
 
+import functools
 import io
+import tempfile
 from datetime import datetime, date
 from pathlib import Path
 from typing import Optional, Tuple
@@ -83,7 +85,35 @@ RAZOES_VALIDAS = {"REL", "CNF", "ENE", "PAR"}
 # Path versionado: bump quando schema do parquet mudar (coluna nova,
 # tipo diferente, mudança no cálculo derivado em _padronizar).
 # Ver decisão 5.34 do CLAUDE.md.
-CACHE_DIR = Path(".cache/curtailment_v3")
+#
+# Path com cascade (replica decisão 5.15 do data_loader.py raiz):
+#   Path.home()/.cache/dashboard-setor-eletrico/curtailment_v3/  (primário)
+#   tempfile.gettempdir()/dashboard-setor-eletrico/curtailment_v3/  (fallback)
+#   None  (modo no-cache se ambos read-only — IO vira no-op)
+# Detecção real de FS read-only via mkdir + touch + unlink: mkdir(exist_ok=True)
+# pode passar mesmo em FS read-only se o diretório já existe; touch+unlink
+# confirma escrita real.
+_CACHE_VERSION = "curtailment_v3"
+_CACHE_BASE_NAME = "dashboard-setor-eletrico"
+
+
+@functools.lru_cache(maxsize=1)
+def _get_cache_dir() -> Optional[Path]:
+    """Resolve diretório writable pro cache. None se ambos candidatos falharem."""
+    candidates = [
+        Path.home() / ".cache" / _CACHE_BASE_NAME / _CACHE_VERSION,
+        Path(tempfile.gettempdir()) / _CACHE_BASE_NAME / _CACHE_VERSION,
+    ]
+    for d in candidates:
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            test = d / ".write_test"
+            test.touch()
+            test.unlink()
+            return d
+        except Exception:
+            continue
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -261,85 +291,91 @@ def _padronizar(df: pd.DataFrame, fonte: str) -> pd.DataFrame:
     out["ID_ONS"] = df[col_id_ons].astype(str).str.strip() if col_id_ons else None
     out["CEG"] = df[col_ceg].astype(str).str.strip() if col_ceg else None
 
-    # Métricas (MWmed)
-    out["GERACAO_MW"] = _to_float_br(df[col_geracao])
-    if col_ger_lim:
-        out["GERACAO_LIMITADA_MW"] = _to_float_br(df[col_ger_lim])
-    if col_disp:
-        # CRÍTICO: val_disponibilidade é OBRIGATÓRIO pra fórmula de curtailment.
-        # MIN(disponibilidade, geracao_referencia) - geracao = energia frustrada.
-        # Se este loader rodar contra dados sem essa coluna, o cálculo cai em
-        # fallback baseado em val_geracaolimitada (que é diferente conceitualmente)
-        # e o curtailment fica subestimado em ~10x.
-        out["VAL_DISPONIBILIDADE_MW"] = _to_float_br(df[col_disp])
-    if col_ref_orig:
-        out["GERACAO_REF_MW"] = _to_float_br(df[col_ref_orig])
-    out["GERACAO_REF_FINAL_MW"] = _to_float_br(df[col_ref_fin])
+    try:
+        # Métricas (MWmed)
+        out["GERACAO_MW"] = _to_float_br(df[col_geracao])
+        if col_ger_lim:
+            out["GERACAO_LIMITADA_MW"] = _to_float_br(df[col_ger_lim])
+        if col_disp:
+            # CRÍTICO: val_disponibilidade é OBRIGATÓRIO pra fórmula de curtailment.
+            # MIN(disponibilidade, geracao_referencia) - geracao = energia frustrada.
+            # Se este loader rodar contra dados sem essa coluna, o cálculo cai em
+            # fallback baseado em val_geracaolimitada (que é diferente conceitualmente)
+            # e o curtailment fica subestimado em ~10x.
+            out["VAL_DISPONIBILIDADE_MW"] = _to_float_br(df[col_disp])
+        if col_ref_orig:
+            out["GERACAO_REF_MW"] = _to_float_br(df[col_ref_orig])
+        out["GERACAO_REF_FINAL_MW"] = _to_float_br(df[col_ref_fin])
 
-    # Razão (REL/CNF/ENE/PAR)
-    out["RAZAO"] = df[col_razao].astype(str).str.strip().str.upper()
-    out.loc[~out["RAZAO"].isin(RAZOES_VALIDAS), "RAZAO"] = None
+        # Razão (REL/CNF/ENE/PAR)
+        out["RAZAO"] = df[col_razao].astype(str).str.strip().str.upper()
+        out.loc[~out["RAZAO"].isin(RAZOES_VALIDAS), "RAZAO"] = None
 
-    if col_origem:
-        out["ORIGEM"] = df[col_origem].astype(str).str.strip().str.upper()
-    if col_dsc:
-        out["DSC_RESTRICAO"] = df[col_dsc].astype(str).str.strip()
+        if col_origem:
+            out["ORIGEM"] = df[col_origem].astype(str).str.strip().str.upper()
+        if col_dsc:
+            out["DSC_RESTRICAO"] = df[col_dsc].astype(str).str.strip()
 
-    # =========================================================================
-    # Cálculo correto do curtailment - alinhado ao template do mercado.
-    #
-    # ONS publica em PASSO SEMI-HORÁRIO (30min). Valores em MWmed.
-    # Conversão para MWh do passo: × 0.5 (meia hora).
-    #
-    # Fórmula da coluna Q do template:
-    #   curtailment_mwh = IF(razao_vazio, 0,
-    #                        MAX(MIN(disponibilidade, geracao_referencia)
-    #                            - geracao, 0)) * 0.5
-    #
-    # Diferenças vs versão anterior (errada):
-    #   - Usa MIN(disp, ref), não geracao_ref_final
-    #   - Multiplica por 0.5 (passo semi-horário)
-    #   - Só conta se há razão de restrição (cod_razaorestricao não vazio)
-    #
-    # Output (denominador, coluna U do template):
-    #   output_mwh = geracao * 0.5  (geração realizada no passo)
-    # =========================================================================
-    PASSO_HORAS = 0.5  # passo semi-horário do dataset ONS
+        # =========================================================================
+        # Cálculo correto do curtailment - alinhado ao template do mercado.
+        #
+        # ONS publica em PASSO SEMI-HORÁRIO (30min). Valores em MWmed.
+        # Conversão para MWh do passo: × 0.5 (meia hora).
+        #
+        # Fórmula da coluna Q do template:
+        #   curtailment_mwh = IF(razao_vazio, 0,
+        #                        MAX(MIN(disponibilidade, geracao_referencia)
+        #                            - geracao, 0)) * 0.5
+        #
+        # Diferenças vs versão anterior (errada):
+        #   - Usa MIN(disp, ref), não geracao_ref_final
+        #   - Multiplica por 0.5 (passo semi-horário)
+        #   - Só conta se há razão de restrição (cod_razaorestricao não vazio)
+        #
+        # Output (denominador, coluna U do template):
+        #   output_mwh = geracao * 0.5  (geração realizada no passo)
+        # =========================================================================
+        PASSO_HORAS = 0.5  # passo semi-horário do dataset ONS
 
-    # Curtailment frustrado em MWh do passo
-    if "GERACAO_REF_MW" in out.columns:
-        ref_para_min = out["GERACAO_REF_MW"]
-    else:
-        # Se ref original não veio, fallback para a final (degrada graceful)
-        ref_para_min = out["GERACAO_REF_FINAL_MW"]
+        # Curtailment frustrado em MWh do passo
+        if "GERACAO_REF_MW" in out.columns:
+            ref_para_min = out["GERACAO_REF_MW"]
+        else:
+            # Se ref original não veio, fallback para a final (degrada graceful)
+            ref_para_min = out["GERACAO_REF_FINAL_MW"]
 
-    if "GERACAO_LIMITADA_MW" in out.columns:
-        # val_disponibilidade no template é a disponibilidade da usina;
-        # no parquet do ONS isso aparece como val_disponibilidade
-        # (capturada em col_disp se presente; vide _detectar_colunas)
-        disp = out.get("VAL_DISPONIBILIDADE_MW", out["GERACAO_LIMITADA_MW"])
-    else:
-        disp = ref_para_min  # fallback inócuo (MIN(x,x) = x)
+        if "GERACAO_LIMITADA_MW" in out.columns:
+            # val_disponibilidade no template é a disponibilidade da usina;
+            # no parquet do ONS isso aparece como val_disponibilidade
+            # (capturada em col_disp se presente; vide _detectar_colunas)
+            disp = out.get("VAL_DISPONIBILIDADE_MW", out["GERACAO_LIMITADA_MW"])
+        else:
+            disp = ref_para_min  # fallback inócuo (MIN(x,x) = x)
 
-    if "VAL_DISPONIBILIDADE_MW" in out.columns:
-        disp = out["VAL_DISPONIBILIDADE_MW"]
+        if "VAL_DISPONIBILIDADE_MW" in out.columns:
+            disp = out["VAL_DISPONIBILIDADE_MW"]
 
-    min_disp_ref = pd.concat([disp, ref_para_min], axis=1).min(axis=1)
-    frustrado_mwmed = (min_disp_ref - out["GERACAO_MW"]).clip(lower=0)
+        min_disp_ref = pd.concat([disp, ref_para_min], axis=1).min(axis=1)
+        frustrado_mwmed = (min_disp_ref - out["GERACAO_MW"]).clip(lower=0)
 
-    # Só conta se há razão de restrição (RAZAO não None)
-    com_razao = out["RAZAO"].notna() & (out["RAZAO"] != "")
-    out["FRUSTRADO_MWH"] = (frustrado_mwmed * PASSO_HORAS).where(com_razao, 0.0)
+        # Só conta se há razão de restrição (RAZAO não None)
+        com_razao = out["RAZAO"].notna() & (out["RAZAO"] != "")
+        out["FRUSTRADO_MWH"] = (frustrado_mwmed * PASSO_HORAS).where(com_razao, 0.0)
 
-    # Output (geração realizada em MWh) - DENOMINADOR
-    out["OUTPUT_MWH"] = out["GERACAO_MW"] * PASSO_HORAS
+        # Output (geração realizada em MWh) - DENOMINADOR
+        out["OUTPUT_MWH"] = out["GERACAO_MW"] * PASSO_HORAS
 
-    # Mantém FRUSTRADO_MW para compat retrô (mesmo cálculo, sem × 0.5)
-    out["FRUSTRADO_MW"] = frustrado_mwmed.where(com_razao, 0.0)
+        # Mantém FRUSTRADO_MW para compat retrô (mesmo cálculo, sem × 0.5)
+        out["FRUSTRADO_MW"] = frustrado_mwmed.where(com_razao, 0.0)
 
-    # Limpeza final
-    out = out.dropna(subset=["DATA_HORA", "GERACAO_MW"])
-    return out
+        # Limpeza final
+        out = out.dropna(subset=["DATA_HORA", "GERACAO_MW"])
+        return out
+    except Exception as e:
+        _registrar_erro(
+            f"Erro em _padronizar ({fonte}): {type(e).__name__}: {e}"
+        )
+        return pd.DataFrame()
 
 
 # ---------------------------------------------------------------------------
@@ -373,8 +409,11 @@ def _baixar_mes(fonte: str, ano: int, mes: int) -> Optional[pd.DataFrame]:
 # ---------------------------------------------------------------------------
 
 
-def _cache_path(fonte: str, ano: int, mes: int) -> Path:
-    return CACHE_DIR / f"{fonte}_{ano}_{mes:02d}.parquet"
+def _cache_path(fonte: str, ano: int, mes: int) -> Optional[Path]:
+    cache_dir = _get_cache_dir()
+    if cache_dir is None:
+        return None
+    return cache_dir / f"{fonte}_{ano}_{mes:02d}.parquet"
 
 
 def _eh_cache_valido(fonte: str, ano: int, mes: int) -> bool:
@@ -396,7 +435,7 @@ def _eh_cache_valido(fonte: str, ano: int, mes: int) -> bool:
 def _carregar_mes_com_cache(fonte: str, ano: int, mes: int) -> pd.DataFrame:
     cache_file = _cache_path(fonte, ano, mes)
 
-    if cache_file.exists() and _eh_cache_valido(fonte, ano, mes):
+    if cache_file is not None and cache_file.exists() and _eh_cache_valido(fonte, ano, mes):
         try:
             return pd.read_parquet(cache_file)
         except Exception as e:
@@ -406,11 +445,11 @@ def _carregar_mes_com_cache(fonte: str, ano: int, mes: int) -> pd.DataFrame:
     if df is None or len(df) == 0:
         return pd.DataFrame()
 
-    try:
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        df.to_parquet(cache_file, index=False)
-    except Exception as e:
-        _registrar_erro(f"Erro salvando cache {cache_file.name}: {e}")
+    if cache_file is not None:
+        try:
+            df.to_parquet(cache_file, index=False)
+        except Exception as e:
+            _registrar_erro(f"Erro salvando cache {cache_file.name}: {e}")
 
     return df
 
@@ -466,10 +505,16 @@ def carregar_curtailment(
         _registrar_erro("Nenhum dado de curtailment carregado")
         return pd.DataFrame()
 
-    df = pd.concat(dfs, ignore_index=True)
-    df = df[(df["DATA"] >= data_inicio) & (df["DATA"] <= data_fim)]
-    df = df.sort_values("DATA_HORA").reset_index(drop=True)
-    return df
+    try:
+        df = pd.concat(dfs, ignore_index=True)
+        df = df[(df["DATA"] >= data_inicio) & (df["DATA"] <= data_fim)]
+        df = df.sort_values("DATA_HORA").reset_index(drop=True)
+        return df
+    except Exception as e:
+        _registrar_erro(
+            f"Erro consolidando curtailment: {type(e).__name__}: {e}"
+        )
+        return pd.DataFrame()
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
