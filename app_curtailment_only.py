@@ -57,3 +57,11 @@ st.warning(
 
 # Renderiza Curtailment direto, sem outras abas
 render_aba_curtailment()
+
+# Debug: exibir erros acumulados pelo _registrar_erro durante a carga.
+# No app principal esses erros sao silenciados (_debug_erros nao tem
+# consumer na UI). Aqui mostramos pra diagnosticar OOM/empty no Cloud.
+if "_debug_erros" in st.session_state and st.session_state["_debug_erros"]:
+    with st.expander("🔍 Debug: erros internos do loader", expanded=True):
+        for msg in st.session_state["_debug_erros"]:
+            st.code(msg)
