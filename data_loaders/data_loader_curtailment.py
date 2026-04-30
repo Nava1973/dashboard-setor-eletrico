@@ -571,7 +571,9 @@ def carregar_curtailment(
     try:
         df = pd.concat(dfs, ignore_index=True)
         df = df[(df["DATA"] >= data_inicio) & (df["DATA"] <= data_fim)]
-        df = df.sort_values("DATA_HORA").reset_index(drop=True)
+        # sort_values("DATA") (nao "DATA_HORA") porque _padronizar agrega
+        # por dia desde commit 075a8d0 — DATA_HORA foi descartada.
+        df = df.sort_values("DATA").reset_index(drop=True)
         return df
     except Exception as e:
         _registrar_erro(
