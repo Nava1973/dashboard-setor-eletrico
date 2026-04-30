@@ -29,9 +29,7 @@ Saída padronizada:
 
 from __future__ import annotations
 
-import concurrent.futures
 import functools
-import gc
 import io
 import tempfile
 from datetime import datetime, date
@@ -438,6 +436,18 @@ def _eh_cache_valido(fonte: str, ano: int, mes: int) -> bool:
     return True
 
 
+# Cache em-memória de 30 dias pra meses fechados (replica padrão de
+# _download_reservatorio_parquet_historico em data_loader.py).
+# Diferente do cache de DISCO via _carregar_mes_com_cache (efêmero
+# no Cloud), esse é cache em RAM via @st.cache_data — sobrevive o
+# lifetime inteiro do container, eliminando re-download de meses
+# fechados entre reruns/cold starts subsequentes da mesma sessão.
+@st.cache_data(ttl=60 * 60 * 24 * 30, show_spinner=False)
+def _download_mes_historico(fonte: str, ano: int, mes: int) -> Optional[pd.DataFrame]:
+    """Mês fechado — cache de 30 dias em memória. Delega pra _baixar_mes."""
+    return _baixar_mes(fonte, ano, mes)
+
+
 def _carregar_mes_com_cache(fonte: str, ano: int, mes: int) -> pd.DataFrame:
     cache_file = _cache_path(fonte, ano, mes)
 
@@ -447,7 +457,12 @@ def _carregar_mes_com_cache(fonte: str, ano: int, mes: int) -> pd.DataFrame:
         except Exception as e:
             _registrar_erro(f"Cache {cache_file.name} corrompido: {e}")
 
-    df = _baixar_mes(fonte, ano, mes)
+    # Cache RAM 30d pra mês fechado, fresh pra mês corrente
+    # (mesma lógica usada acima pra cache de disco)
+    if _eh_cache_valido(fonte, ano, mes):
+        df = _download_mes_historico(fonte, ano, mes)
+    else:
+        df = _baixar_mes(fonte, ano, mes)
     if df is None or len(df) == 0:
         return pd.DataFrame()
 
@@ -478,7 +493,7 @@ def _gerar_meses(data_ini: date, data_fim: date) -> list[Tuple[int, int]]:
     return meses
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
 def carregar_curtailment(
     data_inicio: date,
     data_fim: date,
@@ -501,38 +516,24 @@ def carregar_curtailment(
     meses = _gerar_meses(data_inicio, data_fim)
     dfs = []
 
-    # ThreadPoolExecutor com max_workers=1 (serial em pratica).
-    # Profiling local revelou RSS subindo monotonicamente em paralelismo:
-    # 2 workers concorrentes -> pico ~1290MB (3M com 6 parquets).
-    # Cloud free tier 1GB -> SIGKILL silencioso ao clicar 6M/12M.
-    # Usar max_workers=1 elimina o pico simultaneo, mas mantemos a
-    # estrutura ThreadPoolExecutor + as_completed por 2 motivos:
-    # 1. Cada future.result() retorna assim que pronto (vs loop simples
-    #    que esperaria sequencial e bloquearia)
-    # 2. Se quisermos voltar a max_workers=2 no futuro (ex: Cloud paid),
-    #    a estrutura ja esta pronta - so trocar o numero.
-    # Tempo Cloud estimado: 60-100s pra 12 parquets.
-    # Combinado com defaults reduzidos (3M default, max 6M sem expansao
-    # explicita), cabe dentro do timeout HTTP (~90-120s).
-    tasks = [(fonte, ano, mes) for fonte in fontes for ano, mes in meses]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future_to_task = {
-            executor.submit(_carregar_mes_com_cache, fonte, ano, mes): (fonte, ano, mes)
-            for fonte, ano, mes in tasks
-        }
-        for future in concurrent.futures.as_completed(future_to_task):
+    # Loop serial direto (alinhado com PLD/Reservatorios/ENA/Balanço em
+    # data_loader.py). ThreadPoolExecutor foi removido — paralelismo nao
+    # reduz tempo no Cloud (limitado por banda S3, nao CPU) e adicionava
+    # overhead de threads que contribuiu pro OOM.
+    # Cache em 2 camadas (_download_mes_historico TTL 30d em RAM +
+    # cache disco-local em _carregar_mes_com_cache) evita re-download
+    # de meses fechados entre cold starts subsequentes — mesmo padrão
+    # usado em load_reservatorios, load_ena, load_balanco.
+    # gc.collect() removido — cache em camadas torna desnecessário.
+    for fonte in fontes:
+        for ano, mes in meses:
             try:
-                df_mes = future.result()
+                df_mes = _carregar_mes_com_cache(fonte, ano, mes)
                 if len(df_mes) > 0:
                     dfs.append(df_mes)
-                # Libera referencias intermediarias do worker. Profiling
-                # mostrou que GC nao coleta sob pressao - forcamos aqui.
-                del df_mes
-                gc.collect()
             except Exception as e:
-                fonte, ano, mes = future_to_task[future]
                 _registrar_erro(
-                    f"Erro paralelo em {fonte} {ano}-{mes:02d}: {type(e).__name__}: {e}"
+                    f"Erro carregando {fonte} {ano}-{mes:02d}: {type(e).__name__}: {e}"
                 )
 
     if not dfs:
