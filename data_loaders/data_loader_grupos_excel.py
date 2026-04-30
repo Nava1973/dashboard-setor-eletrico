@@ -274,7 +274,7 @@ def aplicar_rateio(
         - Se Excel tem 1 sócio (participação=1.0): linha sai como está, com
           PROPRIETARIO atribuído.
         - Se Excel tem N sócios com participações p1, p2, ..., pN (somando 1):
-          a linha vira N linhas, com FRUSTRADO_MW e GERACAO_REF_FINAL_MW
+          a linha vira N linhas, com FRUSTRADO_MWH e OUTPUT_MWH
           multiplicados pela participação de cada sócio.
 
     Para usinas SEM correspondência no Excel, a linha sai com
@@ -288,7 +288,7 @@ def aplicar_rateio(
     Returns:
         DataFrame com schema do df_curt + colunas:
             PROPRIETARIO, NOME_USINA_DASH, PARTICIPACAO_RATEIO
-        e com FRUSTRADO_MW, GERACAO_REF_FINAL_MW, GERACAO_MW já rateados.
+        e com FRUSTRADO_MWH (numerador) e OUTPUT_MWH (denominador) já rateados.
     """
     if len(df_curt) == 0:
         return df_curt
@@ -327,23 +327,14 @@ def aplicar_rateio(
     df_join.loc[sem_match, "PARTICIPACAO_RATEIO"] = 1.0
 
     # 5. Aplicar rateio nas métricas físicas.
-    # IMPORTANTE: precisa ratear TODAS as colunas que serão somadas
-    # downstream (numerador e denominador dos cálculos), senão usinas
-    # com N sócios contam o valor N vezes na agregação. Bug histórico
-    # corrigido: FRUSTRADO_MWH e OUTPUT_MWH estavam fora da lista, fazendo
-    # o denominador ser inflado pelo número de sócios da usina.
-    cols_rateio = [
-        "GERACAO_MW",
-        "GERACAO_REF_FINAL_MW",
-        "FRUSTRADO_MW",
-        "FRUSTRADO_MWH",   # numerador novo (utils_curtailment usa este)
-        "OUTPUT_MWH",      # denominador novo (utils_curtailment usa este)
-    ]
-    if "GERACAO_LIMITADA_MW" in df_join.columns:
-        cols_rateio.append("GERACAO_LIMITADA_MW")
-    if "GERACAO_REF_MW" in df_join.columns:
-        cols_rateio.append("GERACAO_REF_MW")
-
+    # Conjunto minimo: numerador (FRUSTRADO_MWH) + denominador (OUTPUT_MWH).
+    # Sao as unicas colunas usadas downstream (utils_curtailment.py:
+    # calcular_pct_curtailment e serie_temporal). Colunas instantaneas
+    # MWmed (GERACAO_MW, GERACAO_REF_FINAL_MW, FRUSTRADO_MW,
+    # GERACAO_LIMITADA_MW, GERACAO_REF_MW) foram descartadas no _padronizar
+    # (sessao do feriado 2026-04-30) — nao chegavam a ser consumidas.
+    # Loop com `if col in df_join.columns` mantido por defesa em profundidade.
+    cols_rateio = ["FRUSTRADO_MWH", "OUTPUT_MWH"]
     for col in cols_rateio:
         if col in df_join.columns:
             df_join[col] = df_join[col] * df_join["PARTICIPACAO_RATEIO"]
