@@ -1087,11 +1087,18 @@ def _render_aba_curtailment_impl() -> None:
         st.stop()
 
     # =========================================================================
-    # SUB-ABAS (decisão D2: sem emojis, texto puro)
+    # SUB-ABAS via st.tabs (decisão D2: sem emojis, texto puro).
+    # 3 abas: Visão geral, Por usina, Por grupo.
+    # Sub-aba "Por estado" foi removida (mapa choropleth pesava na RAM
+    # do Cloud free tier 1GB - causa do OOM kill ao expandir 6M/12M).
+    # Funções _render_mapa_estado, _carregar_geojson_estados,
+    # _render_kpis_por_estado, _nome_estado ficam órfãs (dead code) -
+    # remover em sessão futura. data/brazil_states.geojson permanece
+    # no repo. CSS de .stTabs nas linhas 245-256 volta a ter alvo
+    # (não é mais dead code).
     # =========================================================================
-    tab_visao, tab_estado, tab_usina, tab_grupo = st.tabs([
+    tab_visao, tab_usina, tab_grupo = st.tabs([
         "Visão geral",
-        "Por estado",
         "Por usina",
         "Por grupo",
     ])
@@ -1101,37 +1108,6 @@ def _render_aba_curtailment_impl() -> None:
             df_filtrado, granularidade, granularidade_ui, fonte_label,
             data_ini, data_fim,
         )
-    with tab_estado:
-        if df_filtrado.empty:
-            st.info("Sem dados de curtailment no período selecionado.")
-        else:
-            # Aviso quando granularidade é Trimestral (não se aplica ao mapa)
-            if granularidade == "TRIMESTRAL":
-                st.info(
-                    "A granularidade trimestral não altera a visualização Por estado. "
-                    "O mapa abaixo mostra dados agregados do período selecionado."
-                )
-            ufs_disponiveis = sorted(
-                df_filtrado.loc[df_filtrado["FRUSTRADO_MWH"] > 0, "UF"]
-                .dropna().unique()
-            )
-            opcoes = ["— Brasil —"] + [
-                f"{uf} — {_nome_estado(uf)}" for uf in ufs_disponiveis
-            ]
-            selecao = st.selectbox(
-                "Selecione um estado",
-                opcoes,
-                key="curt_estado_select",
-            )
-            uf_selecionada = (
-                None if selecao == "— Brasil —"
-                else selecao.split(" — ")[0]
-            )
-
-            _render_kpis_por_estado(df_filtrado, uf_selecionada, fonte_label)
-
-            fig_mapa = _render_mapa_estado(df_filtrado, fonte_label)
-            st.plotly_chart(fig_mapa, use_container_width=True)
     with tab_usina:
         _placeholder_em_construcao()
     with tab_grupo:
