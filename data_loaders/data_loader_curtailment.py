@@ -368,8 +368,36 @@ def _padronizar(df: pd.DataFrame, fonte: str) -> pd.DataFrame:
         # Mantém FRUSTRADO_MW para compat retrô (mesmo cálculo, sem × 0.5)
         out["FRUSTRADO_MW"] = frustrado_mwmed.where(com_razao, 0.0)
 
-        # Limpeza final
+        # Limpeza: descarta linhas sem timestamp ou geracao invalida
+        # antes de agregar (evita lixo no groupby).
         out = out.dropna(subset=["DATA_HORA", "GERACAO_MW"])
+
+        # Agregacao DIARIA: reduz cardinalidade ~48x (passo semi-horario
+        # -> 1 linha/dia) e descarta colunas instantaneas MWmed que nao
+        # sao consumidas pelo flow ativo. Decisao tomada na sessao do
+        # feriado 2026-04-30 pra eliminar OOM kill no Cloud free tier
+        # (1GB RAM). Granularidade horaria nao era usada em producao
+        # (apenas funcao orfa _render_mapa_estado, sub-aba "Por estado"
+        # removida em 2abd77b).
+        #
+        # Dimensoes preservadas: USINA (match Excel), DATA (eixo temporal),
+        # RAZAO (% por tipo de restricao em calcular_pct_curtailment),
+        # FONTE (filtro Solar/Eolica), SUBMERCADO (filtros futuros),
+        # UF (filtros futuros).
+        #
+        # Distributividade da multiplicacao garante que aplicar_rateio
+        # downstream (multiplicacao por PARTICIPACAO_RATEIO escalar) e
+        # equivalente em base diaria ou semi-horaria.
+        cols_grupo = ["USINA", "DATA", "RAZAO", "FONTE", "SUBMERCADO", "UF"]
+        cols_grupo = [c for c in cols_grupo if c in out.columns]
+        out = (
+            out.groupby(cols_grupo, dropna=False, as_index=False)
+               .agg(
+                   FRUSTRADO_MWH=("FRUSTRADO_MWH", "sum"),
+                   OUTPUT_MWH=("OUTPUT_MWH", "sum"),
+               )
+        )
+
         # Libera DataFrame bruto (com cópia de _normalizar_colunas)
         # antes do return. Reduz pico de RAM em ~150MB pra parquets
         # eolica (~200k linhas).
