@@ -1,0 +1,4 @@
+# Dependências de desenvolvimento (não vão pro Streamlit Cloud)
+# Instalar local: pip install -r requirements-dev.txt
+-r requirements.txt
+pytest>=8.0,<9.0
