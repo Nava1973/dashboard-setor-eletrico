@@ -316,6 +316,17 @@ def _download_year(ano: int, dataset: str = "diaria") -> tuple[pd.DataFrame | No
     return None, "falhou"
 
 
+@st.cache_data(ttl=60 * 60 * 24 * 30, show_spinner=False)
+def _download_year_pld_historico(
+    ano: int, dataset: str
+) -> tuple[pd.DataFrame | None, str]:
+    """Anos fechados — cache de 30 dias. Mesmo padrão de balanço/EAR/ENA:
+    anos fechados são imutáveis na CCEE (raras reedições). Sem isso, refresh
+    de 12h recarregaria ~25 anos a cada vez. Usado só pelo PLD horário e
+    diário (semanal/mensal mantêm fluxo original por enquanto)."""
+    return _download_year(ano, dataset)
+
+
 # =============================================================================
 # NORMALIZAÇÃO
 # =============================================================================
@@ -746,8 +757,19 @@ def _load_dataset(
     fontes_por_ano = {}
     erros = []
 
+    # Anos fechados (ano < corrente) do PLD horário/diário usam wrapper com
+    # TTL 30d — mesmo padrão de _download_balanco_parquet_historico. Anos
+    # imutáveis viram cache em-memória após 1ª request, evitando re-download
+    # de ~25 anos a cada refresh do @st.cache_data externo. Semanal/mensal
+    # ficam com _download_year direto até decisão futura.
+    ano_corrente = datetime.now().year
+    use_historico_cache = dataset in ("diaria", "horaria")
+
     for ano in years:
-        df, fonte = _download_year(ano, dataset)
+        if use_historico_cache and ano < ano_corrente:
+            df, fonte = _download_year_pld_historico(ano, dataset)
+        else:
+            df, fonte = _download_year(ano, dataset)
         fontes_por_ano[ano] = fonte
         if df is None:
             erros.append(str(ano))
@@ -800,8 +822,21 @@ def load_pld_media_diaria() -> pd.DataFrame:
     """Baixa e consolida PLD diário de todos os anos.
 
     Retorna DataFrame: (data, submercado, pld).
+
+    Cache em 3 camadas (Sessão PLD perf):
+      - Disk-cache (1ª tentativa): parquet local. ~1-2s se hit.
+      - @st.cache_data externo: TTL 12h, em-memória.
+      - @st.cache_data interno por ano (TTL 30d pros anos fechados via
+        _download_year_pld_historico): evita re-download HTTP.
     """
-    return _load_dataset("diaria", _normalize_diaria)
+    df_disk = _try_read_pld_diaria()
+    if df_disk is not None:
+        st.session_state["_debug_erros"] = []
+        return df_disk
+
+    df = _load_dataset("diaria", _normalize_diaria)
+    _try_write_pld_diaria(df)
+    return df
 
 
 @st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
@@ -809,8 +844,21 @@ def load_pld_horaria() -> pd.DataFrame:
     """Baixa e consolida PLD horário de todos os anos (2021+).
 
     Retorna DataFrame: (data=datetime, submercado, pld).
+
+    Cache em 3 camadas (Sessão PLD perf):
+      - Disk-cache (1ª tentativa): parquet local. ~1-2s se hit.
+      - @st.cache_data externo: TTL 12h, em-memória.
+      - @st.cache_data interno por ano (TTL 30d pros anos fechados via
+        _download_year_pld_historico): evita re-download HTTP de ~5 anos.
     """
-    return _load_dataset("horaria", _normalize_horaria)
+    df_disk = _try_read_pld_horaria()
+    if df_disk is not None:
+        st.session_state["_debug_erros"] = []
+        return df_disk
+
+    df = _load_dataset("horaria", _normalize_horaria)
+    _try_write_pld_horaria(df)
+    return df
 
 
 @st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
@@ -1539,6 +1587,25 @@ def _make_disk_cache_helpers(
     _try_write_ena,
 ) = _make_disk_cache_helpers("ena")
 
+# PLD HORÁRIO e DIÁRIO (CCEE). Cold load horário ~60s antes do disk-cache:
+# CCEE é Akamai-protegido, cada ano = 1 request CKAN paginada (~500k linhas
+# pro horário, ~2-3s/ano × 5 anos = ~12s + parse + concat). Disk-cache reduz
+# pra ~1-2s. Semanal/mensal NÃO recebem disk-cache por enquanto (decisão
+# do usuário — datasets menores, dor menor).
+(
+    _get_pld_horaria_path,
+    _is_pld_horaria_cache_fresh,
+    _try_read_pld_horaria,
+    _try_write_pld_horaria,
+) = _make_disk_cache_helpers("pld_horaria")
+
+(
+    _get_pld_diaria_path,
+    _is_pld_diaria_cache_fresh,
+    _try_read_pld_diaria,
+    _try_write_pld_diaria,
+) = _make_disk_cache_helpers("pld_diaria")
+
 
 def is_balanco_cache_fresh(historico_completo: bool = False) -> bool:
     """Helper PÚBLICO pra UI escolher mensagem de spinner antes do load.
@@ -1789,12 +1856,14 @@ def clear_cache() -> None:
     load_ena.clear()
     load_balanco_subsistema.clear()
 
-    # Disk-caches: best-effort delete dos 4 parquets
+    # Disk-caches: best-effort delete dos 6 parquets
     for get_path in (
         _get_balanco_15a_path,
         _get_balanco_completo_path,
         _get_reservatorios_path,
         _get_ena_path,
+        _get_pld_horaria_path,
+        _get_pld_diaria_path,
     ):
         try:
             p = get_path()
