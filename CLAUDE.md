@@ -2022,6 +2022,137 @@ neste dashboard.
 **Trade-off aceito:** perda da semântica "perda financeira do gerador"
 (BBI). Ganho de aderência à fonte oficial pública.
 
+### 5.36 Default por granularidade no reset block (PLD)
+
+**Decisão:** o reset block do PLD aplica default DIFERENTE conforme
+granularidade ativa. Constante `_PLD_DEFAULTS_POR_GRANULARIDADE`
+mapeia gran → (modo, valor):
+- `"horario"` → `("single_day", None)` — `data_ini = data_fim = max_d`
+  (modo 1D da decisão 5.28)
+- `"diario"`  → `("dias", 90)`
+- `"mensal"`  → `("dias", 90)`
+
+Helper inline `_aplica_default_pld_inline(gran, min_d, max_d)` consome
+a constante e seta `data_ini`/`data_fim`. Reset block tem **5 triggers**
+e em qualquer um deles chama o helper passando a granularidade atual.
+
+**Caso que motivou:** abrir PLD horário com período herdado (3M, 6M)
+força render de até 230k pontos — lentidão e UX confusa pra um caso
+de uso raro. Uso típico de "entrar em horário" é ver 1 dia específico
+(decisão 5.28).
+
+**Bug que validou a arquitetura (Cenário 3):** versão inicial usava
+sentinela `_pld_granularidade_anterior` em bloco SEPARADO, APÓS o
+reset block, detectando só TROCA real de gran. Mas voltar de outra
+aba limpa `data_ini` (widget cleanup do `st.date_input("Dia",
+key="data_ini")` em modo single-day — decisão 5.16). Reset GENÉRICO
+de 90d disparava via `data_ini not in state`, e o bloco separado não
+disparava (`gran_anterior == "horario"` na volta — não era troca).
+Resultado: voltar pra PLD horário trazia 90d, não 1D.
+
+Fix: integrar o default-por-gran no reset block (cobre TODOS os
+triggers que aplicam default, não só troca interna).
+
+**5 triggers do reset block** (`app.py:1448-1457`):
+
+1. `data_ini` ausente do state — 1ª render OU widget cleanup ao
+   voltar de outra aba.
+2. `_dataset_max` mudou — refresh CCEE / Atualizar.
+3. `_dataset_min` mudou.
+4. `range_degenerado_fora_horario` (decisão 5.28) — vinha de horário
+   1D pra diário/mensal, `data_ini == data_fim`.
+5. `trocou_pra_horario` — `granularidade == "horario"` AND
+   `gran_anterior != "horario"`. Cobre troca dropdown DENTRO da aba
+   (data_ini AINDA em state, então trigger 1 não dispara).
+
+```python
+if (
+    "data_ini" not in st.session_state
+    or st.session_state.get("_dataset_max") != max_d
+    or st.session_state.get("_dataset_min") != min_d
+    or range_degenerado_fora_horario
+    or trocou_pra_horario
+):
+    _aplica_default_pld_inline(granularidade, min_d, max_d)
+    st.session_state["_dataset_max"] = max_d
+    st.session_state["_dataset_min"] = min_d
+```
+
+**Comportamento emergente — trocar gran reseta período via trigger #3:**
+
+Quando o usuário troca o dropdown de granularidade (ex: horário 1S
+→ diário), `df = get_pld_df("diario")` carrega DataFrame diferente
+e `min_d` re-computado pode divergir do `_dataset_min` herdado da
+granularidade anterior. Trigger #3 dispara → reset aplica default
+da gran nova (90d em diário/mensal).
+
+**Diagnóstico empírico (Sessão PLD pós-Ajuste 2):** validado em
+runtime via debug temporário. Em horário 1S → diário com dataset
+CCEE atual (2026-04-29):
+- `_dataset_min_state_pre = 2021-01-01` (horário)
+- `min_d_atual = 2021-01-08` (diário)
+- diferença: **7 dias**
+
+A diferença é MÍNIMA mas suficiente pra ativar o trigger #3
+(`!= ` é estrito).
+
+**Comportamento de produto:** desejado e confirmado. Justificativa:
+diário e mensal não têm preset "1S" no UI; deixar usuário em
+diário com 7 dias herdados criaria estado "fantasma" não
+recriável via botões. Forçar default da gran nova é mais
+previsível: "trocar gran = vai pro default da gran nova".
+
+**⚠️ Fragilidade reconhecida:** o reset ao trocar gran depende SÓ
+da diferença em `_dataset_min` entre os datasets. Se um dia o
+CCEE alinhar os históricos exatamente (ex: ambos começarem em
+2021-01-01), `_dataset_min` ficaria igual entre granularidades e
+trigger #3 não dispararia. Resultado: usuário começaria a HERDAR
+o range entre granularidades — comportamento DIFERENTE do atual,
+sem nenhuma mudança no nosso código.
+
+**Decisão futura (não implementar agora):** se a fragilidade se
+materializar (CCEE alinhar históricos OU bug de reset for
+reportado), adicionar trigger #6 explícito ao reset block:
+
+```python
+trocou_de_gran = gran_anterior is not None and gran_anterior != granularidade
+```
+
+Padrão análogo ao trigger #5 (`trocou_pra_horario`) mas
+generalizado pra qualquer troca. Mantemos código mínimo enquanto
+o efeito colateral via trigger #3 funciona — não vale adicionar
+defesa preventiva contra cenário hipotético.
+
+**Sentinela `_pld_granularidade_anterior`:** atualizada SEMPRE (não
+só quando reset dispara) — comportamento mais previsível. Não é
+widget-state — sobrevive a cleanup. Condição única `gran_anterior !=
+"horario"` cobre 2 casos:
+- (a) **Troca real** entre granularidades:
+  `gran_anterior in {"diario","mensal"}`.
+- (b) **1ª render** da sessão já em horário: `gran_anterior is None`
+  (`None != "horario"` é True). Pode acontecer se a aba PLD abre
+  direto em horário via state restaurado (raro com defaults atuais,
+  mas a condição cobre por defesa).
+
+**Sem `st.rerun()` na troca:** o reset block roda ANTES da leitura
+de `data_ini`/`data_fim` mais abaixo, então as mudanças em state
+já valem no resto da render. Render mais rápido.
+
+**O que NÃO é resetado:**
+- Submercados (`sel_SE`, `sel_S`, `sel_NE`, `sel_N`, `sel_media`):
+  preserva seleção do usuário (princípio de menor surpresa). Default
+  "todos marcados" só vale na 1ª criação dos widgets via `value=True`.
+
+**Quando aplicar este padrão em outras abas:** se uma aba ganhar
+2+ granularidades com defaults distintos. Reservatórios e ENA têm 1
+modo só. Geração já usa pattern análogo (decisão 5.20) com
+`_gen_last_gran` + helper top-level `_aplica_default_periodo_gen` —
+generalização que cobre defaults POR granularidade ativa, não só
+"transição pra X". PLD usa forma mais simples (constante + helper
+inline + 1 trigger de transição) porque só uma das 3 granularidades
+precisa de default distinto. Migrar pra forma estilo Geração quando
+PLD ganhar mais granularidades com defaults únicos.
+
 ---
 
 ## 6. Fluxo de Desenvolvimento

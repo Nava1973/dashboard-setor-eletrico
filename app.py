@@ -19,7 +19,6 @@ from auth import require_login, logout_button
 from data_loader import (
     load_pld_media_diaria,
     load_pld_horaria,
-    load_pld_media_semanal,
     load_pld_media_mensal,
     load_reservatorios,
     load_ena,
@@ -35,7 +34,6 @@ from components.tab_curtailment import render_aba_curtailment
 GRANULARIDADES = {
     "horario": load_pld_horaria,
     "diario":  load_pld_media_diaria,
-    "semanal": load_pld_media_semanal,
     "mensal":  load_pld_media_mensal,
 }
 
@@ -1363,6 +1361,28 @@ if aba == "PLD":
     min_d = df["data"].min().date()
     max_d = df["data"].max().date()
 
+    # Defaults de período por granularidade (decisão 5.36).
+    # Fonte única da verdade — consumido pelo reset block abaixo.
+    # Modos:
+    #   ("single_day", None) → data_ini = data_fim = max_d (1D)
+    #   ("dias", N)          → data_ini = max_d - N dias, data_fim = max_d
+    _PLD_DEFAULTS_POR_GRANULARIDADE = {
+        "horario": ("single_day", None),
+        "diario":  ("dias", 90),
+        "mensal":  ("dias", 90),
+    }
+
+    def _aplica_default_pld_inline(gran, _min_d, _max_d):
+        modo, valor = _PLD_DEFAULTS_POR_GRANULARIDADE[gran]
+        if modo == "single_day":
+            st.session_state["data_ini"] = _max_d
+            st.session_state["data_fim"] = _max_d
+        elif modo == "dias":
+            st.session_state["data_ini"] = max(
+                _min_d, _max_d - timedelta(days=valor)
+            )
+            st.session_state["data_fim"] = _max_d
+
     # Defesa contra widget cleanup do data_fim em single-day mode
     # (decisão 5.16 estendida): em horário com 1D ativo, o widget
     # "Data final" não é instanciado e Streamlit descarta
@@ -1371,7 +1391,7 @@ if aba == "PLD":
     # Restauramos antes do reset block: assume == data_ini (consistente
     # com single-day). Se a granularidade for não-horária, o gatilho
     # `range_degenerado_fora_horario` abaixo vai capturar o estado
-    # degenerado e disparar reset full pra default 90d.
+    # degenerado e disparar reset full pra default da granularidade.
     if (
         "data_fim" not in st.session_state
         and "data_ini" in st.session_state
@@ -1379,9 +1399,9 @@ if aba == "PLD":
         st.session_state["data_fim"] = st.session_state["data_ini"]
 
     # Gatilho extra (decisão 5.28): se user estava em horário com 1D
-    # ativo (data_ini == data_fim) e troca pra Diário/Semanal/Mensal,
-    # o range degenerado de 1 dia ficaria horrível nessas
-    # granularidades. Reset pro default 90d nesse caso.
+    # ativo (data_ini == data_fim) e troca pra Diário/Mensal, o range
+    # degenerado de 1 dia ficaria horrível nessas granularidades.
+    # Reset pro default 90d (via helper, decisão 5.36) nesse caso.
     range_degenerado_fora_horario = (
         granularidade != "horario"
         and "data_ini" in st.session_state
@@ -1389,14 +1409,35 @@ if aba == "PLD":
         and st.session_state["data_ini"] == st.session_state["data_fim"]
     )
 
+    # Detecta troca pra horário (decisão 5.36 — 5º trigger do reset).
+    # Cálculo ANTES do reset block pra que a flag possa ser usada lá.
+    # Condição única `gran_anterior != "horario"` cobre 2 casos —
+    #   (a) troca real (gran_anterior in {"diario","mensal"})
+    #   (b) primeira render da sessão já em horário (gran_anterior is None)
+    # Sentinela `_pld_granularidade_anterior` atualizada SEMPRE (não só
+    # quando reset dispara) — comportamento mais previsível.
+    # Submercados (sel_SE/S/NE/N/media) NÃO são popados — preserva
+    # seleção do usuário entre granularidades (princípio de menor
+    # surpresa). Default "todos marcados" só vale na 1ª criação dos
+    # widgets (value=True nas linhas dos checkboxes).
+    _PLD_GRAN_PREV = "_pld_granularidade_anterior"
+    gran_anterior = st.session_state.get(_PLD_GRAN_PREV)
+    trocou_pra_horario = (
+        granularidade == "horario" and gran_anterior != "horario"
+    )
+    st.session_state[_PLD_GRAN_PREV] = granularidade
+
+    # Reset block — 5 triggers, default por granularidade via helper.
+    # Substitui versão antiga que aplicava 90d hardcoded em todos os
+    # triggers, ignorando granularidade (causa do bug do Cenário 3).
     if (
         "data_ini" not in st.session_state
         or st.session_state.get("_dataset_max") != max_d
         or st.session_state.get("_dataset_min") != min_d
         or range_degenerado_fora_horario
+        or trocou_pra_horario
     ):
-        st.session_state["data_ini"] = max(min_d, max_d - timedelta(days=90))
-        st.session_state["data_fim"] = max_d
+        _aplica_default_pld_inline(granularidade, min_d, max_d)
         st.session_state["_dataset_max"] = max_d
         st.session_state["_dataset_min"] = min_d
 
@@ -1489,7 +1530,6 @@ if aba == "PLD":
         LABELS_GRAN = {
             "horario": "PLD HORÁRIO",
             "diario":  "PLD MÉDIO DIÁRIO",
-            "semanal": "PLD MÉDIO SEMANAL",
             "mensal":  "PLD MÉDIO MENSAL",
         }
 
@@ -1538,7 +1578,7 @@ if aba == "PLD":
             unsafe_allow_html=True,
         )
 
-        opcoes_ordem = ["horario", "diario", "semanal", "mensal"]
+        opcoes_ordem = ["horario", "diario", "mensal"]
         st.selectbox(
             "Granularidade do PLD",
             options=opcoes_ordem,
@@ -1897,11 +1937,6 @@ if aba == "PLD":
                     color=BAUHAUS_BLACK,
                 ),
                 # Formato do header do tooltip (hovermode="x unified").
-                # Semanal: mostra só início da semana. CCEE não publica
-                # data_fim; calcular data+6dias assumiria semana fixa,
-                # então preferimos o início puro. Se o usuário quiser
-                # ver o range, mudar hovermode pra "x" e passar customdata
-                # por trace com fim = data + timedelta(days=6).
                 # Em horário + single-day (data_ini == data_fim), só
                 # `HH:MM` no hover — a data é redundante porque o
                 # gráfico mostra 24h de UM dia. Range > 1 dia mantém
@@ -1912,7 +1947,6 @@ if aba == "PLD":
                     else {
                         "horario": "%d/%m/%Y %H:%M",
                         "diario":  "%d/%m/%Y",
-                        "semanal": "%d/%m/%Y",
                         "mensal":  "%b %Y",
                     }[granularidade]
                 ),
