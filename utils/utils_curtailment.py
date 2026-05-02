@@ -66,6 +66,7 @@ Convenção PAR (parecer de acesso):
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Iterable, Optional
 
 import pandas as pd
@@ -400,3 +401,217 @@ def serie_temporal(
 
     g = g.sort_values("PERIODO_INICIO").reset_index(drop=True)
     return g
+
+
+# ---------------------------------------------------------------------------
+# Janelas de período (convenção da SPEC v2 da aba Curtailment §5)
+# ---------------------------------------------------------------------------
+
+
+def _inicio_mes(d: date) -> date:
+    """Primeiro dia do mês de d."""
+    return date(d.year, d.month, 1)
+
+
+def calcular_3_periodos(max_d: date) -> dict:
+    """
+    Retorna 3 janelas ancoradas em max_d (mais recente primeiro).
+
+    Usado pela aba Curtailment v2 (SPEC §5) pra comparar mês corrente
+    parcial vs 2 meses completos anteriores.
+
+    Returns:
+        {
+            'mes_corrente': {'label': 'Mês corrente', 'ini': date,
+                             'fim': date (= max_d), 'dias': int},
+            'mes_anterior': {... mês completo anterior ...},
+            'penultimo':    {... mês completo 2 atrás ...},
+        }
+
+    Edge case (SPEC §10.2): quando max_d está perto do dia 1 do mês,
+    'mes_corrente' fica com 1-2 dias só. O helper expõe 'dias' no dict
+    pra que callers decidam como tratar (mostrar normal, com aviso ou
+    suprimir). Helper não decide.
+    """
+    corrente_ini = _inicio_mes(max_d)
+    corrente_fim = max_d
+
+    anterior_fim = corrente_ini - timedelta(days=1)
+    anterior_ini = _inicio_mes(anterior_fim)
+
+    penultimo_fim = anterior_ini - timedelta(days=1)
+    penultimo_ini = _inicio_mes(penultimo_fim)
+
+    def _entry(label: str, ini: date, fim: date) -> dict:
+        return {
+            "label": label,
+            "ini": ini,
+            "fim": fim,
+            "dias": (fim - ini).days + 1,
+        }
+
+    return {
+        "mes_corrente": _entry("Mês corrente", corrente_ini, corrente_fim),
+        "mes_anterior": _entry("Mês anterior", anterior_ini, anterior_fim),
+        "penultimo":    _entry("Penúltimo mês", penultimo_ini, penultimo_fim),
+    }
+
+
+def pct_no_periodo(
+    df: pd.DataFrame,
+    data_ini: date,
+    data_fim: date,
+    razao: Optional[str] = None,
+) -> Optional[float]:
+    """
+    Pct curtailment na janela [data_ini, data_fim] (ambas inclusive).
+
+    Filtra df por DATA, chama calcular_pct_curtailment, devolve o pct
+    pedido. Convenção do projeto (PAR excluído por default) preservada.
+
+    Args:
+        razao: None → pct_total. Senão "ENE" / "CNF" / "REL".
+               PAR não é suportado (excluído por convenção do projeto;
+               passar PAR levanta ValueError).
+
+    Returns:
+        Float em [0, 1] OU None se denom_potencial == 0 (janela vazia
+        ou sem geração potencial). Distinção é importante:
+          - 0.0   = "tem dados na janela, zero curtailment dessa razão"
+          - None  = "sem dados na janela"
+    """
+    if razao is not None and razao not in {"ENE", "CNF", "REL"}:
+        raise ValueError(
+            f"razao inválida: {razao!r}. Use None (total) ou um de "
+            f"'ENE'/'CNF'/'REL'. PAR não é suportado."
+        )
+
+    if "DATA" not in df.columns:
+        return None
+
+    sub = df[(df["DATA"] >= data_ini) & (df["DATA"] <= data_fim)]
+    r = calcular_pct_curtailment(sub)
+
+    if r["denom_potencial_mwh"] == 0:
+        return None
+
+    if razao is None:
+        return r["pct_total"]
+    return r["pct_por_razao"].get(razao, 0.0)
+
+
+# ---------------------------------------------------------------------------
+# Tests inline — roda com:
+#     venv\Scripts\python.exe utils/utils_curtailment.py
+#
+# Imports do topo do arquivo (datetime, pd) já cobrem o teste — datetime é
+# dependência de produção (tipo de retorno + aritmética em calcular_3_periodos),
+# não é só de teste.
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    # sys.stdout.reconfigure pra evitar UnicodeEncodeError no shell Windows
+    # cp1252 (armadilha 4.4 do CLAUDE.md). sys é exclusivo do teste — não é
+    # dependência de produção do módulo.
+    import sys
+    sys.stdout.reconfigure(encoding="utf-8")
+
+    print("=" * 70)
+    print("TESTE 1: calcular_3_periodos — caso normal (max_d = 2026-04-15)")
+    print("=" * 70)
+    p = calcular_3_periodos(date(2026, 4, 15))
+    for k, v in p.items():
+        print(f"  {k:13s}: {v['label']:14s} {v['ini']} → {v['fim']} ({v['dias']:>2}d)")
+    assert p["mes_corrente"]["ini"] == date(2026, 4, 1)
+    assert p["mes_corrente"]["fim"] == date(2026, 4, 15)
+    assert p["mes_corrente"]["dias"] == 15
+    assert p["mes_anterior"]["ini"] == date(2026, 3, 1)
+    assert p["mes_anterior"]["fim"] == date(2026, 3, 31)
+    assert p["mes_anterior"]["dias"] == 31
+    assert p["penultimo"]["ini"] == date(2026, 2, 1)
+    assert p["penultimo"]["fim"] == date(2026, 2, 28)  # 2026 não é bissexto
+    assert p["penultimo"]["dias"] == 28
+    print("  OK")
+
+    print()
+    print("=" * 70)
+    print("TESTE 2: calcular_3_periodos — edge §10.2 (max_d = 2026-05-02)")
+    print("=" * 70)
+    p = calcular_3_periodos(date(2026, 5, 2))
+    for k, v in p.items():
+        print(f"  {k:13s}: {v['label']:14s} {v['ini']} → {v['fim']} ({v['dias']:>2}d)")
+    assert p["mes_corrente"]["ini"] == date(2026, 5, 1)
+    assert p["mes_corrente"]["fim"] == date(2026, 5, 2)
+    assert p["mes_corrente"]["dias"] == 2  # só 1 e 2 de maio
+    assert p["mes_anterior"]["ini"] == date(2026, 4, 1)
+    assert p["mes_anterior"]["fim"] == date(2026, 4, 30)
+    assert p["mes_anterior"]["dias"] == 30
+    assert p["penultimo"]["fim"] == date(2026, 3, 31)
+    assert p["penultimo"]["dias"] == 31
+    print("  OK — mes_corrente com 2 dias é detectável via 'dias' field")
+
+    print()
+    print("=" * 70)
+    print("TESTE 3: calcular_3_periodos — virada de ano (max_d = 2026-01-15)")
+    print("=" * 70)
+    p = calcular_3_periodos(date(2026, 1, 15))
+    for k, v in p.items():
+        print(f"  {k:13s}: {v['label']:14s} {v['ini']} → {v['fim']} ({v['dias']:>2}d)")
+    assert p["mes_corrente"]["ini"] == date(2026, 1, 1)
+    assert p["mes_corrente"]["fim"] == date(2026, 1, 15)
+    assert p["mes_anterior"]["ini"] == date(2025, 12, 1)
+    assert p["mes_anterior"]["fim"] == date(2025, 12, 31)
+    assert p["mes_anterior"]["dias"] == 31
+    assert p["penultimo"]["ini"] == date(2025, 11, 1)
+    assert p["penultimo"]["fim"] == date(2025, 11, 30)
+    assert p["penultimo"]["dias"] == 30
+    print("  OK")
+
+    print()
+    print("=" * 70)
+    print("TESTE 4: pct_no_periodo — df mockado (3 dias, 2 razões)")
+    print("=" * 70)
+    # ENE total = 50, CNF total = 30, OUTPUT total = 200
+    # denom = 200 + 80 = 280
+    # pct_total = 80/280 ≈ 0.2857; pct_ENE = 50/280; pct_CNF = 30/280; pct_REL = 0
+    df_mock = pd.DataFrame([
+        {"DATA": date(2026, 4, 1), "RAZAO": "ENE", "FRUSTRADO_MWH": 20.0, "OUTPUT_MWH": 70.0},
+        {"DATA": date(2026, 4, 2), "RAZAO": "ENE", "FRUSTRADO_MWH": 30.0, "OUTPUT_MWH": 80.0},
+        {"DATA": date(2026, 4, 3), "RAZAO": "CNF", "FRUSTRADO_MWH": 30.0, "OUTPUT_MWH": 50.0},
+    ])
+    pct_total = pct_no_periodo(df_mock, date(2026, 4, 1), date(2026, 4, 3))
+    pct_ene   = pct_no_periodo(df_mock, date(2026, 4, 1), date(2026, 4, 3), razao="ENE")
+    pct_cnf   = pct_no_periodo(df_mock, date(2026, 4, 1), date(2026, 4, 3), razao="CNF")
+    pct_rel   = pct_no_periodo(df_mock, date(2026, 4, 1), date(2026, 4, 3), razao="REL")
+    print(f"  pct_total = {pct_total:.4f} (esperado: {80/280:.4f})")
+    print(f"  pct_ENE   = {pct_ene:.4f} (esperado: {50/280:.4f})")
+    print(f"  pct_CNF   = {pct_cnf:.4f} (esperado: {30/280:.4f})")
+    print(f"  pct_REL   = {pct_rel:.4f} (esperado: 0.0000 — sem REL na janela)")
+    assert abs(pct_total - 80/280) < 1e-9
+    assert abs(pct_ene   - 50/280) < 1e-9
+    assert abs(pct_cnf   - 30/280) < 1e-9
+    assert pct_rel == 0.0
+    print(f"  OK — soma fechada: {pct_ene + pct_cnf + pct_rel:.4f} == {pct_total:.4f}")
+
+    print()
+    print("=" * 70)
+    print("TESTE 5: pct_no_periodo — janela vazia (denom == 0)")
+    print("=" * 70)
+    pct_vazio = pct_no_periodo(df_mock, date(2026, 5, 1), date(2026, 5, 31))
+    print(f"  pct (mai/2026, sem dados no mock) = {pct_vazio!r}")
+    assert pct_vazio is None
+    print("  OK — None distingue 'sem dados' de 0.0 'tem dados, zero'")
+
+    print()
+    print("=" * 70)
+    print("TESTE 6: pct_no_periodo — razão inválida levanta ValueError")
+    print("=" * 70)
+    try:
+        pct_no_periodo(df_mock, date(2026, 4, 1), date(2026, 4, 3), razao="PAR")
+        raise AssertionError("Esperava ValueError pra razao='PAR'")
+    except ValueError as e:
+        print(f"  ValueError esperado: {e}")
+    print("  OK")
+
+    print()
+    print("Todos os testes passaram.")
