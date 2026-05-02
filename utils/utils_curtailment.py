@@ -76,6 +76,17 @@ import pandas as pd
 RAZOES_OPERATIVAS = ("REL", "CNF", "ENE")
 RAZOES_TODAS = ("REL", "CNF", "ENE", "PAR")
 
+# Abreviações de mês em pt-BR (usado nos labels da SPEC v2 §6/§7)
+_MESES_PT_ABREV = (
+    "jan", "fev", "mar", "abr", "mai", "jun",
+    "jul", "ago", "set", "out", "nov", "dez",
+)
+
+
+def _label_mes_curto(d: date) -> str:
+    """Retorna 'mai/26' (mês abreviado pt-BR + ano com 2 dígitos)."""
+    return f"{_MESES_PT_ABREV[d.month - 1]}/{d.year % 100:02d}"
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -422,11 +433,18 @@ def calcular_3_periodos(max_d: date) -> dict:
 
     Returns:
         {
-            'mes_corrente': {'label': 'Mês corrente', 'ini': date,
-                             'fim': date (= max_d), 'dias': int},
+            'mes_corrente': {'label': 'Mês corrente', 'label_curto': str,
+                             'sufixo_parcial': str, 'ini': date, 'fim': date,
+                             'dias': int},
             'mes_anterior': {... mês completo anterior ...},
             'penultimo':    {... mês completo 2 atrás ...},
         }
+
+    Campos de label (SPEC v2 §6 — header da tabela "Por usina"):
+        - label_curto:    "abr/26" — sempre só mês/ano (sem sufixo).
+        - sufixo_parcial: "(até 02/05)" no mes_corrente, "" nos outros.
+          Caller decide se renderiza junto na mesma linha ou quebra em
+          duas linhas (ex: <br>) pra alinhar visualmente colunas.
 
     Edge case (SPEC §10.2): quando max_d está perto do dia 1 do mês,
     'mes_corrente' fica com 1-2 dias só. O helper expõe 'dias' no dict
@@ -442,18 +460,34 @@ def calcular_3_periodos(max_d: date) -> dict:
     penultimo_fim = anterior_ini - timedelta(days=1)
     penultimo_ini = _inicio_mes(penultimo_fim)
 
-    def _entry(label: str, ini: date, fim: date) -> dict:
+    def _entry(
+        label: str, label_curto: str, sufixo_parcial: str,
+        ini: date, fim: date,
+    ) -> dict:
         return {
             "label": label,
+            "label_curto": label_curto,
+            "sufixo_parcial": sufixo_parcial,
             "ini": ini,
             "fim": fim,
             "dias": (fim - ini).days + 1,
         }
 
+    corrente_sufixo = f"(até {corrente_fim.strftime('%d/%m')})"
+
     return {
-        "mes_corrente": _entry("Mês corrente", corrente_ini, corrente_fim),
-        "mes_anterior": _entry("Mês anterior", anterior_ini, anterior_fim),
-        "penultimo":    _entry("Penúltimo mês", penultimo_ini, penultimo_fim),
+        "mes_corrente": _entry(
+            "Mês corrente", _label_mes_curto(corrente_fim), corrente_sufixo,
+            corrente_ini, corrente_fim,
+        ),
+        "mes_anterior": _entry(
+            "Mês anterior", _label_mes_curto(anterior_fim), "",
+            anterior_ini, anterior_fim,
+        ),
+        "penultimo": _entry(
+            "Penúltimo mês", _label_mes_curto(penultimo_fim), "",
+            penultimo_ini, penultimo_fim,
+        ),
     }
 
 
@@ -531,6 +565,12 @@ if __name__ == "__main__":
     assert p["penultimo"]["ini"] == date(2026, 2, 1)
     assert p["penultimo"]["fim"] == date(2026, 2, 28)  # 2026 não é bissexto
     assert p["penultimo"]["dias"] == 28
+    assert p["mes_corrente"]["label_curto"] == "abr/26"
+    assert p["mes_corrente"]["sufixo_parcial"] == "(até 15/04)"
+    assert p["mes_anterior"]["label_curto"] == "mar/26"
+    assert p["mes_anterior"]["sufixo_parcial"] == ""
+    assert p["penultimo"]["label_curto"] == "fev/26"
+    assert p["penultimo"]["sufixo_parcial"] == ""
     print("  OK")
 
     print()
@@ -548,6 +588,12 @@ if __name__ == "__main__":
     assert p["mes_anterior"]["dias"] == 30
     assert p["penultimo"]["fim"] == date(2026, 3, 31)
     assert p["penultimo"]["dias"] == 31
+    assert p["mes_corrente"]["label_curto"] == "mai/26"
+    assert p["mes_corrente"]["sufixo_parcial"] == "(até 02/05)"
+    assert p["mes_anterior"]["label_curto"] == "abr/26"
+    assert p["mes_anterior"]["sufixo_parcial"] == ""
+    assert p["penultimo"]["label_curto"] == "mar/26"
+    assert p["penultimo"]["sufixo_parcial"] == ""
     print("  OK — mes_corrente com 2 dias é detectável via 'dias' field")
 
     print()
@@ -565,7 +611,13 @@ if __name__ == "__main__":
     assert p["penultimo"]["ini"] == date(2025, 11, 1)
     assert p["penultimo"]["fim"] == date(2025, 11, 30)
     assert p["penultimo"]["dias"] == 30
-    print("  OK")
+    assert p["mes_corrente"]["label_curto"] == "jan/26"
+    assert p["mes_corrente"]["sufixo_parcial"] == "(até 15/01)"
+    assert p["mes_anterior"]["label_curto"] == "dez/25"
+    assert p["mes_anterior"]["sufixo_parcial"] == ""
+    assert p["penultimo"]["label_curto"] == "nov/25"
+    assert p["penultimo"]["sufixo_parcial"] == ""
+    print("  OK — virada de ano: ano 25 vs 26 corretos")
 
     print()
     print("=" * 70)

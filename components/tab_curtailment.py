@@ -39,6 +39,7 @@ from data_loaders.data_loader_grupos_excel import (
 from utils.utils_periodos import adicionar_chave_periodo
 from utils.utils_curtailment import (
     calcular_pct_curtailment, serie_temporal,
+    calcular_3_periodos, pct_no_periodo,
 )
 
 
@@ -676,6 +677,246 @@ def _render_visao_geral(
 
 
 # =============================================================================
+# Sub-aba: Por unidade — SPEC §6 (C.1: Total apenas, sem hover, sem click)
+# =============================================================================
+
+_CSS_TABELA_UNIDADES = """
+<style>
+.curt-tab-unid-wrap {
+    max-height: 600px;
+    overflow-y: auto;
+    border: 2px solid #1A1A1A;
+    background: #F5F1E8;
+    margin: 0.5rem 0 1rem 0;
+    /* Scrollbar Bauhaus (Firefox) */
+    scrollbar-width: auto;
+    scrollbar-color: #1A1A1A #F5F1E8;
+}
+/* Scrollbar Bauhaus (Chrome/Edge/Safari) — escopada, não vaza pra outros containers */
+.curt-tab-unid-wrap::-webkit-scrollbar {
+    width: 12px;
+}
+.curt-tab-unid-wrap::-webkit-scrollbar-track {
+    background: #F5F1E8;
+}
+.curt-tab-unid-wrap::-webkit-scrollbar-thumb {
+    background: #1A1A1A;
+    border: 2px solid #F5F1E8;
+}
+.curt-tab-unid {
+    width: 100%;
+    border-collapse: collapse;
+    /* Larguras fixas — header maior do mês corrente ("até XX/XX") não
+       distorce as 3 colunas numéricas (decisão Smoke 2 da Sessão C.1). */
+    table-layout: fixed;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.85rem;
+}
+/* 22% Unidade + 22% Proprietário + 18% × 3 períodos = 100% */
+.curt-tab-unid th:nth-child(1), .curt-tab-unid td:nth-child(1) { width: 22%; }
+.curt-tab-unid th:nth-child(2), .curt-tab-unid td:nth-child(2) { width: 22%; }
+.curt-tab-unid th.col-num, .curt-tab-unid td.col-num { width: 18%; }
+.curt-tab-unid thead th {
+    position: sticky;
+    top: 0;
+    background: #1A1A1A;
+    color: #F5F1E8;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 2px solid #1A1A1A;
+    z-index: 10;
+}
+.curt-tab-unid thead th.col-num {
+    text-align: right;
+}
+/* Sufixo "(até DD/MM)" do mês corrente em 2ª linha do header — menor,
+   normal weight, não-uppercase pra contrastar com o "MAI/26" principal. */
+.curt-tab-unid thead th .col-sufixo {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    margin-top: 2px;
+    opacity: 0.85;
+}
+.curt-tab-unid tbody td {
+    padding: 10px 14px;
+    border-bottom: 1px solid #E8E3D4;
+    color: #1A1A1A;
+    vertical-align: top;
+    /* Trunca nomes muito longos com ellipsis em vez de quebrar (table-layout
+       fixed obrigaria quebra automática feia). */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.curt-tab-unid tbody td.col-num {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    text-align: right;
+    white-space: nowrap;
+}
+.curt-tab-unid tbody td.col-prop-other {
+    color: #6B6B6B;
+    font-style: italic;
+}
+.curt-tab-unid tbody tr:last-child td {
+    border-bottom: none;
+}
+</style>
+"""
+
+# Display do PROPRIETARIO "outros" (SPEC §6.6).
+# 2 variantes coexistem na base atual: "Other" (do Excel — proprietário
+# cadastrado como genérico) e "Other (sem mapeamento)" (gerado por
+# aplicar_rateio quando linha do ONS não casa com nenhum nome do Excel).
+# Match por prefixo cobre ambos + variantes futuras ("Other (excluído)",
+# etc.) sem atualizar constante. Trade-off: se aparecer um proprietário
+# legítimo cujo nome começa com "Other" (improvável; análise atual
+# confirma que não ocorre), entraria no balde.
+_PROP_OTHER_LABEL = "Outros"
+
+
+def _is_proprietario_outros(prop) -> bool:
+    """True se o PROPRIETARIO deve cair no balde 'Outros / Não classificado'."""
+    if prop is None or pd.isna(prop):
+        return True
+    return str(prop).strip().lower().startswith("other")
+
+
+@st.cache_data(show_spinner=False)
+def _calcular_linhas_unidade(df: pd.DataFrame) -> list:
+    """Calcula pct_total nos 3 períodos pra cada unidade do df.
+
+    Decisões de produto (SPEC §6 + confirmação Nava):
+    - Suprime unidades sem dado em NENHUM dos 3 períodos (todas pcts None).
+    - Ordenação: decrescente por pct mês corrente; unidades sem dado no mês
+      corrente vão pro fim em ordem alfabética.
+    - PROPRIETARIO display fica pro caller (este helper retorna o valor cru).
+
+    Cacheado: o cálculo é determinístico em df, e roda ~810× pct_no_periodo
+    (~270 unidades × 3 períodos). Cache evita repetir em reruns que não
+    mudam df_filtrado (ex: troca de granularidade global, navegação entre
+    sub-abas).
+    """
+    if len(df) == 0 or df["DATA"].isna().all():
+        return []
+
+    max_d = pd.Timestamp(df["DATA"].max()).date()
+    periodos = calcular_3_periodos(max_d)
+
+    linhas = []
+    for nome_usina, sub in df.groupby("NOME_USINA_DASH"):
+        prop = sub["PROPRIETARIO"].iloc[0]
+        pcts = {
+            k: pct_no_periodo(sub, p["ini"], p["fim"])
+            for k, p in periodos.items()
+        }
+        if all(v is None for v in pcts.values()):
+            continue
+        linhas.append({
+            "unidade": nome_usina,
+            "proprietario": prop,
+            "mes_corrente": pcts["mes_corrente"],
+            "mes_anterior": pcts["mes_anterior"],
+            "penultimo": pcts["penultimo"],
+        })
+
+    linhas.sort(key=lambda r: (
+        r["mes_corrente"] is None,
+        -(r["mes_corrente"] or 0.0),
+        r["unidade"],
+    ))
+    return linhas
+
+
+def _montar_html_tabela_unidades(periodos: dict, linhas: list) -> str:
+    """Monta string HTML da tabela. CSS em _CSS_TABELA_UNIDADES."""
+    rows_html = []
+    for r in linhas:
+        is_other = _is_proprietario_outros(r["proprietario"])
+        prop_class = "col-prop-other" if is_other else ""
+        prop_label = _PROP_OTHER_LABEL if is_other else r["proprietario"]
+        rows_html.append(
+            '<tr>'
+            f'<td>{r["unidade"]}</td>'
+            f'<td class="{prop_class}">{prop_label}</td>'
+            f'<td class="col-num">{_fmt_pct_curt(r["mes_corrente"])}</td>'
+            f'<td class="col-num">{_fmt_pct_curt(r["mes_anterior"])}</td>'
+            f'<td class="col-num">{_fmt_pct_curt(r["penultimo"])}</td>'
+            '</tr>'
+        )
+
+    def _header_cell(p: dict) -> str:
+        sufixo = p.get("sufixo_parcial", "")
+        sufixo_html = (
+            f'<span class="col-sufixo">{sufixo}</span>' if sufixo else ""
+        )
+        return f'<th class="col-num">{p["label_curto"]}{sufixo_html}</th>'
+
+    headers = (
+        '<thead><tr>'
+        '<th>Unidade</th>'
+        '<th>Proprietário</th>'
+        f'{_header_cell(periodos["mes_corrente"])}'
+        f'{_header_cell(periodos["mes_anterior"])}'
+        f'{_header_cell(periodos["penultimo"])}'
+        '</tr></thead>'
+    )
+    body = f'<tbody>{"".join(rows_html)}</tbody>'
+    return (
+        '<div class="curt-tab-unid-wrap">'
+        '<table class="curt-tab-unid">'
+        f'{headers}{body}'
+        '</table></div>'
+    )
+
+
+def _render_por_unidade(df: pd.DataFrame) -> None:
+    """Sub-aba "Por usina" — tabela de unidades com curtailment nos 3 períodos.
+
+    C.1: só coluna Total, sem seletor de razão, sem hover, sem click.
+    Próximas sub-fases adicionam: C.2 seletor, C.3 tooltip rico, C.4 click.
+    """
+    if len(df) == 0 or df["DATA"].isna().all():
+        st.info("Sem dados pra esta combinação de filtros.")
+        return
+
+    max_d = pd.Timestamp(df["DATA"].max()).date()
+    periodos = calcular_3_periodos(max_d)
+    linhas = _calcular_linhas_unidade(df)
+
+    if not linhas:
+        st.info(
+            "Nenhuma unidade com curtailment registrado nos 3 períodos analisados."
+        )
+        return
+
+    st.markdown(
+        '<div style="font-family:\'Inter\', sans-serif; '
+        'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+        'margin:0.6rem 0 0.5rem 0;">'
+        'Cada linha é uma unidade geradora com algum corte registrado pelo '
+        'ONS em pelo menos um dos 3 períodos. Unidades sem ocorrências de '
+        'curtailment não aparecem. % calculado sobre geração potencial da '
+        'unidade no período.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(_CSS_TABELA_UNIDADES, unsafe_allow_html=True)
+    st.markdown(
+        _montar_html_tabela_unidades(periodos, linhas),
+        unsafe_allow_html=True,
+    )
+
+
+# =============================================================================
 # Sub-aba: Por estado (mapa choropleth)
 # =============================================================================
 
@@ -998,85 +1239,144 @@ def _render_aba_curtailment_impl() -> None:
     st.markdown(_CSS_KPI_CURT, unsafe_allow_html=True)
 
     # =========================================================================
-    # CONTROLES GLOBAIS — granularidade + fonte + período
-    # (decisão E1: fora das sub-abas; afetam todas as 5)
+    # SUB-ABA selector — 3 st.button customizados em vez de st.segmented_control.
+    # Razão: segmented_control não expõe atributo estável distinguindo ativo
+    # de inativo (testado: aria-pressed/checked/selected todos vazios; classes
+    # Emotion são instáveis — armadilha 4.3 do CLAUDE.md). 3 st.button +
+    # type="primary"/"secondary" usam atributo HTML semântico (kind=) e
+    # geram class .st-key-<key> no element-container (pattern já validado
+    # no projeto, ver app.py:455-463 e decisão Sessão 4a).
+    #
+    # CSS: inverte hierarquia visual — ativo fica BRANCO com borda preta
+    # (destaca sobre cream do app); inativos ficam pretos com texto cream.
+    # Escopado via [class*="st-key-btn_curt_subaba_"] — não vaza pra outros
+    # botões type="primary" da página (presets de período mantêm amarelo).
     # =========================================================================
+    st.markdown("""
+    <style>
+    [class*="st-key-btn_curt_subaba_"] button[kind="primary"] {
+        background-color: #FFFFFF !important;
+        color: #1A1A1A !important;
+        border: 2px solid #1A1A1A !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        font-family: 'Inter', sans-serif !important;
+        font-weight: 700 !important;
+    }
+    [class*="st-key-btn_curt_subaba_"] button[kind="secondary"] {
+        background-color: #1A1A1A !important;
+        color: #F5F1E8 !important;
+        border: 2px solid #1A1A1A !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        font-family: 'Inter', sans-serif !important;
+        font-weight: 600 !important;
+    }
+    [class*="st-key-btn_curt_subaba_"] button:hover {
+        opacity: 0.9;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-    # --- Linha 1: dropdowns de granularidade + fonte ---
-    ctrl_cols = st.columns(2)
-    with ctrl_cols[0]:
-        granularidade_ui = st.selectbox(
-            "Granularidade",
-            list(GRANS_UI.keys()),
-            index=1,  # default: Mensal
-            key="curt_granularidade",
+    if "curt_sub_aba" not in st.session_state:
+        st.session_state["curt_sub_aba"] = "Visão geral"
+
+    opcoes_subaba = ["Visão geral", "Por usina", "Por grupo"]
+    cols_subaba = st.columns(3)
+    for i, nome in enumerate(opcoes_subaba):
+        with cols_subaba[i]:
+            ativo = st.session_state["curt_sub_aba"] == nome
+            if st.button(
+                nome,
+                type="primary" if ativo else "secondary",
+                key=f"btn_curt_subaba_{i}",
+                use_container_width=True,
+            ):
+                st.session_state["curt_sub_aba"] = nome
+                st.rerun()
+
+    sub_aba = st.session_state["curt_sub_aba"]
+
+    # =========================================================================
+    # CONTROLES GLOBAIS — fonte sempre visível; granularidade + período só
+    # na "Visão geral" (sub-abas "Por usina" e "Por grupo" usam períodos
+    # fixos mensais via calcular_3_periodos — controles não fazem nada nelas).
+    # =========================================================================
+    if sub_aba == "Visão geral":
+        ctrl_cols = st.columns(2)
+        with ctrl_cols[0]:
+            fonte_label = st.selectbox(
+                "Fonte",
+                ["Solar", "Eólica"],
+                index=0,
+                key="curt_fonte",
+            )
+        with ctrl_cols[1]:
+            granularidade_ui = st.selectbox(
+                "Granularidade",
+                list(GRANS_UI.keys()),
+                index=1,  # default: Mensal
+                key="curt_granularidade",
+            )
+        granularidade = GRANS_UI[granularidade_ui]
+
+        # Spacer: CSS global de app.py:353 aplica margin-top:-1.5rem em
+        # .stDateInput. Sem este spacer, labels dos date_inputs sobrepõem
+        # a Linha 1. NÃO REMOVER sem testar visualmente.
+        st.markdown(
+            '<div style="height:1.5rem"></div>', unsafe_allow_html=True,
         )
-    with ctrl_cols[1]:
+
+        # --- Reset de janela ao trocar granularidade ---
+        prev_gran = st.session_state.get("curt_granularidade_anterior")
+        trocou_gran = prev_gran is not None and prev_gran != granularidade
+
+        def _aplicar_default_periodo_curt(gran_key, mn, mx):
+            cfg = PRESETS_BY_GRAN[gran_key]
+            default_label = cfg["default"]
+            for label, data_ini_fn, is_max in cfg["presets"]:
+                if label == default_label:
+                    if is_max:
+                        st.session_state["curt_data_ini"] = mn
+                    else:
+                        st.session_state["curt_data_ini"] = max(
+                            mn, data_ini_fn(mx)
+                        )
+                    st.session_state["curt_data_fim"] = mx
+                    return
+
+        if "curt_data_ini" not in st.session_state or trocou_gran:
+            _aplicar_default_periodo_curt(granularidade, min_d_curt, max_d_curt)
+        if "curt_data_fim" not in st.session_state:
+            st.session_state["curt_data_fim"] = max_d_curt
+        st.session_state["curt_granularidade_anterior"] = granularidade
+
+        _render_period_controls_curt(
+            presets=PRESETS_BY_GRAN[granularidade]["presets"],
+            session_key_ini="curt_data_ini",
+            session_key_fim="curt_data_fim",
+            key_prefix="btn_curt_",
+            min_d=min_d_curt,
+            max_d=max_d_curt,
+        )
+        data_ini = st.session_state["curt_data_ini"]
+        data_fim = st.session_state["curt_data_fim"]
+        if data_ini > data_fim:
+            st.error("Data inicial maior que data final.")
+            st.stop()
+    else:
+        # "Por usina" / "Por grupo": controles ocultos, fonte sozinha + janela
+        # forçada de 12M (cobre os 3 períodos da SPEC §5 com folga).
         fonte_label = st.selectbox(
             "Fonte",
             ["Solar", "Eólica"],
-            index=0,  # default: Solar (mais relevante regulatoriamente)
+            index=0,
             key="curt_fonte",
         )
-
-    granularidade = GRANS_UI[granularidade_ui]
-
-    # Spacer: o CSS global do app.py:353 aplica `margin-top: -1.5rem` em
-    # `.stDateInput` (assumindo date_inputs alinhados a botões, sem labels
-    # acima na linha anterior). Aqui temos dropdowns na Linha 1, então os
-    # labels dos date_inputs subiriam e sobreporiam a Linha 1. Spacer
-    # explícito de 1.5rem compensa. NÃO REMOVER sem testar visualmente.
-    st.markdown(
-        '<div style="height:1.5rem"></div>', unsafe_allow_html=True,
-    )
-
-    # --- Reset de janela ao trocar granularidade ---
-    # Sentinela usa a chave INTERNA (granularidade = "MENSAL" etc.), não o
-    # label UI ("Mensal"), pra ficar imune a renomeação de label futura.
-    prev_gran = st.session_state.get("curt_granularidade_anterior")
-    trocou_gran = prev_gran is not None and prev_gran != granularidade
-
-    def _aplicar_default_periodo_curt(gran_key, mn, mx):
-        """Aplica o preset default da granularidade nos session_state das datas."""
-        cfg = PRESETS_BY_GRAN[gran_key]
-        default_label = cfg["default"]
-        for label, data_ini_fn, is_max in cfg["presets"]:
-            if label == default_label:
-                if is_max:
-                    st.session_state["curt_data_ini"] = mn
-                else:
-                    st.session_state["curt_data_ini"] = max(
-                        mn, data_ini_fn(mx)
-                    )
-                st.session_state["curt_data_fim"] = mx
-                return
-
-    # --- Inicializar/resetar session_state das datas ---
-    # Dispara em: 1ª visita (key ausente) OU troca de granularidade (reset).
-    if "curt_data_ini" not in st.session_state or trocou_gran:
-        _aplicar_default_periodo_curt(granularidade, min_d_curt, max_d_curt)
-    if "curt_data_fim" not in st.session_state:
-        st.session_state["curt_data_fim"] = max_d_curt
-
-    # Atualiza sentinela pro próximo rerun
-    st.session_state["curt_granularidade_anterior"] = granularidade
-
-    # --- Linha 2: presets + 2 date_inputs (helper local) ---
-    _render_period_controls_curt(
-        presets=PRESETS_BY_GRAN[granularidade]["presets"],
-        session_key_ini="curt_data_ini",
-        session_key_fim="curt_data_fim",
-        key_prefix="btn_curt_",
-        min_d=min_d_curt,
-        max_d=max_d_curt,
-    )
-
-    data_ini = st.session_state["curt_data_ini"]
-    data_fim = st.session_state["curt_data_fim"]
-
-    if data_ini > data_fim:
-        st.error("Data inicial maior que data final.")
-        st.stop()
+        data_fim = max_d_curt
+        data_ini = max(min_d_curt, max_d_curt - timedelta(days=365))
+        granularidade = None
+        granularidade_ui = None
 
     # =========================================================================
     # Carregar curtailment com a JANELA SELECIONADA pelo usuário
@@ -1113,28 +1413,19 @@ def _render_aba_curtailment_impl() -> None:
         st.stop()
 
     # =========================================================================
-    # SUB-ABAS via st.tabs (decisão D2: sem emojis, texto puro).
-    # 3 abas: Visão geral, Por usina, Por grupo.
-    # Sub-aba "Por estado" foi removida (mapa choropleth pesava na RAM
-    # do Cloud free tier 1GB - causa do OOM kill ao expandir 6M/12M).
-    # Funções _render_mapa_estado, _carregar_geojson_estados,
-    # _render_kpis_por_estado, _nome_estado ficam órfãs (dead code) -
-    # remover em sessão futura. data/curtailment/brazil_states.geojson permanece
-    # no repo. CSS de .stTabs nas linhas 245-256 volta a ter alvo
-    # (não é mais dead code).
+    # DESPACHO — st.segmented_control (acima) escolheu sub_aba; render só
+    # da escolhida. Sub-aba "Por estado" foi removida em commit 2abd77b
+    # (OOM no Cloud free tier 1GB). Funções _render_mapa_estado,
+    # _carregar_geojson_estados, _render_kpis_por_estado, _nome_estado
+    # ficam órfãs (dead code) — remover em sessão futura.
+    # data/curtailment/brazil_states.geojson permanece no repo.
     # =========================================================================
-    tab_visao, tab_usina, tab_grupo = st.tabs([
-        "Visão geral",
-        "Por usina",
-        "Por grupo",
-    ])
-
-    with tab_visao:
+    if sub_aba == "Visão geral":
         _render_visao_geral(
             df_filtrado, granularidade, granularidade_ui, fonte_label,
             data_ini, data_fim,
         )
-    with tab_usina:
-        _placeholder_em_construcao()
-    with tab_grupo:
+    elif sub_aba == "Por usina":
+        _render_por_unidade(df_filtrado)
+    else:  # "Por grupo"
         _placeholder_em_construcao()
