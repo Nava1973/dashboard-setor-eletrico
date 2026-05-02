@@ -582,7 +582,7 @@ def carregar_curtailment(
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
 def descobrir_ultimo_dia_disponivel(
     fonte: str = "eolica"
 ) -> Optional[date]:

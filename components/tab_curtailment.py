@@ -1165,6 +1165,43 @@ def _render_mapa_estado(
 
 
 # =============================================================================
+# Wrapper cacheado: filter por fonte + aplicar_rateio
+#
+# Performance crítica: aplicar_rateio em 3.6M linhas (Solar+Eólica) custava
+# 17s por chamada. Filter por fonte ANTES do rateio reduz pra 1.1M (Solar)
+# ou 2.5M (Eólica), e o cache evita re-execução em reruns sem mudança de
+# (data_ini, data_fim, fonte_label).
+#
+# Decisões:
+# - Args com prefix _ são ignorados pelo Streamlit no hashing (convenção
+#   oficial docs) — chave de cache fica em (data_ini, data_fim, fonte_label),
+#   3 escalares, hash trivial (~10ms vs ~1s pra hashear df 3.6M linhas).
+# - TTL=6h alinha com carregar_curtailment upstream (data_loader_curtailment.
+#   py:524) — wrapper não fica mais stale que loader.
+# - Filter ANTES do rateio é matematicamente equivalente (validado em
+#   scripts/validar_filter_antes_rateio.py): merge usa FONTE como chave,
+#   cross-fonte = 0 por construção; rateio é multiplicação element-wise;
+#   usinas em rateio múltiplo (18 casos, incl. 7 híbridos) preservam
+#   exato número de linhas + volumes.
+# =============================================================================
+
+
+@st.cache_data(show_spinner=False, ttl=6 * 3600)
+def _aplicar_rateio_cached(
+    data_ini: date,
+    data_fim: date,
+    fonte_label: str,
+    _df_curt_raw: pd.DataFrame,
+    _df_grupos: pd.DataFrame,
+    _aliases: dict,
+) -> pd.DataFrame:
+    """Filter por FONTE + aplicar_rateio, cacheado por (janela, fonte)."""
+    fonte_code = "SOLAR" if fonte_label == "Solar" else "EOLICA"
+    df_curt_filtrado = _df_curt_raw[_df_curt_raw["FONTE"] == fonte_code]
+    return aplicar_rateio(df_curt_filtrado, _df_grupos, _aliases)
+
+
+# =============================================================================
 # Função principal da aba
 # =============================================================================
 
@@ -1399,22 +1436,24 @@ def _render_aba_curtailment_impl() -> None:
         )
         return
 
-    # ---- Aplicar rateio (Excel proprietários + aliases) ----
-    df_curt = aplicar_rateio(df_curt_raw, df_grupos, aliases)
-
-    # ---- Filtrar por fonte conforme dropdown ----
-    if fonte_label == "Solar":
-        df_filtrado = df_curt[df_curt["FONTE"] == "SOLAR"]
-    else:  # Eólica
-        df_filtrado = df_curt[df_curt["FONTE"] == "EOLICA"]
+    # ---- Filter por fonte + Aplicar rateio (cacheado por janela+fonte) ----
+    # Wrapper _aplicar_rateio_cached encapsula filter+rateio. Filter ANTES
+    # do rateio reduz volume 3× (3.6M -> 1.1M Solar / 2.5M Eólica). Cache
+    # evita re-execução em reruns sem mudança de (data_ini, data_fim,
+    # fonte_label). Validação de equivalência matemática:
+    # scripts/validar_filter_antes_rateio.py
+    df_filtrado = _aplicar_rateio_cached(
+        data_ini, data_fim, fonte_label,
+        df_curt_raw, df_grupos, aliases,
+    )
 
     if len(df_filtrado) == 0:
         st.warning("Sem dados pra esta combinação de filtros.")
         st.stop()
 
     # =========================================================================
-    # DESPACHO — st.segmented_control (acima) escolheu sub_aba; render só
-    # da escolhida. Sub-aba "Por estado" foi removida em commit 2abd77b
+    # DESPACHO — segmented_control acima escolheu sub_aba; render só da
+    # escolhida. Sub-aba "Por estado" foi removida em commit 2abd77b
     # (OOM no Cloud free tier 1GB). Funções _render_mapa_estado,
     # _carregar_geojson_estados, _render_kpis_por_estado, _nome_estado
     # ficam órfãs (dead code) — remover em sessão futura.
