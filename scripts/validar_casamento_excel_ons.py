@@ -54,7 +54,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 # Ajuste se o Excel estiver em outro caminho
-EXCEL_PATH = "data/Excel_Curtailment_Base.xlsx"
+EXCEL_PATH = "data/curtailment/unidades_geradoras.xlsx"
 
 # Quantos meses recentes baixar do ONS para teste
 N_MESES_TESTE = 12
@@ -432,14 +432,14 @@ def main():
     excel_path = Path(EXCEL_PATH)
     if not excel_path.exists():
         # Tentar caminhos alternativos
-        for alt in ["Excel_Curtailment_Base__1_.xlsx", "Excel_Curtailment_Base.xlsx"]:
+        for alt in ["data/curtailment/unidades_geradoras.xlsx", "unidades_geradoras.xlsx"]:
             alt_path = Path(alt)
             if alt_path.exists():
                 excel_path = alt_path
                 break
         else:
             print(f"✗ Excel não encontrado em {EXCEL_PATH}")
-            print("  Coloque em data/Excel_Curtailment_Base.xlsx ou na raiz do projeto.")
+            print("  Coloque em data/curtailment/unidades_geradoras.xlsx ou na raiz do projeto.")
             sys.exit(1)
 
     print(f"✓ Excel: {excel_path}")

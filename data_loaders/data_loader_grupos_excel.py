@@ -3,7 +3,7 @@ data_loader_grupos_excel.py
 ===========================
 
 Carrega o mapeamento Nome_Arquivo (ONS) -> Proprietário (grupo econômico)
-a partir do Excel `data/Excel_Curtailment_Base.xlsx`.
+a partir do Excel `data/curtailment/unidades_geradoras.xlsx`.
 
 O Excel tem duas abas (Solar, Eólica) com schema:
     Nome_Arquivo            : nome do conjunto como aparece no ONS
@@ -12,7 +12,7 @@ O Excel tem duas abas (Solar, Eólica) com schema:
     Estado                  : UF
     Proprietário            : grupo econômico
 
-Adicionalmente, lê `data/aliases_curtailment.csv` que mapeia variações
+Adicionalmente, lê `data/curtailment/aliases_curtailment.csv` que mapeia variações
 de nome do ONS para nomes do Excel:
     nome_no_ons;nome_no_excel;observacao
 
@@ -46,8 +46,8 @@ import streamlit as st
 # Caminhos default (relativos à raiz do projeto)
 # ---------------------------------------------------------------------------
 
-EXCEL_DEFAULT_PATH = "data/Excel_Curtailment_Base.xlsx"
-ALIASES_DEFAULT_PATH = "data/aliases_curtailment.csv"
+EXCEL_DEFAULT_PATH = "data/curtailment/unidades_geradoras.xlsx"
+ALIASES_DEFAULT_PATH = "data/curtailment/aliases_curtailment.csv"
 
 
 # ---------------------------------------------------------------------------
@@ -133,8 +133,8 @@ def carregar_grupos_excel(caminho: str = EXCEL_DEFAULT_PATH) -> pd.DataFrame:
     p = Path(caminho)
     if not p.exists():
         # Tentar caminhos alternativos
-        for alt in ["data/Excel_Curtailment_Base.xlsx",
-                    "Excel_Curtailment_Base.xlsx"]:
+        for alt in ["data/curtailment/unidades_geradoras.xlsx",
+                    "unidades_geradoras.xlsx"]:
             alt_p = Path(alt)
             if alt_p.exists():
                 p = alt_p

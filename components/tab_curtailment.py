@@ -15,8 +15,8 @@ Granularidades: Diária, Mensal, Trimestral.
 Presets de período: 30D, 90D, 6M, 12M, Máx.
 
 Mapeamento de proprietário:
-    Fonte primária: data/Excel_Curtailment_Base.xlsx
-    Aliases manuais: data/aliases_curtailment.csv
+    Fonte primária: data/curtailment/unidades_geradoras.xlsx
+    Aliases manuais: data/curtailment/aliases_curtailment.csv
     Rateio proporcional aplicado.
 """
 
@@ -656,7 +656,7 @@ def _render_visao_geral(
 
 @st.cache_data
 def _carregar_geojson_estados() -> dict:
-    """Carrega GeoJSON simplificado dos 27 estados BR (data/brazil_states.geojson).
+    """Carrega GeoJSON simplificado dos 27 estados BR (data/curtailment/brazil_states.geojson).
 
     Cache por sessão Streamlit evita re-leitura/parse do arquivo a cada rerun.
     Chave de join: properties.sigla casa direto com df_post.UF (12/12 match).
@@ -664,7 +664,7 @@ def _carregar_geojson_estados() -> dict:
     import json
     from pathlib import Path
     return json.loads(
-        Path("data/brazil_states.geojson").read_text(encoding="utf-8")
+        Path("data/curtailment/brazil_states.geojson").read_text(encoding="utf-8")
     )
 
 
@@ -1093,7 +1093,7 @@ def _render_aba_curtailment_impl() -> None:
     # do Cloud free tier 1GB - causa do OOM kill ao expandir 6M/12M).
     # Funções _render_mapa_estado, _carregar_geojson_estados,
     # _render_kpis_por_estado, _nome_estado ficam órfãs (dead code) -
-    # remover em sessão futura. data/brazil_states.geojson permanece
+    # remover em sessão futura. data/curtailment/brazil_states.geojson permanece
     # no repo. CSS de .stTabs nas linhas 245-256 volta a ter alvo
     # (não é mais dead code).
     # =========================================================================
