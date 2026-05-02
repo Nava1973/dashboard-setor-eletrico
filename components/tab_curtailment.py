@@ -384,12 +384,38 @@ def _render_visao_geral(
     fonte_label: str,
     data_ini: date,
     data_fim: date,
+    *,
+    filtro_unidade: Optional[str] = None,
+    filtro_grupo: Optional[str] = None,
+    titulo_contexto: Optional[str] = None,
 ):
     """KPIs + série temporal de % curtailment por tipo de restrição.
 
     df: DataFrame COM rateio aplicado e JÁ filtrado por janela e fonte
         conforme escolha do usuário nos controles globais.
+
+    Filtros opcionais (modo drill-down — SPEC §8):
+        filtro_unidade: se passado, filtra df por NOME_USINA_DASH == valor.
+        filtro_grupo:   se passado, filtra df por PROPRIETARIO == valor.
+        Apenas um dos dois pode ser não-nulo (ValueError se ambos).
+        Quando ambos None, comportamento é 100% idêntico ao chamado original.
+
+    titulo_contexto: aceito mas NÃO renderizado nesta fase. Reservado pro
+        breadcrumb/badge da Fase E (SPEC §8.2: "Curtailment › Por grupo ›
+        Engie (Eólica)"). Manter na assinatura agora pra fechar o contrato
+        completo da função em uma fase só.
     """
+    if filtro_unidade is not None and filtro_grupo is not None:
+        raise ValueError(
+            "filtro_unidade e filtro_grupo são mutuamente exclusivos — "
+            "passar apenas um (ou nenhum)."
+        )
+
+    if filtro_unidade is not None:
+        df = df[df["NOME_USINA_DASH"] == filtro_unidade]
+    elif filtro_grupo is not None:
+        df = df[df["PROPRIETARIO"] == filtro_grupo]
+
     # =========================================================================
     # KPIs — 4 cards Bauhaus (% Total / % Energ / % Confiab / % Elétr)
     # =========================================================================
