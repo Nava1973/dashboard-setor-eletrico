@@ -38,7 +38,7 @@ from data_loaders.data_loader_grupos_excel import (
 )
 from utils.utils_periodos import adicionar_chave_periodo
 from utils.utils_curtailment import (
-    calcular_pct_curtailment, serie_temporal,
+    serie_temporal,
     calcular_periodos_curtailment, pct_no_periodo,
     _inicio_trimestre, _inicio_trimestre_anterior, _inicio_mes_anterior,
 )
@@ -110,7 +110,7 @@ PRESETS_BY_GRAN = {
         ],
     },
     "MENSAL": {
-        "default": "3M",
+        "default": "12M",
         "presets": [
             ("1M",   lambda mx: _inicio_mes_anterior(mx, 0),  False),
             ("3M",   lambda mx: _inicio_mes_anterior(mx, 2),  False),
@@ -399,49 +399,6 @@ def _render_visao_geral(
         df = df[df["NOME_USINA_DASH"] == filtro_unidade]
     elif filtro_grupo is not None:
         df = df[df["PROPRIETARIO"] == filtro_grupo]
-
-    # =========================================================================
-    # KPIs — 4 cards Bauhaus (% Total / % Energ / % Confiab / % Elétr)
-    # =========================================================================
-    r = calcular_pct_curtailment(df)
-    pct_total = r["pct_total"]
-    pct_ene = r["pct_por_razao"].get("ENE", 0.0)
-    pct_cnf = r["pct_por_razao"].get("CNF", 0.0)
-    pct_rel = r["pct_por_razao"].get("REL", 0.0)
-
-    # Header dos KPIs (padrão da Carga, app.py:4231).
-    # TODO: quando "Por estado" for implementado, "(SIN)" troca pra
-    # UF selecionada (BAHIA/RN/etc) dinamicamente.
-    st.markdown(
-        '<div style="font-family:\'Inter\', sans-serif; '
-        'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-        'margin:0.6rem 0 0.5rem 0;">'
-        'Indicadores do período selecionado (SIN).'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-    kpi_cols = st.columns(4)
-    with kpi_cols[0]:
-        st.markdown(
-            _render_kpi_curt("% CURTAILMENT", _fmt_pct_curt(pct_total)),
-            unsafe_allow_html=True,
-        )
-    with kpi_cols[1]:
-        st.markdown(
-            _render_kpi_curt("% ENERGÉTICO", _fmt_pct_curt(pct_ene)),
-            unsafe_allow_html=True,
-        )
-    with kpi_cols[2]:
-        st.markdown(
-            _render_kpi_curt("% CONFIABILIDADE", _fmt_pct_curt(pct_cnf)),
-            unsafe_allow_html=True,
-        )
-    with kpi_cols[3]:
-        st.markdown(
-            _render_kpi_curt("% ELÉTRICO", _fmt_pct_curt(pct_rel)),
-            unsafe_allow_html=True,
-        )
 
     # =========================================================================
     # Título Bauhaus do gráfico (mesmo padrão Carga/Geração)
