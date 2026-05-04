@@ -1875,6 +1875,10 @@ def clear_cache() -> None:
     # Reset da preferência de histórico completo da aba Geração
     st.session_state.pop("gen_historico_completo", None)
 
+    # Reset da preferência de janela ampla da aba Curtailment (Sessão H).
+    # Mesma semântica da gen_historico_completo: "Atualizar" começa do zero.
+    st.session_state.pop("curt_janela_modo", None)
+
     # Sinaliza pro reset block da aba Geração aplicar default da
     # granularidade atual (decisão 5.20). Cobre o caso "Atualizar sem
     # mudança de dataset" — sentinela _gen_dataset_max permanece OK,

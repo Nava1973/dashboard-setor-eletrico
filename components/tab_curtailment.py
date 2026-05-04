@@ -89,6 +89,27 @@ GRANS_UI = {
 }
 
 # =============================================================================
+# Modos de janela ampla (Caminho 1 + expansão sob demanda).
+# Default = ~13M (4 trimestres atrás). 24M e Máx exigem download adicional
+# (~3min e ~5-7min respectivamente, medidos empiricamente). State sticky
+# em curt_janela_modo, resetado por clear_cache (data_loader.py).
+# Padrão análogo à decisão 5.17 (Geração: gen_historico_completo).
+# =============================================================================
+
+_CURT_MODOS_JANELA = {
+    "default": lambda mx: _inicio_trimestre_anterior(mx, 4),
+    "24m":     lambda mx: _inicio_trimestre_anterior(mx, 7),
+    "max":     lambda mx: date(2022, 1, 1),
+}
+
+
+def _data_ini_ampla_efetiva(max_d: date, modo: str) -> date:
+    """data_ini_ampla calculada conforme modo (default/24m/max)."""
+    fn = _CURT_MODOS_JANELA.get(modo, _CURT_MODOS_JANELA["default"])
+    return max(date(2022, 1, 1), fn(max_d))
+
+
+# =============================================================================
 # Presets de período por granularidade.
 # - Diária: presets em dias contados pra trás (sem encaixe).
 # - Mensal: encaixe em fronteira de mês (1M = mês atual desde dia 1).
@@ -125,7 +146,6 @@ PRESETS_BY_GRAN = {
             ("6M",   lambda mx: _inicio_trimestre_anterior(mx, 1),  False),
             ("12M",  lambda mx: _inicio_trimestre_anterior(mx, 3),  False),
             ("24M",  lambda mx: _inicio_trimestre_anterior(mx, 7),  False),
-            ("36M",  lambda mx: _inicio_trimestre_anterior(mx, 11), False),
             ("Máx",  None, True),
         ],
     },
@@ -294,6 +314,9 @@ def _render_period_controls_curt(
     key_prefix: str,
     min_d: date,
     max_d: date,
+    cache_data_ini_atual: Optional[date] = None,
+    hard_min: Optional[date] = None,
+    on_expansion_request: Optional[Callable[[str], None]] = None,
 ):
     """N botões de preset + 2 date_inputs em 1 linha. Botão primary
     (amarelo via CSS global do app.py) quando preset ativo.
@@ -301,6 +324,21 @@ def _render_period_controls_curt(
     Cada tuple do preset: (label, data_ini_fn, is_max).
     - data_ini_fn(max_d) -> date: retorna data_ini esperada do preset.
     - is_max=True: data_ini = min_d (data_ini_fn pode ser None).
+
+    Parâmetros relativos ao limite mínimo:
+    - min_d: limite VISUAL dos date_inputs (clamp aplicado ao setar
+      state). Tipicamente data_ini do cache atual.
+    - hard_min: limite ABSOLUTO do dataset (ex: date(2022, 1, 1) pra
+      curtailment ONS). Usado SÓ pra computar target_real do preset
+      "Máx" sem clamp — necessário pra detectar pedido de expansão.
+      Default min_d se None (sem expansão sob demanda).
+
+    Expansão sob demanda (curtailment Visão Geral):
+    - cache_data_ini_atual: data_ini do cache de janela ampla atual.
+    - on_expansion_request(label): callback chamado quando preset clicado
+      pede data_ini ANTERIOR ao cache atual (= precisa baixar mais ONS).
+      Se não passado (ou cache_data_ini_atual=None), comportamento legado:
+      clamp normal em min_d sem confirmação.
     """
     data_ini_atual = st.session_state[session_key_ini]
     data_fim_atual = st.session_state[session_key_fim]
@@ -327,20 +365,55 @@ def _render_period_controls_curt(
     for i, (label, data_ini_fn, is_max) in enumerate(presets):
         with cols[i]:
             tipo = "primary" if label == preset_atual else "secondary"
-            help_text = (
-                f"Máx — desde {min_d.strftime('%d/%m/%Y')}" if is_max else None
+
+            # Target REAL (sem clamp em min_d) — necessário pra detectar
+            # pedido de expansão. Pra "Máx" usa hard_min (= limite absoluto
+            # do dataset, ex 2022-01-01 pra curtailment); fallback min_d
+            # mantém comportamento legado quando hard_min não é passado.
+            _floor = hard_min if hard_min is not None else min_d
+            if is_max:
+                target_real = _floor
+            else:
+                target_real = data_ini_fn(max_d)
+
+            cache_cobre = (
+                cache_data_ini_atual is None
+                or target_real >= cache_data_ini_atual
             )
+
+            # Tooltip dinâmico: depende se cache atual cobre o target.
+            # Hardcode dos labels "24M"/"Máx" porque são convenções do
+            # projeto (e o helper já é específico do curtailment).
+            if label == "24M":
+                help_text = (
+                    "24 meses (em cache)" if cache_cobre
+                    else "24 meses (~3 min na 1ª vez)"
+                )
+            elif is_max:
+                help_text = (
+                    f"Máximo — desde {_floor.strftime('%d/%m/%Y')}"
+                    if cache_cobre
+                    else "Histórico completo (~5-7 min na 1ª vez)"
+                )
+            else:
+                help_text = None
+
             if st.button(
                 label, use_container_width=True,
                 key=f"{key_prefix}{label}", type=tipo, help=help_text,
             ):
-                if is_max:
-                    st.session_state[session_key_ini] = min_d
-                else:
-                    # Clamp em min_d como defesa em profundidade (decisão 5.27)
-                    st.session_state[session_key_ini] = max(
-                        min_d, data_ini_fn(max_d)
-                    )
+                # Expansão sob demanda: target_real ANTERIOR ao cache
+                # atual → callback decide (modal ou outro). Helper
+                # retorna SEM tocar em data_ini/data_fim — caller propaga.
+                if (
+                    not cache_cobre
+                    and on_expansion_request is not None
+                ):
+                    on_expansion_request(label)
+                    return
+
+                # Clamp em min_d como defesa em profundidade (decisão 5.27)
+                st.session_state[session_key_ini] = max(min_d, target_real)
                 st.session_state[session_key_fim] = max_d
                 st.rerun()
 
@@ -413,6 +486,41 @@ def _parse_entidade(entidade: str):
         nome = entidade[: -len(" (Unidade)")]
         return (None, nome, nome.upper())
     return (None, None, "SIN")  # fallback defensivo
+
+
+# =============================================================================
+# Modal de expansão da janela ampla — padrão @st.dialog (decisão 5.17).
+# Disparado pelo helper de presets quando user clica 24M ou Máx e o cache
+# atual não cobre. Confirmar marca curt_janela_modo, próximo render baixa
+# meses extras (cache disco persiste pra sessões futuras).
+# =============================================================================
+
+
+@st.dialog("Carregar mais histórico de curtailment")
+def _confirmar_expansao_curt(modo_alvo: str):
+    """Modal de confirmação pra expandir janela ampla.
+
+    modo_alvo: "24m" → 24 meses (~3 min)
+               "max" → desde 01/01/2022 (~5-7 min)
+    """
+    if modo_alvo == "24m":
+        titulo = "Carregar 24 meses de histórico?"
+        custo = "~3 min na 1ª vez (instantâneo nas próximas)"
+    else:  # "max"
+        titulo = "Carregar histórico completo (desde 01/01/2022)?"
+        custo = "~5-7 min na 1ª vez (instantâneo nas próximas)"
+
+    st.markdown(f"**{titulo}**  \n{custo}")
+    st.caption(
+        "Os dados ficam em cache local — sessões futuras carregam do "
+        "disco em ~1s, sem novo download."
+    )
+    col1, col2 = st.columns(2)
+    if col1.button("Cancelar", use_container_width=True):
+        st.rerun()
+    if col2.button("Carregar", type="primary", use_container_width=True):
+        st.session_state["curt_janela_modo"] = modo_alvo
+        st.rerun()
 
 
 # =============================================================================
@@ -1580,20 +1688,52 @@ def _render_aba_curtailment_impl() -> None:
                     st.session_state["curt_data_fim"] = mx
                     return
 
+        # Janela ampla efetiva: depende de curt_janela_modo (default/24m/max).
+        # Necessária pra (a) min_d do helper, (b) tooltips dinâmicos, (c) detecção
+        # de pedido de expansão, (d) clamp do default ao trocar granularidade.
+        modo_janela_atual = st.session_state.get("curt_janela_modo", "default")
+        data_ini_ampla_ui = _data_ini_ampla_efetiva(max_d_curt, modo_janela_atual)
+
         if "curt_data_ini" not in st.session_state or trocou_gran:
-            _aplicar_default_periodo_curt(granularidade, min_d_curt, max_d_curt)
+            _aplicar_default_periodo_curt(
+                granularidade, data_ini_ampla_ui, max_d_curt
+            )
         if "curt_data_fim" not in st.session_state:
             st.session_state["curt_data_fim"] = max_d_curt
         st.session_state["curt_granularidade_anterior"] = granularidade
+
+        def _on_expansion_request_curt(label: str):
+            """Callback do helper quando preset clicado pede mais histórico."""
+            if label == "24M":
+                st.session_state["_curt_pending_modal"] = "24m"
+            else:  # is_max → "Máx"
+                st.session_state["_curt_pending_modal"] = "max"
+            st.rerun()
 
         _render_period_controls_curt(
             presets=PRESETS_BY_GRAN[granularidade]["presets"],
             session_key_ini="curt_data_ini",
             session_key_fim="curt_data_fim",
             key_prefix="btn_curt_",
-            min_d=min_d_curt,
+            min_d=data_ini_ampla_ui,
             max_d=max_d_curt,
+            cache_data_ini_atual=data_ini_ampla_ui,
+            hard_min=date(2022, 1, 1),  # min_d_curt (limite absoluto ONS)
+            on_expansion_request=_on_expansion_request_curt,
         )
+
+        # Caption indicativa (lê data efetiva do cache atual).
+        st.caption(
+            f"Histórico em cache: desde "
+            f"{data_ini_ampla_ui.strftime('%d/%m/%Y')}. "
+            f"Use 24M ou Máx pra carregar mais."
+        )
+
+        # Modal de expansão (decisão 5.12 — flag intermediário consumida com pop).
+        modo_pendente = st.session_state.pop("_curt_pending_modal", None)
+        if modo_pendente:
+            _confirmar_expansao_curt(modo_pendente)
+
         data_ini = st.session_state["curt_data_ini"]
         data_fim = st.session_state["curt_data_fim"]
         if data_ini > data_fim:
@@ -1672,14 +1812,17 @@ def _render_aba_curtailment_impl() -> None:
         granularidade_ui = None
 
     # =========================================================================
-    # Carregar curtailment via wrapper de janela ampla (15M = 5 trimestres).
+    # Carregar curtailment via wrapper de janela ampla.
+    # Janela varia por curt_janela_modo (default ~13M / 24m / max desde 2022).
+    # Cache key inclui data_ini_ampla → entradas separadas por modo
+    # automaticamente. Disk-cache v5 é por mês×fonte → meses extras
+    # baixados ficam no disco, sessões futuras instantâneas.
     # Visão Geral filtra slice em memória pros presets curtos; Por usina/
     # Por grupo usam direto. Detalhes da decisão no cabeçalho do
     # _carregar_curtailment_janela_ampla.
     # =========================================================================
-    data_ini_ampla = max(
-        min_d_curt, _inicio_trimestre_anterior(max_d_curt, 4)
-    )
+    modo_janela = st.session_state.get("curt_janela_modo", "default")
+    data_ini_ampla = _data_ini_ampla_efetiva(max_d_curt, modo_janela)
 
     # G.3 (Fase G): mensagem informativa diferenciada.
     # 1ª carga da sessão: spinner com mensagem completa (40-60s esperados).
