@@ -98,7 +98,12 @@ RAZOES_VALIDAS = {"REL", "CNF", "ENE", "PAR"}
 # parquet mudou em sessão de 2026-04-30 (agregação por dia em _padronizar
 # reduz ~20 cols → 8 cols), bump não foi feito na época, cache ficou misto.
 # Detectado durante validação do Caminho 1 (cache de janela ampla 15M).
-_CACHE_VERSION = "curtailment_v4"
+#
+# v4 → v5 (2026-05-04): Excel unidades_geradoras.xlsx atualizado com 3
+# renomes de proprietário na aba Eólica (EQTL Echo→Equatorial, CGN
+# Brazil→CGN Brasil, Voltália→Voltalia). Bump força reprocessamento pra
+# que o df pós-rateio reflita os novos nomes em PROPRIETARIO.
+_CACHE_VERSION = "curtailment_v5"
 _CACHE_BASE_NAME = "dashboard-setor-eletrico"
 
 
