@@ -467,6 +467,13 @@ st.markdown(
     .st-key-btn_carga_historico_completo {{
         margin-top: -0.8rem !important;
     }}
+    /* Sem borda preta — o botão é AÇÃO opcional, não navegação.
+       Borda 2px do .stButton button[kind] global fazia parecer tab/sub-aba.
+       Mantém background cream + hover amarelo Bauhaus do estilo padrão. */
+    .st-key-btn_gen_historico_completo button[kind],
+    .st-key-btn_carga_historico_completo button[kind] {{
+        border: none !important;
+    }}
 
     /* Divisor */
     hr {{
@@ -1125,13 +1132,17 @@ def _compute_kpis_carga(df_long, code, data_ini, data_fim):
 
     if rampa_1h_series.empty:
         return {
-            "carga_total_media":   float("nan"),
-            "carga_liquida_media": float("nan"),
-            "rampa_max_1h":        float("nan"),
-            "rampa_max_1h_ts":     None,
-            "rampa_max_3h":        float("nan"),
-            "rampa_max_3h_ts":     None,
-            "pct_renov_var":       float("nan"),
+            "carga_total_media":     float("nan"),
+            "carga_liquida_media":   float("nan"),
+            "pico_carga_total":      float("nan"),
+            "pico_carga_total_ts":   None,
+            "pico_carga_liquida":    float("nan"),
+            "pico_carga_liquida_ts": None,
+            "rampa_max_1h":          float("nan"),
+            "rampa_max_1h_ts":       None,
+            "rampa_max_3h":          float("nan"),
+            "rampa_max_3h_ts":       None,
+            "pct_renov_var":         float("nan"),
         }
 
     # Recompõe pivot uma vez pras médias (evita 3º call ao filter+pivot).
@@ -1170,17 +1181,34 @@ def _compute_kpis_carga(df_long, code, data_ini, data_fim):
         idx = s_abs.idxmax()
         return float(s_abs.loc[idx]), idx
 
+    def _max_with_ts(s):
+        """Como _max_abs_with_ts mas sem .abs() — pra picos de carga."""
+        s_clean = s.dropna()
+        if s_clean.empty:
+            return float("nan"), None
+        idx = s_clean.idxmax()
+        return float(s_clean.loc[idx]), idx
+
     rampa_1h, ts_1h = _max_abs_with_ts(rampa_1h_series)
     rampa_3h, ts_3h = _max_abs_with_ts(rampa_3h_series)
 
+    # Pico de carga (instantâneo horário): max sobre o pivot, com timestamp.
+    serie_liq_horaria = pivot["carga"] - pivot["eolica"] - pivot["solar"]
+    pico_total, ts_pico_total = _max_with_ts(pivot["carga"])
+    pico_liq,   ts_pico_liq   = _max_with_ts(serie_liq_horaria)
+
     return {
-        "carga_total_media":   carga_mean,
-        "carga_liquida_media": liq_mean,
-        "rampa_max_1h":        rampa_1h,
-        "rampa_max_1h_ts":     ts_1h,
-        "rampa_max_3h":        rampa_3h,
-        "rampa_max_3h_ts":     ts_3h,
-        "pct_renov_var":       pct_renov,
+        "carga_total_media":     carga_mean,
+        "carga_liquida_media":   liq_mean,
+        "pico_carga_total":      pico_total,
+        "pico_carga_total_ts":   ts_pico_total,
+        "pico_carga_liquida":    pico_liq,
+        "pico_carga_liquida_ts": ts_pico_liq,
+        "rampa_max_1h":          rampa_1h,
+        "rampa_max_1h_ts":       ts_1h,
+        "rampa_max_3h":          rampa_3h,
+        "rampa_max_3h_ts":       ts_3h,
+        "pct_renov_var":         pct_renov,
     }
 
 
@@ -4162,6 +4190,12 @@ elif aba == "Carga":
         fmt = f"{{:,.{casas}f}}"
         return fmt.format(v).replace(",", "X").replace(".", ",").replace("X", ".")
 
+    def _fmt_ts_compact_carga(ts):
+        """Formato compacto pra timestamp de pico de rampa: 'DD/MM HHh'."""
+        if ts is None or (hasattr(ts, "isna") and ts.isna()):
+            return ""
+        return f"{ts.strftime('%d/%m')} {ts.strftime('%H')}h"
+
     # CSS dedicado .carga-kpi-* (cópia do .gen-kpi-* da Geração).
     # Duplicação consciente: refator pra .kpi-* genérico fica pra futuro
     # (não mexer no bloco Geração estável agora). +1 propriedade vs gen-kpi:
@@ -4174,6 +4208,8 @@ elif aba == "Carga":
             border: 2px solid #1A1A1A;
             padding: 8px 12px;
             border-radius: 0;
+            min-height: 6.5rem;     /* alinha % Renov (1 row) com as multi (2 rows) */
+            box-sizing: border-box; /* padding inclusive no min-height */
         }
         .carga-kpi-card[title] {
             cursor: help;
@@ -4224,6 +4260,52 @@ elif aba == "Carga":
             line-height: 1.25;
             white-space: nowrap;
         }
+        /* Card multi-linha: usado em "CARGA MÉDIA" / "PICO DE CARGA"
+           (Total + Líquida) e "RAMPA MÁXIMA" (1H + 3H). Grid 2-col com
+           col 1 = max-content (rótulo, largura mínima) e col 2 = auto
+           (valor + unidade + ts opcional). Auto-alinha valores entre
+           rows do MESMO card sem precisar min-width por preset; cada
+           card tem seu próprio grid (largura da col 1 varia por preset:
+           "Líquida:" wide em Carga Média/Pico, "3H:" narrow em Rampa). */
+        .carga-kpi-multi-rows {
+            display: grid;
+            grid-template-columns: max-content auto;
+            column-gap: 0.6rem;
+            row-gap: 0.3rem;
+            margin-top: 0.3rem;
+            align-items: baseline;
+        }
+        .carga-kpi-multi-valor-cell {
+            /* Wrapper: valor + unidade + ts juntos na mesma cell grid */
+            display: inline-flex;
+            align-items: baseline;
+        }
+        .carga-kpi-multi-rotulo {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
+            color: #1A1A1A;
+            font-weight: 600;
+        }
+        .carga-kpi-multi-valor {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.25rem;
+            color: #1A1A1A;
+            letter-spacing: 0.02em;
+        }
+        .carga-kpi-multi-unit {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.75rem;
+            color: #1A1A1A;
+            font-weight: 600;
+            margin-left: 0.3rem;
+        }
+        .carga-kpi-multi-ts {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.75rem;
+            color: #6B6B6B;
+            margin-left: 0.4rem;
+            white-space: nowrap;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -4257,6 +4339,45 @@ elif aba == "Carga":
             f'</div>'
         )
 
+    def _render_kpi_carga_multi(label, linhas, tooltip=""):
+        """Card KPI Bauhaus com múltiplas linhas internas (CSS grid 2-col).
+
+        linhas: lista de dicts com chaves:
+          - rotulo: str — rótulo à esquerda (ex: "Total", "1H")
+          - valor:  str — número formatado BR (ex: "79.149")
+          - unit:   str opcional — unidade após o número (ex: "MWmed")
+          - ts:     str opcional — timestamp compacto após a unidade
+                     (ex: "19/04 16h"), em fonte menor cinza
+
+        HTML: 1 div .carga-kpi-multi-rows (grid container) com células
+        alternando rótulo/valor — grid auto-alinha valores entre rows
+        do mesmo card.
+        """
+        title_attr = f' title="{tooltip}"' if tooltip else ""
+        cells_html = ""
+        for ln in linhas:
+            ts_html = (
+                f'<span class="carga-kpi-multi-ts">({ln["ts"]})</span>'
+                if ln.get("ts") else ""
+            )
+            unit_html = (
+                f'<span class="carga-kpi-multi-unit">{ln["unit"]}</span>'
+                if ln.get("unit") else ""
+            )
+            cells_html += (
+                f'<span class="carga-kpi-multi-rotulo">{ln["rotulo"]}:</span>'
+                f'<span class="carga-kpi-multi-valor-cell">'
+                f'<span class="carga-kpi-multi-valor">{ln["valor"]}</span>'
+                f'{unit_html}{ts_html}'
+                f'</span>'
+            )
+        return (
+            f'<div class="carga-kpi-card"{title_attr}>'
+            f'<div class="carga-kpi-label">{label}</div>'
+            f'<div class="carga-kpi-multi-rows">{cells_html}</div>'
+            f'</div>'
+        )
+
     # Caption acima dos KPIs — segue padrão da Geração ("Médias do período...").
     # margin-bottom 0 (não -0.8rem como na Geração): na Carga o bloco
     # <style> dos cards foi declarado ANTES do caption (linha ~3728), então
@@ -4275,35 +4396,104 @@ elif aba == "Carga":
         unsafe_allow_html=True,
     )
 
-    # Linha 1: estado médio do sistema (3 cards).
-    kpi_l1 = st.columns(3)
-    with kpi_l1[0]:
+    # 4 caixas em 1 linha. Proporção [1, 1.4, 1.4, 0.8] — Pico e Rampa
+    # precisam de mais espaço pelos timestamps "(DD/MM HHh)" extras em
+    # cada linha interna; % Renov é só 1 valor, comporta menos espaço.
+    # Caixa 1: CARGA MÉDIA       (Total + Líquida).
+    # Caixa 2: PICO DE CARGA     (Total + Líquida, com timestamp).
+    # Caixa 3: RAMPA MÁXIMA      (1H + 3H, com timestamp).
+    # Caixa 4: % RENOV VARIÁVEIS (1 valor — usa helper single original).
+    kpi_cols = st.columns([1, 1.4, 1.4, 0.8])
+
+    with kpi_cols[0]:
         st.markdown(
-            _render_kpi_carga(
-                "CARGA TOTAL MÉDIA",
-                _fmt_br_carga(kpis_carga["carga_total_media"]),
-                "MWmed",
+            _render_kpi_carga_multi(
+                "CARGA MÉDIA",
+                [
+                    {
+                        "rotulo": "Total",
+                        "valor":  _fmt_br_carga(kpis_carga["carga_total_media"]),
+                        "unit":   "MWmed",
+                    },
+                    {
+                        "rotulo": "Líquida",
+                        "valor":  _fmt_br_carga(kpis_carga["carga_liquida_media"]),
+                        "unit":   "MWmed",
+                    },
+                ],
                 tooltip=(
-                    "Soma de toda demanda elétrica do subsistema. "
-                    "Inclui MMGD pós-29/04/2023."
+                    "Total: soma de toda demanda elétrica do subsistema "
+                    "(inclui MMGD pós-29/04/2023). "
+                    "Líquida: total menos eólica e solar centralizada — "
+                    "o que hidro+térmica precisa cobrir."
                 ),
             ),
             unsafe_allow_html=True,
         )
-    with kpi_l1[1]:
+
+    with kpi_cols[1]:
         st.markdown(
-            _render_kpi_carga(
-                "CARGA LÍQUIDA MÉDIA",
-                _fmt_br_carga(kpis_carga["carga_liquida_media"]),
-                "MWmed",
+            _render_kpi_carga_multi(
+                "PICO DE CARGA",
+                [
+                    {
+                        "rotulo": "Total",
+                        "valor":  _fmt_br_carga(kpis_carga["pico_carga_total"]),
+                        "unit":   "MWmed",
+                        "ts":     _fmt_ts_compact_carga(
+                            kpis_carga["pico_carga_total_ts"]
+                        ),
+                    },
+                    {
+                        "rotulo": "Líquida",
+                        "valor":  _fmt_br_carga(kpis_carga["pico_carga_liquida"]),
+                        "unit":   "MWmed",
+                        "ts":     _fmt_ts_compact_carga(
+                            kpis_carga["pico_carga_liquida_ts"]
+                        ),
+                    },
+                ],
                 tooltip=(
-                    "Carga total menos eólica e solar centralizada. "
-                    "O que hidro+térmica precisa cobrir."
+                    "Maior valor instantâneo de carga no período. "
+                    "Total: pico da demanda total. "
+                    "Líquida: pico do que hidro+térmica precisa cobrir."
                 ),
             ),
             unsafe_allow_html=True,
         )
-    with kpi_l1[2]:
+
+    with kpi_cols[2]:
+        st.markdown(
+            _render_kpi_carga_multi(
+                "RAMPA MÁXIMA",
+                [
+                    {
+                        "rotulo": "1H",
+                        "valor":  _fmt_br_carga(kpis_carga["rampa_max_1h"]),
+                        "unit":   "MW",
+                        "ts":     _fmt_ts_compact_carga(
+                            kpis_carga["rampa_max_1h_ts"]
+                        ),
+                    },
+                    {
+                        "rotulo": "3H",
+                        "valor":  _fmt_br_carga(kpis_carga["rampa_max_3h"]),
+                        "unit":   "MW",
+                        "ts":     _fmt_ts_compact_carga(
+                            kpis_carga["rampa_max_3h_ts"]
+                        ),
+                    },
+                ],
+                tooltip=(
+                    "Maior variação de carga líquida em 1h e 3h consecutivas. "
+                    "Captura picos de estresse operacional "
+                    "(3h ≈ duck curve, rampa de fim de tarde)."
+                ),
+            ),
+            unsafe_allow_html=True,
+        )
+
+    with kpi_cols[3]:
         st.markdown(
             _render_kpi_carga(
                 "% RENOV VARIÁVEIS",
@@ -4315,52 +4505,6 @@ elif aba == "Carga":
             ),
             unsafe_allow_html=True,
         )
-
-    # Linha 2: estresse operacional (2 cards + 1 col vazia). Cards uniformes
-    # com a linha 1 (mesma largura visual), col 2 vazia preserva alinhamento.
-    # Timestamps dos picos vão DENTRO de cada card via parâmetro `subtext`
-    # do helper — economiza vertical e cola a info ao número que ela descreve.
-    ts_1h = kpis_carga["rampa_max_1h_ts"]
-    ts_3h = kpis_carga["rampa_max_3h_ts"]
-    subtext_1h = (
-        f"em<br>{ts_1h.strftime('%d/%m/%Y %H:%M')}"
-        if ts_1h is not None else ""
-    )
-    subtext_3h = (
-        f"em<br>{ts_3h.strftime('%d/%m/%Y %H:%M')}"
-        if ts_3h is not None else ""
-    )
-    kpi_l2 = st.columns(3)
-    with kpi_l2[0]:
-        st.markdown(
-            _render_kpi_carga(
-                "RAMPA MÁX 1H",
-                _fmt_br_carga(kpis_carga["rampa_max_1h"]),
-                "MW",
-                tooltip=(
-                    "Maior variação de carga líquida em 1 hora. Mostra picos "
-                    "instantâneos de estresse operacional."
-                ),
-                subtext=subtext_1h,
-            ),
-            unsafe_allow_html=True,
-        )
-    with kpi_l2[1]:
-        st.markdown(
-            _render_kpi_carga(
-                "RAMPA MÁX 3H",
-                _fmt_br_carga(kpis_carga["rampa_max_3h"]),
-                "MW",
-                tooltip=(
-                    "Maior variação de carga líquida em 3 horas consecutivas. "
-                    "Padrão internacional (duck curve), captura tipicamente "
-                    "a rampa de fim de tarde."
-                ),
-                subtext=subtext_3h,
-            ),
-            unsafe_allow_html=True,
-        )
-    # kpi_l2[2] fica vazio (alinha visualmente com a linha 1).
 
     # =========================================================================
     # Glossário (st.expander, fechado por default). Posicionado APÓS os
@@ -4384,6 +4528,11 @@ distribuída embutida na carga).
 Carga total menos eólica e solar centralizada. Representa a demanda
 "residual" que hidro+térmica+importação precisam cobrir. Métrica-chave
 pra planejamento operacional do sistema.
+
+**Pico de Carga**
+Maior valor instantâneo de carga no período (granularidade horária).
+- *Total*: maior demanda elétrica registrada (com timestamp).
+- *Líquida*: maior valor que hidro+térmica precisou cobrir.
 
 **% Renováveis Variáveis**
 Participação de eólica+solar centralizada na carga total. Variáveis =
