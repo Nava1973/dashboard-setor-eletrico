@@ -87,13 +87,18 @@ RAZOES_VALIDAS = {"REL", "CNF", "ENE", "PAR"}
 # Ver decisão 5.34 do CLAUDE.md.
 #
 # Path com cascade (replica decisão 5.15 do data_loader.py raiz):
-#   Path.home()/.cache/dashboard-setor-eletrico/curtailment_v3/  (primário)
-#   tempfile.gettempdir()/dashboard-setor-eletrico/curtailment_v3/  (fallback)
+#   Path.home()/.cache/dashboard-setor-eletrico/curtailment_v4/  (primário)
+#   tempfile.gettempdir()/dashboard-setor-eletrico/curtailment_v4/  (fallback)
 #   None  (modo no-cache se ambos read-only — IO vira no-op)
 # Detecção real de FS read-only via mkdir + touch + unlink: mkdir(exist_ok=True)
 # pode passar mesmo em FS read-only se o diretório já existe; touch+unlink
 # confirma escrita real.
-_CACHE_VERSION = "curtailment_v3"
+#
+# v3 → v4 (2026-05-04): correção de pendência da decisão 5.34. Schema do
+# parquet mudou em sessão de 2026-04-30 (agregação por dia em _padronizar
+# reduz ~20 cols → 8 cols), bump não foi feito na época, cache ficou misto.
+# Detectado durante validação do Caminho 1 (cache de janela ampla 15M).
+_CACHE_VERSION = "curtailment_v4"
 _CACHE_BASE_NAME = "dashboard-setor-eletrico"
 
 
