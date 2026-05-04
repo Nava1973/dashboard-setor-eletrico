@@ -141,7 +141,7 @@ PRESETS_BY_GRAN = {
         ],
     },
     "TRIMESTRAL": {
-        "default": "6M",
+        "default": "12M",
         "presets": [
             ("6M",   lambda mx: _inicio_trimestre_anterior(mx, 1),  False),
             ("12M",  lambda mx: _inicio_trimestre_anterior(mx, 3),  False),
@@ -1722,11 +1722,18 @@ def _render_aba_curtailment_impl() -> None:
             on_expansion_request=_on_expansion_request_curt,
         )
 
-        # Caption indicativa (lê data efetiva do cache atual).
-        st.caption(
-            f"Histórico em cache: desde "
-            f"{data_ini_ampla_ui.strftime('%d/%m/%Y')}. "
-            f"Use 24M ou Máx pra carregar mais."
+        # Caption indicativa (lê data efetiva do cache atual). Padrão
+        # Bauhaus de caption discreta — Inter italic cinza #6B6B6B
+        # (st.caption renderiza em branco sobre cream, invisível).
+        st.markdown(
+            '<div style="font-family:\'Inter\', sans-serif; '
+            'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+            'margin:0.6rem 0 0.5rem 0;">'
+            f'Histórico em cache: desde '
+            f'{data_ini_ampla_ui.strftime("%d/%m/%Y")}. '
+            f'Use 24M ou Máx pra carregar mais.'
+            '</div>',
+            unsafe_allow_html=True,
         )
 
         # Modal de expansão (decisão 5.12 — flag intermediário consumida com pop).
