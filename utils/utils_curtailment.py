@@ -88,6 +88,18 @@ def _label_mes_curto(d: date) -> str:
     return f"{_MESES_PT_ABREV[d.month - 1]}/{d.year % 100:02d}"
 
 
+def _label_trimestre_curto(d: date) -> str:
+    """Retorna '2T 26' (número do trimestre + ano com 2 dígitos).
+
+    Trimestres calendário ISO: 1T=jan-mar, 2T=abr-jun, 3T=jul-set, 4T=out-dez.
+
+    Convenção BR (B3, ITR/DFP da CVM, jornais financeiros): número
+    ANTES da letra T. "T2" é convenção anglo, evitada aqui.
+    """
+    n_trim = ((d.month - 1) // 3) + 1
+    return f"{n_trim}T {d.year % 100:02d}"
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -424,33 +436,73 @@ def _inicio_mes(d: date) -> date:
     return date(d.year, d.month, 1)
 
 
-def calcular_3_periodos(max_d: date) -> dict:
-    """
-    Retorna 3 janelas ancoradas em max_d (mais recente primeiro).
+def _inicio_trimestre(d: date) -> date:
+    """Primeiro dia do trimestre que contém d.
 
-    Usado pela aba Curtailment v2 (SPEC §5) pra comparar mês corrente
-    parcial vs 2 meses completos anteriores.
+    Trimestres ISO: T1=jan-mar, T2=abr-jun, T3=jul-set, T4=out-dez.
+
+    Movido de components/tab_curtailment.py em 2026-05-04 (G.5):
+    `calcular_periodos_curtailment` precisa pra calcular janelas
+    trimestrais. Mesma família de helpers temporais que `_inicio_mes`.
+    Callers em components/tab_curtailment.py atualizados pra importar
+    daqui. TODO sessão futura: scripts/medir_memoria_caminho1.py e
+    scripts/validar_cache_janela_ampla.py têm cópias locais — podem
+    importar daqui também.
+    """
+    mes_inicio = ((d.month - 1) // 3) * 3 + 1
+    return date(d.year, mes_inicio, 1)
+
+
+def _inicio_trimestre_anterior(d: date, n: int) -> date:
+    """Primeiro dia do trimestre N trimestres antes do trimestre de d."""
+    inicio_q_atual = _inicio_trimestre(d)
+    ano = inicio_q_atual.year
+    mes = inicio_q_atual.month - n * 3
+    while mes <= 0:
+        mes += 12
+        ano -= 1
+    return date(ano, mes, 1)
+
+
+def calcular_periodos_curtailment(max_d: date) -> dict:
+    """
+    Retorna 7 janelas ancoradas em max_d (3 meses + 4 trimestres).
+
+    Usado pela aba Curtailment v2 (SPEC §5 + Fase G.5) pra montar a
+    tabela "Por usina" com 7 colunas de valor: 3 últimos meses
+    (corrente parcial + 2 fechados) + 4 trimestres (corrente parcial
+    + 3 fechados, cobre comparação YoY).
+
+    Renomeada de `calcular_3_periodos` em 2026-05-04 (G.5) — nome novo
+    reflete realidade pós-extensão (7 períodos, não 3). Caller único
+    em produção é `_calcular_linhas_unidade` em tab_curtailment.py.
 
     Returns:
         {
-            'mes_corrente': {'label': 'Mês corrente', 'label_curto': str,
-                             'sufixo_parcial': str, 'ini': date, 'fim': date,
-                             'dias': int},
-            'mes_anterior': {... mês completo anterior ...},
-            'penultimo':    {... mês completo 2 atrás ...},
+            # 3 meses (chaves preservadas pra rastreabilidade histórica)
+            'mes_corrente':   {label, label_curto, sufixo_parcial, ini, fim, dias},
+            'mes_anterior':   {label, label_curto, sufixo_parcial: "", ...},
+            'penultimo':      {label, label_curto, sufixo_parcial: "", ...},
+            # 4 trimestres (novos em G.5)
+            'tri_corrente':   {label, label_curto, sufixo_parcial, ini, fim, dias},
+            'tri_anterior_1': {label, label_curto, sufixo_parcial: "", ...},
+            'tri_anterior_2': {label, label_curto, sufixo_parcial: "", ...},
+            'tri_anterior_3': {label, label_curto, sufixo_parcial: "", ...},
         }
 
-    Campos de label (SPEC v2 §6 — header da tabela "Por usina"):
-        - label_curto:    "abr/26" — sempre só mês/ano (sem sufixo).
-        - sufixo_parcial: "(até 02/05)" no mes_corrente, "" nos outros.
-          Caller decide se renderiza junto na mesma linha ou quebra em
-          duas linhas (ex: <br>) pra alinhar visualmente colunas.
+    Campos de label (SPEC v2 §6 + G.5):
+        - label_curto:    "abr/26" pros meses, "2T 26" pros trimestres.
+        - sufixo_parcial: "(até DD/MM)" em mes_corrente E tri_corrente
+          (ambos parciais — mês corrente até max_d, trimestre corrente
+          do dia 1 do trimestre até max_d). "" nos demais (fechados).
 
-    Edge case (SPEC §10.2): quando max_d está perto do dia 1 do mês,
-    'mes_corrente' fica com 1-2 dias só. O helper expõe 'dias' no dict
-    pra que callers decidam como tratar (mostrar normal, com aviso ou
-    suprimir). Helper não decide.
+    Edge cases:
+        - max_d perto do dia 1 do mês: mes_corrente fica com 1-2 dias.
+        - max_d no dia 1 do trimestre (1/jan, 1/abr, 1/jul, 1/out):
+          tri_corrente fica com 1 dia. SPEC G.5 aceita (ordenação por
+          tri_corrente vira ~aleatória nesse dia específico).
     """
+    # ─── 3 meses ───
     corrente_ini = _inicio_mes(max_d)
     corrente_fim = max_d
 
@@ -459,6 +511,19 @@ def calcular_3_periodos(max_d: date) -> dict:
 
     penultimo_fim = anterior_ini - timedelta(days=1)
     penultimo_ini = _inicio_mes(penultimo_fim)
+
+    # ─── 4 trimestres ───
+    tri_corrente_ini = _inicio_trimestre(max_d)
+    tri_corrente_fim = max_d
+
+    tri_ant_1_ini = _inicio_trimestre_anterior(max_d, 1)
+    tri_ant_1_fim = tri_corrente_ini - timedelta(days=1)
+
+    tri_ant_2_ini = _inicio_trimestre_anterior(max_d, 2)
+    tri_ant_2_fim = tri_ant_1_ini - timedelta(days=1)
+
+    tri_ant_3_ini = _inicio_trimestre_anterior(max_d, 3)
+    tri_ant_3_fim = tri_ant_2_ini - timedelta(days=1)
 
     def _entry(
         label: str, label_curto: str, sufixo_parcial: str,
@@ -473,11 +538,12 @@ def calcular_3_periodos(max_d: date) -> dict:
             "dias": (fim - ini).days + 1,
         }
 
-    corrente_sufixo = f"(até {corrente_fim.strftime('%d/%m')})"
+    sufixo_parcial = f"(até {max_d.strftime('%d/%m')})"
 
     return {
+        # 3 meses
         "mes_corrente": _entry(
-            "Mês corrente", _label_mes_curto(corrente_fim), corrente_sufixo,
+            "Mês corrente", _label_mes_curto(corrente_fim), sufixo_parcial,
             corrente_ini, corrente_fim,
         ),
         "mes_anterior": _entry(
@@ -487,6 +553,23 @@ def calcular_3_periodos(max_d: date) -> dict:
         "penultimo": _entry(
             "Penúltimo mês", _label_mes_curto(penultimo_fim), "",
             penultimo_ini, penultimo_fim,
+        ),
+        # 4 trimestres
+        "tri_corrente": _entry(
+            "Trimestre corrente", _label_trimestre_curto(tri_corrente_fim),
+            sufixo_parcial, tri_corrente_ini, tri_corrente_fim,
+        ),
+        "tri_anterior_1": _entry(
+            "Trimestre anterior", _label_trimestre_curto(tri_ant_1_fim), "",
+            tri_ant_1_ini, tri_ant_1_fim,
+        ),
+        "tri_anterior_2": _entry(
+            "2 trimestres atrás", _label_trimestre_curto(tri_ant_2_fim), "",
+            tri_ant_2_ini, tri_ant_2_fim,
+        ),
+        "tri_anterior_3": _entry(
+            "3 trimestres atrás", _label_trimestre_curto(tri_ant_3_fim), "",
+            tri_ant_3_ini, tri_ant_3_fim,
         ),
     }
 
@@ -539,8 +622,8 @@ def pct_no_periodo(
 #     venv\Scripts\python.exe utils/utils_curtailment.py
 #
 # Imports do topo do arquivo (datetime, pd) já cobrem o teste — datetime é
-# dependência de produção (tipo de retorno + aritmética em calcular_3_periodos),
-# não é só de teste.
+# dependência de produção (tipo de retorno + aritmética em
+# calcular_periodos_curtailment), não é só de teste.
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -551,11 +634,12 @@ if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
 
     print("=" * 70)
-    print("TESTE 1: calcular_3_periodos — caso normal (max_d = 2026-04-15)")
+    print("TESTE 1: calcular_periodos_curtailment — caso normal (max_d = 2026-04-15)")
     print("=" * 70)
-    p = calcular_3_periodos(date(2026, 4, 15))
+    p = calcular_periodos_curtailment(date(2026, 4, 15))
     for k, v in p.items():
-        print(f"  {k:13s}: {v['label']:14s} {v['ini']} → {v['fim']} ({v['dias']:>2}d)")
+        print(f"  {k:14s}: {v['label']:20s} {v['ini']} → {v['fim']} ({v['dias']:>2}d)")
+    # ─── 3 meses ───
     assert p["mes_corrente"]["ini"] == date(2026, 4, 1)
     assert p["mes_corrente"]["fim"] == date(2026, 4, 15)
     assert p["mes_corrente"]["dias"] == 15
@@ -571,15 +655,36 @@ if __name__ == "__main__":
     assert p["mes_anterior"]["sufixo_parcial"] == ""
     assert p["penultimo"]["label_curto"] == "fev/26"
     assert p["penultimo"]["sufixo_parcial"] == ""
+    # ─── 4 trimestres (G.5) ───
+    # max_d = 15/04/2026 → 2T 26 corrente parcial (abr-jun, só abr até dia 15)
+    assert p["tri_corrente"]["ini"] == date(2026, 4, 1)
+    assert p["tri_corrente"]["fim"] == date(2026, 4, 15)
+    assert p["tri_corrente"]["dias"] == 15
+    assert p["tri_corrente"]["label_curto"] == "2T 26"
+    assert p["tri_corrente"]["sufixo_parcial"] == "(até 15/04)"
+    # 1T 26 fechado (jan-mar 2026)
+    assert p["tri_anterior_1"]["ini"] == date(2026, 1, 1)
+    assert p["tri_anterior_1"]["fim"] == date(2026, 3, 31)
+    assert p["tri_anterior_1"]["dias"] == 31 + 28 + 31  # 90
+    assert p["tri_anterior_1"]["label_curto"] == "1T 26"
+    assert p["tri_anterior_1"]["sufixo_parcial"] == ""
+    # 4T 25 fechado (out-dez 2025)
+    assert p["tri_anterior_2"]["ini"] == date(2025, 10, 1)
+    assert p["tri_anterior_2"]["fim"] == date(2025, 12, 31)
+    assert p["tri_anterior_2"]["label_curto"] == "4T 25"
+    # 3T 25 fechado (jul-set 2025)
+    assert p["tri_anterior_3"]["ini"] == date(2025, 7, 1)
+    assert p["tri_anterior_3"]["fim"] == date(2025, 9, 30)
+    assert p["tri_anterior_3"]["label_curto"] == "3T 25"
     print("  OK")
 
     print()
     print("=" * 70)
-    print("TESTE 2: calcular_3_periodos — edge §10.2 (max_d = 2026-05-02)")
+    print("TESTE 2: calcular_periodos_curtailment — edge §10.2 (max_d = 2026-05-02)")
     print("=" * 70)
-    p = calcular_3_periodos(date(2026, 5, 2))
+    p = calcular_periodos_curtailment(date(2026, 5, 2))
     for k, v in p.items():
-        print(f"  {k:13s}: {v['label']:14s} {v['ini']} → {v['fim']} ({v['dias']:>2}d)")
+        print(f"  {k:14s}: {v['label']:20s} {v['ini']} → {v['fim']} ({v['dias']:>2}d)")
     assert p["mes_corrente"]["ini"] == date(2026, 5, 1)
     assert p["mes_corrente"]["fim"] == date(2026, 5, 2)
     assert p["mes_corrente"]["dias"] == 2  # só 1 e 2 de maio
@@ -590,19 +695,20 @@ if __name__ == "__main__":
     assert p["penultimo"]["dias"] == 31
     assert p["mes_corrente"]["label_curto"] == "mai/26"
     assert p["mes_corrente"]["sufixo_parcial"] == "(até 02/05)"
-    assert p["mes_anterior"]["label_curto"] == "abr/26"
-    assert p["mes_anterior"]["sufixo_parcial"] == ""
-    assert p["penultimo"]["label_curto"] == "mar/26"
-    assert p["penultimo"]["sufixo_parcial"] == ""
+    # Trimestres: max_d=02/05/2026 ainda no 2T 26 (abr-jun)
+    assert p["tri_corrente"]["ini"] == date(2026, 4, 1)
+    assert p["tri_corrente"]["fim"] == date(2026, 5, 2)
+    assert p["tri_corrente"]["dias"] == 30 + 2  # abr inteiro + 2 dias mai
+    assert p["tri_corrente"]["label_curto"] == "2T 26"
     print("  OK — mes_corrente com 2 dias é detectável via 'dias' field")
 
     print()
     print("=" * 70)
-    print("TESTE 3: calcular_3_periodos — virada de ano (max_d = 2026-01-15)")
+    print("TESTE 3: calcular_periodos_curtailment — virada de ano (max_d = 2026-01-15)")
     print("=" * 70)
-    p = calcular_3_periodos(date(2026, 1, 15))
+    p = calcular_periodos_curtailment(date(2026, 1, 15))
     for k, v in p.items():
-        print(f"  {k:13s}: {v['label']:14s} {v['ini']} → {v['fim']} ({v['dias']:>2}d)")
+        print(f"  {k:14s}: {v['label']:20s} {v['ini']} → {v['fim']} ({v['dias']:>2}d)")
     assert p["mes_corrente"]["ini"] == date(2026, 1, 1)
     assert p["mes_corrente"]["fim"] == date(2026, 1, 15)
     assert p["mes_anterior"]["ini"] == date(2025, 12, 1)
@@ -617,7 +723,23 @@ if __name__ == "__main__":
     assert p["mes_anterior"]["sufixo_parcial"] == ""
     assert p["penultimo"]["label_curto"] == "nov/25"
     assert p["penultimo"]["sufixo_parcial"] == ""
-    print("  OK — virada de ano: ano 25 vs 26 corretos")
+    # Trimestres: max_d=15/01/2026 → 1T 26 corrente parcial (jan 1-15)
+    assert p["tri_corrente"]["ini"] == date(2026, 1, 1)
+    assert p["tri_corrente"]["fim"] == date(2026, 1, 15)
+    assert p["tri_corrente"]["label_curto"] == "1T 26"
+    # 4T 25 fechado (out-dez 2025)
+    assert p["tri_anterior_1"]["ini"] == date(2025, 10, 1)
+    assert p["tri_anterior_1"]["fim"] == date(2025, 12, 31)
+    assert p["tri_anterior_1"]["label_curto"] == "4T 25"
+    # 3T 25 fechado (jul-set 2025)
+    assert p["tri_anterior_2"]["ini"] == date(2025, 7, 1)
+    assert p["tri_anterior_2"]["fim"] == date(2025, 9, 30)
+    assert p["tri_anterior_2"]["label_curto"] == "3T 25"
+    # 2T 25 fechado (abr-jun 2025)
+    assert p["tri_anterior_3"]["ini"] == date(2025, 4, 1)
+    assert p["tri_anterior_3"]["fim"] == date(2025, 6, 30)
+    assert p["tri_anterior_3"]["label_curto"] == "2T 25"
+    print("  OK — virada de ano: ano 25 vs 26 corretos + trimestres atravessam virada")
 
     print()
     print("=" * 70)

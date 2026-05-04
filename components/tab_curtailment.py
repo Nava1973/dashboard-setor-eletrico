@@ -39,7 +39,8 @@ from data_loaders.data_loader_grupos_excel import (
 from utils.utils_periodos import adicionar_chave_periodo
 from utils.utils_curtailment import (
     calcular_pct_curtailment, serie_temporal,
-    calcular_3_periodos, pct_no_periodo,
+    calcular_periodos_curtailment, pct_no_periodo,
+    _inicio_trimestre, _inicio_trimestre_anterior,
 )
 
 
@@ -158,13 +159,10 @@ def _fmt_pct_curt(x, casas: int = 2) -> str:
 # =============================================================================
 
 
-def _inicio_trimestre(d: date) -> date:
-    """Primeiro dia do trimestre que contém d.
-
-    Q1=jan-mar, Q2=abr-jun, Q3=jul-set, Q4=out-dez (calendário ISO).
-    """
-    mes_inicio = ((d.month - 1) // 3) * 3 + 1
-    return date(d.year, mes_inicio, 1)
+# _inicio_trimestre e _inicio_trimestre_anterior movidos pra
+# utils/utils_curtailment.py em 2026-05-04 (G.5) — importados no topo.
+# _inicio_mes_anterior permanece aqui: caller único é os presets
+# MENSAL deste módulo, não tem demanda em outros lugares.
 
 
 def _inicio_mes_anterior(d: date, n: int) -> date:
@@ -175,12 +173,6 @@ def _inicio_mes_anterior(d: date, n: int) -> date:
         mes += 12
         ano -= 1
     return date(ano, mes, 1)
-
-
-def _inicio_trimestre_anterior(d: date, n: int) -> date:
-    """Primeiro dia do trimestre N trimestres antes do trimestre de d."""
-    inicio_q_atual = _inicio_trimestre(d)
-    return _inicio_mes_anterior(inicio_q_atual, n * 3)
 
 
 # =============================================================================
@@ -712,10 +704,24 @@ _CSS_TABELA_UNIDADES = """
     font-family: 'Inter', sans-serif;
     font-size: 0.85rem;
 }
-/* 22% Unidade + 22% Grupo + 18% × 3 períodos = 100% */
-.curt-tab-unid th:nth-child(1), .curt-tab-unid td:nth-child(1) { width: 22%; }
-.curt-tab-unid th:nth-child(2), .curt-tab-unid td:nth-child(2) { width: 22%; }
-.curt-tab-unid th.col-num, .curt-tab-unid td.col-num { width: 18%; }
+/* G.5 (9 colunas): 18% Unidade + 18% Grupo + 9% × 3 meses + 9.25% × 4 trimestres = 100% */
+.curt-tab-unid th:nth-child(1), .curt-tab-unid td:nth-child(1) { width: 18%; }
+.curt-tab-unid th:nth-child(2), .curt-tab-unid td:nth-child(2) { width: 18%; }
+.curt-tab-unid th.col-num, .curt-tab-unid td.col-num { width: 9.14%; }
+/* Linha vertical sutil entre coluna do penúltimo mês (FEV) e trimestre
+   corrente (2T 26) — separador conceitual mês↔trimestre. Cor #A8A8A8
+   é cinza médio: contrasta o suficiente pra marcar a transição em fundo
+   cream Bauhaus #F5F1E8 sem ficar poluída. Espessura 2px alinha com o
+   padrão Bauhaus do app (bordas pretas 2px nos botões/cards) — cor
+   sutil + espessura padrão = presente sem competir. Calibrada no smoke
+   test do COMMIT 3 (1px era fino demais; #C8C8C8 era invisível). */
+.curt-tab-unid th.col-divisor,
+.curt-tab-unid td.col-divisor {
+    /* !important pra vencer reset CSS global do Streamlit que aplica
+       border: 0 em <td>/<th> com specificity igual ou superior. Sem
+       !important a borda some apesar da regra estar válida. */
+    border-left: 2px solid #A8A8A8 !important;
+}
 .curt-tab-unid thead th {
     position: sticky;
     top: 0;
@@ -782,6 +788,17 @@ _CSS_TABELA_UNIDADES = """
 _PROP_OTHER_LABEL = "Outros"
 
 
+# Razões de restrição expostas como filtro nas sub-abas "Por usina" e
+# "Por grupo" (G.6). Ordem ENE→CNF→REL alinha com a ordem das cores
+# Bauhaus do gráfico da Visão Geral (vermelho/amarelo/azul). PAR é
+# excluído por convenção do projeto (vide RAZOES_OPERATIVAS em utils).
+_RAZOES_FILTRO = (
+    ("ENE", "Energético"),
+    ("CNF", "Confiabilidade"),
+    ("REL", "Elétrico"),
+)
+
+
 def _is_proprietario_outros(prop) -> bool:
     """True se o PROPRIETARIO deve cair no balde 'Outros / Não classificado'."""
     if prop is None or pd.isna(prop):
@@ -790,25 +807,47 @@ def _is_proprietario_outros(prop) -> bool:
 
 
 @st.cache_data(show_spinner=False)
-def _calcular_linhas_unidade(df: pd.DataFrame) -> list:
-    """Calcula pct_total nos 3 períodos pra cada unidade do df.
+def _calcular_linhas_unidade(
+    df: pd.DataFrame,
+    razoes_marcadas: tuple = ("CNF", "ENE", "REL"),
+) -> list:
+    """Calcula pct_total nos 7 períodos pra cada unidade do df.
 
-    Decisões de produto (SPEC §6 + confirmação Nava):
-    - Suprime unidades sem dado em NENHUM dos 3 períodos (todas pcts None).
-    - Ordenação: decrescente por pct mês corrente; unidades sem dado no mês
-      corrente vão pro fim em ordem alfabética.
+    Decisões de produto:
+    - Suprime unidades sem dado em NENHUM dos 7 períodos (todas pcts None).
+    - Ordenação: decrescente por pct trimestre corrente (G.5); unidades sem
+      dado no trimestre corrente vão pro fim em ordem alfabética.
     - PROPRIETARIO display fica pro caller (este helper retorna o valor cru).
+    - razoes_marcadas (G.6): tuple SORTED de razões a contar. Default
+      ("CNF", "ENE", "REL") preserva comportamento original (todas
+      operativas marcadas). Tupla vazia equivale a "sem filtro de razão"
+      (bypass) — usada SÓ em validação bit-a-bit (script
+      validar_filtro_razoes.py); em produção o caller intercepta vazio
+      e mostra mensagem "selecione pelo menos uma".
 
-    Cacheado: o cálculo é determinístico em df, e roda ~810× pct_no_periodo
-    (~270 unidades × 3 períodos). Cache evita repetir em reruns que não
-    mudam df_filtrado (ex: troca de granularidade global, navegação entre
-    sub-abas).
+    Filter de razão (G.6): em vez de dropar linhas com RAZAO fora de
+    razoes_marcadas (que removeria as linhas RAZAO=NaN onde mora o
+    OUTPUT puro, subestimando o denominador), zera FRUSTRADO_MWH nas
+    razões excluídas. Preserva OUTPUT íntegro, ajusta só o numerador.
+
+    Cacheado: o cálculo é determinístico em (df, razoes_marcadas), e
+    roda ~1890× pct_no_periodo (~270 unidades × 7 períodos pós-G.5:
+    3 meses + 4 trimestres). Cache evita repetir em reruns que não
+    mudam (df_filtrado, razoes_marcadas).
     """
     if len(df) == 0 or df["DATA"].isna().all():
         return []
 
+    # G.6: filter de razão por zerar FRUSTRADO_MWH (não dropar linhas)
+    if razoes_marcadas:
+        df = df.copy()
+        mask_excluir = (
+            df["RAZAO"].notna() & ~df["RAZAO"].isin(razoes_marcadas)
+        )
+        df.loc[mask_excluir, "FRUSTRADO_MWH"] = 0.0
+
     max_d = pd.Timestamp(df["DATA"].max()).date()
-    periodos = calcular_3_periodos(max_d)
+    periodos = calcular_periodos_curtailment(max_d)
 
     linhas = []
     for nome_usina, sub in df.groupby("NOME_USINA_DASH"):
@@ -822,21 +861,37 @@ def _calcular_linhas_unidade(df: pd.DataFrame) -> list:
         linhas.append({
             "unidade": nome_usina,
             "proprietario": prop,
-            "mes_corrente": pcts["mes_corrente"],
-            "mes_anterior": pcts["mes_anterior"],
-            "penultimo": pcts["penultimo"],
+            # 3 meses
+            "mes_corrente":   pcts["mes_corrente"],
+            "mes_anterior":   pcts["mes_anterior"],
+            "penultimo":      pcts["penultimo"],
+            # 4 trimestres (G.5)
+            "tri_corrente":   pcts["tri_corrente"],
+            "tri_anterior_1": pcts["tri_anterior_1"],
+            "tri_anterior_2": pcts["tri_anterior_2"],
+            "tri_anterior_3": pcts["tri_anterior_3"],
         })
 
+    # G.5: ordenação por trimestre corrente (não mais mês corrente).
+    # Trimestre é métrica mais robusta pra ranking — 1 mês isolado pode
+    # ter ruído pontual, trimestre suaviza. Edge: max_d cai no dia 1 do
+    # trimestre (1/jan, 1/abr, 1/jul, 1/out) → tri_corrente vira 1 dia,
+    # ordenação pode ficar ~aleatória nesse dia específico (aceito).
     linhas.sort(key=lambda r: (
-        r["mes_corrente"] is None,
-        -(r["mes_corrente"] or 0.0),
+        r["tri_corrente"] is None,
+        -(r["tri_corrente"] or 0.0),
         r["unidade"],
     ))
     return linhas
 
 
 def _montar_html_tabela_unidades(periodos: dict, linhas: list) -> str:
-    """Monta string HTML da tabela. CSS em _CSS_TABELA_UNIDADES."""
+    """Monta string HTML da tabela. CSS em _CSS_TABELA_UNIDADES.
+
+    Pós-G.5: 9 colunas (Unidade + Grupo + 3 meses + 4 trimestres). Classe
+    `col-divisor` no PRIMEIRO trimestre (tri_corrente, 6ª coluna) marca
+    a transição visual mês→trimestre via border-left no CSS.
+    """
     rows_html = []
     for r in linhas:
         is_other = _is_proprietario_outros(r["proprietario"])
@@ -849,15 +904,20 @@ def _montar_html_tabela_unidades(periodos: dict, linhas: list) -> str:
             f'<td class="col-num">{_fmt_pct_curt(r["mes_corrente"])}</td>'
             f'<td class="col-num">{_fmt_pct_curt(r["mes_anterior"])}</td>'
             f'<td class="col-num">{_fmt_pct_curt(r["penultimo"])}</td>'
+            f'<td class="col-num col-divisor">{_fmt_pct_curt(r["tri_corrente"])}</td>'
+            f'<td class="col-num">{_fmt_pct_curt(r["tri_anterior_1"])}</td>'
+            f'<td class="col-num">{_fmt_pct_curt(r["tri_anterior_2"])}</td>'
+            f'<td class="col-num">{_fmt_pct_curt(r["tri_anterior_3"])}</td>'
             '</tr>'
         )
 
-    def _header_cell(p: dict) -> str:
+    def _header_cell(p: dict, divisor: bool = False) -> str:
         sufixo = p.get("sufixo_parcial", "")
         sufixo_html = (
             f'<span class="col-sufixo">{sufixo}</span>' if sufixo else ""
         )
-        return f'<th class="col-num">{p["label_curto"]}{sufixo_html}</th>'
+        classes = "col-num col-divisor" if divisor else "col-num"
+        return f'<th class="{classes}">{p["label_curto"]}{sufixo_html}</th>'
 
     headers = (
         '<thead><tr>'
@@ -866,6 +926,10 @@ def _montar_html_tabela_unidades(periodos: dict, linhas: list) -> str:
         f'{_header_cell(periodos["mes_corrente"])}'
         f'{_header_cell(periodos["mes_anterior"])}'
         f'{_header_cell(periodos["penultimo"])}'
+        f'{_header_cell(periodos["tri_corrente"], divisor=True)}'
+        f'{_header_cell(periodos["tri_anterior_1"])}'
+        f'{_header_cell(periodos["tri_anterior_2"])}'
+        f'{_header_cell(periodos["tri_anterior_3"])}'
         '</tr></thead>'
     )
     body = f'<tbody>{"".join(rows_html)}</tbody>'
@@ -877,23 +941,31 @@ def _montar_html_tabela_unidades(periodos: dict, linhas: list) -> str:
     )
 
 
-def _render_por_unidade(df: pd.DataFrame) -> None:
-    """Sub-aba "Por usina" — tabela de unidades com curtailment nos 3 períodos.
+def _render_por_unidade(
+    df: pd.DataFrame,
+    razoes_marcadas: tuple = ("CNF", "ENE", "REL"),
+) -> None:
+    """Sub-aba "Por usina" — tabela de unidades com curtailment nos
+    7 períodos pós-G.5 (3 meses + 4 trimestres).
+
+    razoes_marcadas (G.6): tuple SORTED de razões a contar. Caller
+    intercepta vazio antes de chamar — aqui assume tupla não vazia.
 
     C.1: só coluna Total, sem seletor de razão, sem hover, sem click.
-    Próximas sub-fases adicionam: C.2 seletor, C.3 tooltip rico, C.4 click.
+    G.6: filtro de razão via checkboxes (ENE/CNF/REL).
+    Próximas sub-fases: C.3 tooltip rico, C.4 click.
     """
     if len(df) == 0 or df["DATA"].isna().all():
         st.info("Sem dados pra esta combinação de filtros.")
         return
 
     max_d = pd.Timestamp(df["DATA"].max()).date()
-    periodos = calcular_3_periodos(max_d)
-    linhas = _calcular_linhas_unidade(df)
+    periodos = calcular_periodos_curtailment(max_d)
+    linhas = _calcular_linhas_unidade(df, razoes_marcadas)
 
     if not linhas:
         st.info(
-            "Nenhuma unidade com curtailment registrado nos 3 períodos analisados."
+            "Nenhuma unidade com curtailment registrado nos 7 períodos analisados."
         )
         return
 
@@ -902,9 +974,10 @@ def _render_por_unidade(df: pd.DataFrame) -> None:
         'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
         'margin:0.6rem 0 0.5rem 0;">'
         'Cada linha é uma unidade geradora com algum corte registrado pelo '
-        'ONS em pelo menos um dos 3 períodos. Unidades sem ocorrências de '
-        'curtailment não aparecem. % calculado sobre geração potencial da '
-        'unidade no período.'
+        'ONS em pelo menos um dos 7 períodos (3 meses + 4 trimestres). '
+        'Unidades sem ocorrências de curtailment não aparecem. % calculado '
+        'sobre geração potencial da unidade no período. Ordenado por % do '
+        'trimestre corrente.'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -1208,8 +1281,9 @@ def _aplicar_rateio_cached(
 # de uma janela ampla (~15M = 5 trimestres = 1 corrente parcial + 4 fechados,
 # cobre comparação YoY pra qualquer trimestre). Visão Geral filtra slice em
 # memória pros presets curtos; Por usina/Por grupo usam direto (15M cobre
-# os 12M que pediam antes — calcular_3_periodos só usa os 3 últimos meses
-# anyway).
+# os 12M que pediam antes — calcular_periodos_curtailment usa 3 meses +
+# 4 trimestres ancorados em max_d, voltando até T3 do ano anterior =
+# ~10 meses atrás, ainda dentro dos 15M com folga de 1 trimestre).
 #
 # Categorical OBRIGATÓRIO em USINA/RAZAO/FONTE/SUBMERCADO/UF:
 # - Sem Categorical: footprint estimado ~750MB → OOM no Cloud free tier 1GB
@@ -1383,7 +1457,8 @@ def _render_aba_curtailment_impl() -> None:
     # =========================================================================
     # CONTROLES GLOBAIS — fonte sempre visível; granularidade + período só
     # na "Visão geral" (sub-abas "Por usina" e "Por grupo" usam períodos
-    # fixos mensais via calcular_3_periodos — controles não fazem nada nelas).
+    # fixos via calcular_periodos_curtailment — 3 meses + 4 trimestres
+    # ancorados em max_d; controles não fazem nada nelas).
     # =========================================================================
     if sub_aba == "Visão geral":
         ctrl_cols = st.columns(2)
@@ -1448,20 +1523,72 @@ def _render_aba_curtailment_impl() -> None:
             st.error("Data inicial maior que data final.")
             st.stop()
     else:
-        # "Por usina" / "Por grupo": controles ocultos, fonte sozinha + janela
-        # forçada de 12M (cobre os 3 períodos da SPEC §5 com folga).
-        fonte_label = st.selectbox(
-            "Fonte",
-            ["Solar", "Eólica"],
-            index=0,
-            key="curt_fonte",
-        )
+        # "Por usina" / "Por grupo": granularidade/preset ocultos.
+        # Layout G.6: Fonte (~30%) + 3 checkboxes de razão (~70%) na
+        # mesma linha. Razões padrão: todas marcadas (= comportamento
+        # pré-G.6, validado bit-a-bit em validar_filtro_razoes.py).
+        cols_filtros = st.columns([0.3, 0.7])
+        with cols_filtros[0]:
+            fonte_label = st.selectbox(
+                "Fonte",
+                ["Solar", "Eólica"],
+                index=0,
+                key="curt_fonte",
+            )
+        with cols_filtros[1]:
+            # Spacer pra alinhar checkboxes com edge inferior do selectbox
+            # "Fonte" — o label "Fonte" do selectbox ocupa ~20px acima do
+            # widget. Mesmo padrão dos botões de preset de período.
+            st.markdown(
+                '<div style="font-size:0.875rem; color:transparent; '
+                'user-select:none; margin-bottom:0.5rem;">.</div>',
+                unsafe_allow_html=True,
+            )
+            cols_razoes = st.columns([1, 1, 1])
+            razoes_marcadas_list = []
+            # Pattern shadow key pra persistência entre sub-abas:
+            # Streamlit DELETA widget keys do session_state em reruns que
+            # não renderizam o widget (branch "Visão geral" não cria estes
+            # checkboxes). Sem shadow, voltar pra "Por usina" recriaria os
+            # widgets com default True, perdendo seleção.
+            # Solução: shadow key (NÃO usada por widget) preserva estado
+            # entre renderizações condicionais. Sufixo "_persisted" e
+            # underscore inicial sinalizam intenção.
+            for i, (sigla, nome) in enumerate(_RAZOES_FILTRO):
+                shadow_key = f"_curt_razao_{sigla}_persisted"
+                widget_key = f"curt_razao_{sigla}"
+
+                # Inicializa shadow na 1ª render absoluta (default = marcado).
+                if shadow_key not in st.session_state:
+                    st.session_state[shadow_key] = True
+
+                # Hidrata widget_key a partir do shadow ANTES de criar
+                # o widget — sobrevive ao cleanup do Streamlit.
+                if widget_key not in st.session_state:
+                    st.session_state[widget_key] = st.session_state[shadow_key]
+
+                with cols_razoes[i]:
+                    marcada = st.checkbox(
+                        f"{nome} ({sigla})",
+                        key=widget_key,
+                    )
+                    if marcada:
+                        razoes_marcadas_list.append(sigla)
+
+                # Sincroniza shadow APÓS o render — captura o estado
+                # atual do widget (ex: usuário acabou de marcar/desmarcar)
+                # pra próxima renderização (mesmo se o widget for
+                # descartado entre renders).
+                st.session_state[shadow_key] = marcada
+
+            # SORTED pra cache key canônica (("ENE", "REL") == ("REL", "ENE"))
+            razoes_marcadas = tuple(sorted(razoes_marcadas_list))
         # TODO (Fase F polimento): data_ini/data_fim calculados aqui ficam
         # ÓRFÃOS pós-refator do Caminho 1 — Por usina/Por grupo passaram a
         # usar a janela ampla 15M direto via _carregar_curtailment_janela_ampla
-        # (calcular_3_periodos só usa os 3 últimos meses, então a janela
-        # extra não muda nada matematicamente). Aceitável agora pra manter
-        # diff cirúrgico; limpar em sessão futura.
+        # (calcular_periodos_curtailment usa 3 meses + 4 trimestres ancorados
+        # em max_d, sempre dentro dos 15M com folga). Aceitável agora pra
+        # manter diff cirúrgico; limpar em sessão futura.
         data_fim = max_d_curt
         data_ini = max(min_d_curt, max_d_curt - timedelta(days=365))
         granularidade = None
@@ -1525,7 +1652,8 @@ def _render_aba_curtailment_impl() -> None:
 
     # Visão Geral: filter por DATA pra janela curta selecionada (ms).
     # Por usina/Por grupo: usam o df_filtrado_amplo direto (15M cobre os
-    # 12M antigos; calcular_3_periodos só usa os 3 últimos meses).
+    # 12M antigos; calcular_periodos_curtailment usa 3 meses + 4 trimestres
+    # ancorados em max_d, sempre dentro dos 15M).
     if sub_aba == "Visão geral":
         df_filtrado = df_filtrado_amplo[
             (df_filtrado_amplo["DATA"] >= data_ini)
@@ -1552,6 +1680,15 @@ def _render_aba_curtailment_impl() -> None:
             data_ini, data_fim,
         )
     elif sub_aba == "Por usina":
-        _render_por_unidade(df_filtrado)
+        # G.6: edge case "nenhum marcado" — caller mostra mensagem e
+        # NÃO chama o helper. Não usa st.stop(): o resto da página
+        # (controles do topo, sub-aba selector) continua interativo,
+        # usuário pode re-marcar pelo menos uma razão.
+        if len(razoes_marcadas) == 0:
+            st.info(
+                "Selecione pelo menos uma razão para visualizar a tabela."
+            )
+        else:
+            _render_por_unidade(df_filtrado, razoes_marcadas)
     else:  # "Por grupo"
         _placeholder_em_construcao()
