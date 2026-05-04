@@ -357,6 +357,65 @@ def _render_period_controls_curt(
 
 
 # =============================================================================
+# Dropdown "Entidade" (Visão geral) — Caminho 3:
+# Grupos sempre todos do Excel (independente da fonte); unidades filtradas
+# pela fonte. Lista vem do Excel (Fonte A), não do df pós-rateio (Fonte B):
+# usuário precisa ver unidades cadastradas mesmo as sem curtailment na
+# janela 15M.
+# =============================================================================
+
+_GRUPOS_PRIORIZADOS = (
+    "Alupar", "Auren", "Copel", "CPFL",
+    "Engie", "Eneva", "Equatorial", "Neoenergia",
+)
+
+
+@st.cache_data(show_spinner=False)
+def _construir_opcoes_entidade(fonte_label: str) -> list:
+    """Lista de itens do dropdown Entidade da Visão Geral.
+
+    - "Brasil (SIN)" sempre primeiro.
+    - Grupos: SEMPRE todos do Excel (Caminho 3), priorizadas no topo,
+      restante alfabético. Ordem independente da fonte.
+    - Unidades: filtradas pela fonte selecionada (só Solar OU só Eólica).
+    - Display invertido: "Auren (Grupo)" / "Tacaratu (Unidade)" — nome em
+      primeiro plano (decisão de design da sessão atual).
+    """
+    df_g = carregar_grupos_excel()
+    if len(df_g) == 0:
+        return ["Brasil (SIN)"]
+
+    todos_grupos = sorted(df_g["PROPRIETARIO"].dropna().unique())
+    prio = [g for g in _GRUPOS_PRIORIZADOS if g in todos_grupos]
+    restante = sorted(g for g in todos_grupos if g not in prio)
+    grupos_ordenados = prio + restante
+
+    fonte_code = "SOLAR" if fonte_label == "Solar" else "EOLICA"
+    unidades = sorted(
+        df_g[df_g["FONTE"] == fonte_code]["NOME_USINA"].dropna().unique()
+    )
+
+    return (
+        ["Brasil (SIN)"]
+        + [f"{g} (Grupo)" for g in grupos_ordenados]
+        + [f"{u} (Unidade)" for u in unidades]
+    )
+
+
+def _parse_entidade(entidade: str):
+    """Retorna (filtro_grupo, filtro_unidade, titulo_contexto)."""
+    if entidade == "Brasil (SIN)":
+        return (None, None, "SIN")
+    if entidade.endswith(" (Grupo)"):
+        nome = entidade[: -len(" (Grupo)")]
+        return (nome, None, nome.upper())
+    if entidade.endswith(" (Unidade)"):
+        nome = entidade[: -len(" (Unidade)")]
+        return (None, nome, nome.upper())
+    return (None, None, "SIN")  # fallback defensivo
+
+
+# =============================================================================
 # Sub-aba: Visão geral
 # =============================================================================
 
@@ -384,10 +443,9 @@ def _render_visao_geral(
         Apenas um dos dois pode ser não-nulo (ValueError se ambos).
         Quando ambos None, comportamento é 100% idêntico ao chamado original.
 
-    titulo_contexto: aceito mas NÃO renderizado nesta fase. Reservado pro
-        breadcrumb/badge da Fase E (SPEC §8.2: "Curtailment › Por grupo ›
-        Engie (Eólica)"). Manter na assinatura agora pra fechar o contrato
-        completo da função em uma fase só.
+    titulo_contexto: rótulo do escopo no título Bauhaus do gráfico.
+        "SIN" no padrão Brasil; nome do grupo/unidade.upper() em modo
+        drill-down. Default "SIN" se None.
     """
     if filtro_unidade is not None and filtro_grupo is not None:
         raise ValueError(
@@ -400,12 +458,31 @@ def _render_visao_geral(
     elif filtro_grupo is not None:
         df = df[df["PROPRIETARIO"] == filtro_grupo]
 
+    # Guard de df vazio ANTES de renderizar título/tag — evita "header
+    # órfão" tipo "CURTAILMENT · SOLAR · COPEL" seguido só de warning
+    # (Copel só tem Eólica). Mensagem específica em modo drill-down.
+    if len(df) == 0:
+        if filtro_grupo is not None:
+            st.warning(
+                f"O grupo {filtro_grupo} não tem unidades em "
+                f"{fonte_label} nesse período."
+            )
+        elif filtro_unidade is not None:
+            st.warning(
+                f"A unidade {filtro_unidade} não tem dados em "
+                f"{fonte_label} nesse período."
+            )
+        else:
+            st.warning("Sem dados de curtailment no período selecionado.")
+        return
+
     # =========================================================================
     # Título Bauhaus do gráfico (mesmo padrão Carga/Geração)
     # =========================================================================
     periodo_str = (
         f"{data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}"
     )
+    contexto_label = (titulo_contexto or "SIN").upper()
     st.markdown(
         f'<div style="display:flex; justify-content:space-between; '
         f'align-items:baseline; '
@@ -413,9 +490,7 @@ def _render_visao_geral(
         f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
         f'margin: 2.6rem 0 0.3rem 0; padding-bottom:3px; '
         f'border-bottom: 2px solid #1A1A1A;">'
-        # TODO: quando "Por estado" for implementado, "SIN" troca pra
-        # localizacao_label.upper() (BAHIA/RN/etc) dinamicamente.
-        f'<span>CURTAILMENT POR TIPO DE RESTRIÇÃO · {fonte_label.upper()} · SIN</span>'
+        f'<span>CURTAILMENT POR TIPO DE RESTRIÇÃO · {fonte_label.upper()} · {contexto_label}</span>'
         f'<span>{periodo_str}</span>'
         f'</div>',
         unsafe_allow_html=True,
@@ -440,8 +515,10 @@ def _render_visao_geral(
     s = serie_temporal(df_p)
 
     if len(s) == 0:
+        # Caso patológico: df não-vazio (passou guard acima) mas série
+        # temporal vazia. Improvável; manter como fallback defensivo.
         st.warning("Sem dados de curtailment no período selecionado.")
-        return  # sub-aba sem dados — não mata as outras (issue do user)
+        return
 
     fig = go.Figure()
     razoes_ordem = ["ENE", "CNF", "REL"]
@@ -1441,7 +1518,9 @@ def _render_aba_curtailment_impl() -> None:
     # ancorados em max_d; controles não fazem nada nelas).
     # =========================================================================
     if sub_aba == "Visão geral":
-        ctrl_cols = st.columns(2)
+        # Layout 0.7/0.7/1.6: Fonte e Granularidade são strings curtas;
+        # Entidade pode ter strings longas tipo "Conjunto Dracena (Unidade)".
+        ctrl_cols = st.columns([0.7, 0.7, 1.6])
         with ctrl_cols[0]:
             fonte_label = st.selectbox(
                 "Fonte",
@@ -1456,7 +1535,25 @@ def _render_aba_curtailment_impl() -> None:
                 index=1,  # default: Mensal
                 key="curt_granularidade",
             )
+        with ctrl_cols[2]:
+            # Reset defensivo ANTES de instanciar o widget (decisão 5.12):
+            # se entidade selecionada não está mais nas opções (trocou Fonte
+            # e era unidade da fonte anterior), volta pra "Brasil (SIN)".
+            opcoes_entidade = _construir_opcoes_entidade(fonte_label)
+            atual_entidade = st.session_state.get(
+                "curt_entidade", "Brasil (SIN)"
+            )
+            if atual_entidade not in opcoes_entidade:
+                st.session_state["curt_entidade"] = "Brasil (SIN)"
+            entidade = st.selectbox(
+                "Entidade",
+                opcoes_entidade,
+                key="curt_entidade",
+            )
         granularidade = GRANS_UI[granularidade_ui]
+        filtro_grupo, filtro_unidade, titulo_contexto = _parse_entidade(
+            entidade
+        )
 
         # Spacer: CSS global de app.py:353 aplica margin-top:-1.5rem em
         # .stDateInput. Sem este spacer, labels dos date_inputs sobrepõem
@@ -1658,6 +1755,9 @@ def _render_aba_curtailment_impl() -> None:
         _render_visao_geral(
             df_filtrado, granularidade, granularidade_ui, fonte_label,
             data_ini, data_fim,
+            filtro_grupo=filtro_grupo,
+            filtro_unidade=filtro_unidade,
+            titulo_contexto=titulo_contexto,
         )
     elif sub_aba == "Por usina":
         # G.6: edge case "nenhum marcado" — caller mostra mensagem e
