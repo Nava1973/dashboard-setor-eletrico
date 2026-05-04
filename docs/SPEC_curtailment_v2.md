@@ -387,3 +387,113 @@ no mesmo período/fonte deve bater com a Visão Geral.
   (usar `visibility:hidden + position:absolute + 1px`)
 - CSS em f-string com `{{}}` escapados, separar de HTML em concat simples
 - Sem border-radius, bordas pretas 2px, paleta Bauhaus
+
+---
+
+## Fase G — UX Polish (pendente)
+
+Ajustes pequenos de polimento descobertos pós-Fase F. Sem refator
+estrutural, sem novo dado, sem mudança de cálculo. Empacotam de forma
+coerente porque atacam coesão visual e clareza informacional da aba.
+
+### G.1 — Renomear label "Proprietário" para "Grupo" na tabela Por usina
+
+**Descrição:** trocar o cabeçalho da coluna "Proprietário" da tabela
+da sub-aba "Por usina" para "Grupo". Mudança apenas de label visível
+no HTML renderizado — DataFrame interno mantém a coluna como
+`PROPRIETARIO` (chave técnica), pipeline upstream/downstream
+inalterado.
+
+**Justificativa:** alinha vocabulário com a sub-aba "Por grupo".
+Hoje o usuário lê "Proprietário" numa aba e "Grupo" na outra pra
+designar o mesmo conceito (entidade do Excel de grupos). Coerência
+de vocabulário entre sub-abas reduz fricção cognitiva. Aplica o
+padrão "display labels separados de variable names" (decisão 5.30
+do CLAUDE.md) — vocabulário visível pode mudar sem mexer no data
+layer.
+
+**Atenção técnica:** tradução acontece no ponto onde o cabeçalho
+HTML é construído (provavelmente uma f-string literal com `<th>`).
+NÃO renomear:
+- chave de coluna `PROPRIETARIO` no DataFrame
+- variáveis Python (`df_proprietario`, `proprietario_alias`, etc.)
+- chaves de dict, comparações `col == "PROPRIETARIO"`
+- nomes em `data_loader_grupos_excel.py`
+
+Validação: `Ctrl+F` por "Proprietário" no `tab_curtailment.py` —
+contar ocorrências antes/depois pra confirmar que só o label de
+header mudou (1 ocorrência esperada).
+
+**Risco:** baixo. Mudança puramente cosmética de string. Sem
+impacto em export CSV (que usa keys internas). Sem impacto em
+testes (não há testes contra o label). Reversível em 1 commit.
+
+### G.2 — Botão sub-aba selecionado: fundo amarelo (não branco)
+
+**Descrição:** trocar o estilo do botão de sub-aba ATIVO de fundo
+branco (`#FFFFFF`) para fundo amarelo Bauhaus (`#F6BD16` =
+`BAUHAUS_YELLOW`). Manter borda preta 2px e texto preto.
+Botões inativos continuam pretos com texto cream — sem mudança.
+
+**Justificativa:** alinha com os botões de preset de período
+(1M/3M/6M/12M/Máx) que já usam `type="primary"` com fundo amarelo
+via CSS global. Hoje a aba Curtailment tem 2 famílias de botões
+ATIVOS visualmente distintas: sub-abas em branco vs presets em
+amarelo. Padronizar pra amarelo reforça "ativo = amarelo" como
+linguagem visual única na aba e no resto do app.
+
+**Atenção técnica:** os botões de sub-aba são `st.button`
+customizados (não `st.segmented_control`), com CSS escopado em
+`[class*="st-key-btn_curt_subaba_"] button[kind="primary"]`
+(`tab_curtailment.py:1294`). A regressão visual antiga do
+segmented_control (atributo de "ativo" instável, armadilha 4.3 do
+CLAUDE.md) **NÃO se aplica** — atributo `kind="primary"` é estável
+e semântico. Mudança é literal: trocar `background-color: #FFFFFF`
+por `background-color: #F6BD16`. Texto continua `#1A1A1A`
+(`BAUHAUS_BLACK`) — contraste de leitura preservado (preto sobre
+amarelo é leitura clara).
+
+**Risco:** baixo. CSS escopado por `[class*="st-key-btn_curt_subaba_"]`
+não vaza pra outros botões da página (presets de período mantêm
+amarelo via outro seletor; botões `secondary` não são afetados).
+Validação visual em <30s — abrir aba, conferir as 3 sub-abas,
+clicar em cada uma.
+
+### G.3 — Mensagem informativa de carregamento diferenciada
+
+**Descrição:** trocar o spinner anônimo da 1ª carga de dados de
+curtailment por uma mensagem informativa explícita: **"Carregando
+15 meses de dados ONS — primeira carga da sessão"**. Cargas
+subsequentes (cache hit) usam spinner curto ou ficam silenciosas.
+
+**Justificativa:** o cold start da aba Curtailment custa ~40-45s
+estimados pós-Fase G (carga 15M consolidada — ver plano Caminho 1
+documentado em conversa anterior). Sem mensagem clara, o usuário
+não sabe se o app travou ou se está fazendo trabalho legítimo.
+Diferenciar 1ª carga (mensagem completa, expectativa de 30-60s)
+de cargas subsequentes (silêncio ou "atualizando…", expectativa
+<2s) calibra a expectativa do usuário pelo cenário real.
+
+**Atenção técnica:** o helper público
+`is_balanco_cache_fresh()` da decisão 5.15 é o pattern análogo —
+expor um helper similar pro curtailment
+(`is_curtailment_cache_fresh()` ou check direto via
+`@st.cache_data`'s `_get_cache_key()`) pra UI escolher mensagem
+antes do load. Implementação possível em 2 níveis:
+- **Simples:** flag em `st.session_state["_curt_ja_carregou"]`
+  que vira `True` após 1ª chamada da sessão. UI escolhe mensagem
+  baseada nesse flag. Não detecta cache de disco persistente
+  entre sessões — cada sessão nova mostra "primeira carga".
+- **Robusto:** helper que checa se a janela 15M está cacheada
+  (via Streamlit's internal cache check ou disk-cache fresh).
+  Detecta cache quente entre sessões mas é mais frágil — APIs
+  internas do Streamlit podem mudar entre versões.
+
+**Recomendação:** implementação simples primeiro. Se o user
+relatar "mensagem incorreta" (ex: cache de disco quente, mas
+mostra "primeira carga"), promover pra robusto.
+
+**Risco:** baixíssimo. Mensagem de UI sem efeito em cálculo,
+dado, ou cache. Reversível em 1 commit. Trade-off conhecido:
+versão simples mostra "primeira carga" no início de toda sessão
+nova mesmo com disk-cache quente — aceito por simplicidade.
