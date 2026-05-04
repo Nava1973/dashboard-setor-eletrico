@@ -369,7 +369,13 @@ st.markdown(
     .block-container {{
         padding-top: 0 !important;
         padding-bottom: 2rem;
-        max-width: 1000px;
+        /* Decisão G.4 (Fase G, 2026-05-04): wide moderado.
+           set_page_config(layout="wide") remove o limite default (~704px),
+           mas limitamos a 1400px pra evitar esticar feio em monitores 4K.
+           Sweet spot pra acomodar tabela Por usina expandida (G.5) sem
+           prejudicar telas grandes. Centraliza com margin auto. */
+        max-width: 1400px;
+        margin: 0 auto;
     }}
     /* Header Streamlit — deixar padrão */
     /* Remove padding/margin do primeiro elemento da página pra subir tudo */

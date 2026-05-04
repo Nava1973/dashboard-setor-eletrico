@@ -497,3 +497,125 @@ mostra "primeira carga"), promover pra robusto.
 dado, ou cache. Reversível em 1 commit. Trade-off conhecido:
 versão simples mostra "primeira carga" no início de toda sessão
 nova mesmo com disk-cache quente — aceito por simplicidade.
+
+### G.4 — Layout wide moderado (1400px)
+
+**Descrição:** trocar o `max-width` do `.block-container` em
+`app.py` de **1000px** para **1400px**, mantendo `margin: 0 auto`
+pra centralização. `st.set_page_config(layout="wide")` já está em
+produção (app.py:51) — remove o limite default do Streamlit
+(~704px), mas o CSS `.block-container { max-width }` é o que
+limita visualmente. Mudança afeta TODAS as abas globalmente.
+
+**Justificativa:** a tabela "Por usina" expandida da G.5 precisa
+de mais largura pra acomodar 7 colunas de valor (3 meses + 4
+trimestres) + Unidade + Grupo. 1000px aperta demais. 1400px é
+sweet spot — acomoda tabela larga sem estirar feio em monitores
+4K (onde largura total seria 2000-3000px). Outras abas (PLD,
+Reservatórios, ENA, Geração, Carga) ganham respiro grátis sem
+redesign.
+
+**Atenção técnica:**
+- Telas <1400px: max-width fica inativo, container ocupa tudo
+  disponível (mesmo comportamento de hoje em telas <1000px).
+- Telas ≥1400px: container limita a 1400px e centraliza.
+  Mudança visível.
+- Componentes filhos com `use_container_width=True` (default das
+  abas) re-renderizam pra 1400px. **Risco real:** alguma viz
+  Plotly calibrada pra 1000px pode ficar achatada/estranha
+  (hover labels, alinhamentos manuais, larguras absolutas em
+  px). Smoke test em 6 abas obrigatório antes de commit.
+- `set_page_config` linha 51: NÃO mexer (já está
+  `layout="wide"`).
+- Outros `max-width: 100% !important` em CSS de selectbox
+  (linhas 1561, 1703 em app.py): scoped a
+  `[data-testid="stSelectbox"]`, sem conflito.
+- CLAUDE.md §3.5 menciona "Página limitada a max-width: 1000px
+  no .block-container" — atualizar manualmente em sessão futura
+  (mesma família de comentários "1GB" pendentes).
+
+**Risco:** moderado. Afeta visual de todas as abas
+simultaneamente. Mitigação: smoke test obrigatório em PLD,
+Reservatórios, ENA/Chuva, Geração, Carga, Curtailment antes do
+commit. Reversível em 1 commit (revert do CSS `max-width`).
+
+### G.5 — Tabela "Por usina" expandida (3 meses + 4 trimestres)
+
+**Descrição:** expandir a tabela da sub-aba "Por usina" de **3
+colunas de valor** (3 últimos meses) para **7 colunas de valor**
+— os mesmos 3 meses + 4 trimestres adicionais (trimestre corrente
+parcial + 3 trimestres fechados anteriores). Estrutura final:
+
+```
+| UNIDADE | GRUPO | ABR  | MAR  | FEV  | T2   | T1   | T4   | T3   |
+|         |       | 2026 | 2026 | 2026 | 26   | 26   | 25   | 25   |
+|         |       |(parc)|      |      |(parc)|      |      |      |
+```
+
+**Decisões de produto:**
+
+1. **Header em 2 linhas:** rótulo (mês curto ou Tn) na 1ª linha,
+   ano de 2 dígitos na 2ª. Sufixo `(até DD/MM)` no mês corrente
+   E no trimestre corrente — comunica visualmente que estão
+   parciais.
+
+2. **Linha vertical sutil entre coluna FEV 2026 e T2 26:**
+   separador conceitual (meses vs trimestres). CSS:
+   `border-left: 1px solid #E0E0E0` ou similar — sutil, só
+   marca a transição.
+
+3. **Ordenação:** decrescente por **% no trimestre corrente
+   (T2 26)**, não mais por mês corrente. Razão: trimestre é
+   métrica mais robusta pra ranking (1 mês isolado pode ter
+   ruído pontual; trimestre suaviza). Unidades sem dado em T2
+   vão pro fim em ordem alfabética.
+
+4. **Cobertura temporal:** usa exatamente a janela 15M já
+   carregada pelo Caminho 1 (commit 47fe421) — sem custo
+   adicional de download. T3 25 começa em 01/07/2025; janela
+   ampla começa em 01/04/2025; sobra 1 trimestre de margem.
+
+**Cálculo dos valores trimestrais:**
+
+- **T2 26 corrente (parcial):** % FRUSTRADO sobre soma do
+  trimestre **até `max_d`** (ex: 01/04/2026 → 30/04/2026 se
+  max_d = 30/04/2026 — 1 mês de 3 do trimestre).
+- **T1 26, T4 25, T3 25 fechados:** janelas trimestrais
+  oficiais (T1 = jan-mar, T4 = out-dez, T3 = jul-set).
+  Reutiliza `_inicio_trimestre_anterior(max_d, N)` que já
+  existe em `tab_curtailment.py`.
+
+**Atenção técnica:**
+
+- Estender `calcular_3_periodos` em
+  `utils/utils_curtailment.py` pra retornar 7 períodos (3
+  meses + 4 trimestres), OU criar novo helper
+  `calcular_periodos_completos`. Decisão: **estender** o
+  existente — caller único (`_calcular_linhas_unidade`),
+  rename pra `calcular_periodos_curtailment` se ficar
+  semanticamente desonesto. Avaliar na implementação.
+- `pct_no_periodo` em `utils/utils_curtailment.py` já aceita
+  período arbitrário (`data_ini, data_fim`) — não precisa
+  mudar. Funciona pra meses E trimestres sem distinção.
+- `_calcular_linhas_unidade` em `tab_curtailment.py:793`
+  passa a calcular 7 pcts em vez de 3. Loop interno itera
+  sobre 7 períodos. Custo: ~270 unidades × 7 períodos =
+  ~1890 chamadas a `pct_no_periodo` (vs 810 antes). Cache
+  do resultado preserva.
+- HTML da tabela passa a ter 9 colunas totais (Unidade +
+  Grupo + 7 períodos). CSS precisa acomodar — provável
+  ajuste de padding/font-size das colunas numéricas.
+- Header em 2 linhas: usar `<br>` dentro do `<th>` ou
+  `display: flex; flex-direction: column` no `<th>`.
+  Decidir na implementação visual.
+
+**Risco:** moderado. 4 frentes simultâneas (helper +
+loop + HTML + CSS). Smoke test focado em Curtailment:
+- Tabela renderiza com 9 colunas sem overflow.
+- Sufixo `(até DD/MM)` aparece nas 2 colunas parciais.
+- Linha vertical entre FEV 2026 e T2 26 visível mas sutil.
+- Ordenação por T2 26 decrescente (1ª linha = maior % T2).
+- Valores em formato BR (`12,34%`).
+- Sem regressão em Visão Geral (não muda nessa sub-aba).
+
+Reversível em 1 commit se algo quebrar.
