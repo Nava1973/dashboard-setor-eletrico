@@ -6,6 +6,7 @@ Em desenvolvimento (local): lê credenciais de config.yaml.
 Em produção (Streamlit Cloud): lê de st.secrets["auth_config"]["yaml_content"].
 """
 
+import base64
 from pathlib import Path
 import yaml
 import streamlit as st
@@ -20,6 +21,13 @@ _YELLOW = "#F6BD16"
 _BLUE = "#2A6F97"
 _BLACK = "#1A1A1A"
 _CREAM = "#F5F1E8"
+
+# Logo BBI vermelho horizontal — lido 1x no nível do módulo
+_LOGO_RED_PATH = Path(__file__).parent / "assets" / "logos" / "bbi_horizontal_red.png"
+try:
+    _LOGO_RED_B64 = base64.b64encode(_LOGO_RED_PATH.read_bytes()).decode()
+except Exception:
+    _LOGO_RED_B64 = ""
 
 
 def _load_config() -> dict:
@@ -51,13 +59,15 @@ def _inject_login_css():
     st.markdown(
         f"""
         <style>
-        /* Form de login — estilização Bauhaus coesa */
+        /* Form de login — estilização Bauhaus coesa.
+           Bloco centralizado horizontalmente na tela. Largura escolhida
+           pra casar visualmente com a largura natural do título+barra. */
         [data-testid="stForm"] {{
             background: {_CREAM} !important;
             border: 3px solid {_BLACK} !important;
             border-radius: 0 !important;
             padding: 2rem !important;
-            max-width: 480px;
+            max-width: 600px;
             margin: 0 auto;
         }}
 
@@ -188,22 +198,62 @@ def _inject_login_css():
             display: none !important;
         }}
 
-        /* Título da tela de login */
+        /* Logo BBI horizontal vermelho — topo da tela de login.
+           Centralizado horizontalmente na tela. */
+        .login-logo {{
+            display: block;
+            width: 380px;
+            max-width: 60%;
+            height: auto;
+            margin: 2.5rem auto 1.5rem auto;
+        }}
+
+        /* Título da tela de login.
+           !important nas props abaixo é necessário pra vencer a regra
+           global `h1 { ... }` injetada pelo app.py (border-left vermelho
+           padrão Bauhaus 7px, padding-left 12px, font-size 2rem). Aqui
+           preservamos a barra vermelha mas com 10px (mais robusta pra
+           tela de login) e padding 16px — assinatura Bauhaus do projeto.
+           `width: fit-content` faz o bloco ocupar só a largura do texto+
+           barra+padding; combinado com `margin: 0 auto`, centraliza o
+           bloco inteiro horizontalmente na tela mantendo barra à esquerda. */
         .login-title {{
-            font-family: 'Bebas Neue', sans-serif;
-            font-size: 3rem;
-            letter-spacing: 0.02em;
+            font-family: 'Bebas Neue', sans-serif !important;
+            font-size: 2.5rem !important;
+            letter-spacing: 0.02em !important;
+            color: {_BLACK} !important;
+            text-align: left !important;
+            border-left: 10px solid {_RED} !important;
+            padding-left: 16px !important;
+            padding-right: 0 !important;
+            width: fit-content !important;
+            max-width: 90% !important;
+            margin: 0 auto 0.6rem auto !important;
+            line-height: 1.1 !important;
+        }}
+        /* Em desktop com folga, garante 1 linha; em telas estreitas
+           deixa quebrar naturalmente pra evitar scroll horizontal. */
+        @media (min-width: 700px) {{
+            .login-title {{
+                white-space: nowrap !important;
+            }}
+        }}
+
+        /* Autores — abaixo do título, antes do form.
+           Centralizados horizontalmente na tela. */
+        .login-authors {{
+            font-family: 'Inter', sans-serif;
+            font-size: 1.15rem;
             color: {_BLACK};
             text-align: center;
-            border-left: 10px solid {_RED};
-            padding-left: 16px;
-            max-width: 480px;
-            margin: 2rem auto 1.5rem auto;
+            letter-spacing: 0.06em;
+            max-width: 600px;
+            margin: 0 auto 2rem auto;
         }}
 
         .login-subtitle {{
             text-align: center;
-            max-width: 480px;
+            max-width: 600px;
             margin: 0 auto 1.5rem auto;
             color: #4A4A4A;
             font-family: 'Inter', sans-serif;
@@ -234,11 +284,21 @@ def require_login() -> str | None:
 
     auth_status = st.session_state.get("authentication_status")
 
-    # Se não está logado, injetar CSS e título da tela de login
+    # Se não está logado, injetar CSS e cabeçalho (logo + título + autores)
     if auth_status is not True:
         _inject_login_css()
+        if _LOGO_RED_B64:
+            st.markdown(
+                f'<img src="data:image/png;base64,{_LOGO_RED_B64}" '
+                f'class="login-logo" alt="Bradesco BBI" />',
+                unsafe_allow_html=True,
+            )
         st.markdown(
-            '<div class="login-title">Dashboard Setor Elétrico</div>',
+            '<h1 class="login-title">Dashboard Setor Elétrico — Brasil</h1>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div class="login-authors">Navarrete | Fagundes | Caruso</div>',
             unsafe_allow_html=True,
         )
 

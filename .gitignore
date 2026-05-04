@@ -16,6 +16,9 @@ __pycache__/
 # Output regenerável do scripts/validar_casamento_excel_ons.py
 relatorio_casamento/
 
+# Previews descartáveis dos scripts de geração de logos
+assets/logos/_preview_*.png
+
 # Config com credenciais reais — JAMAIS commitar
 config.yaml
 
