@@ -1202,6 +1202,51 @@ def _aplicar_rateio_cached(
 
 
 # =============================================================================
+# Wrapper top-level: janela ampla 15M com Categorical
+#
+# Caminho 1 (decisão de sessão 2026-05-04): cachear o df_curt_raw consolidado
+# de uma janela ampla (~15M = 5 trimestres = 1 corrente parcial + 4 fechados,
+# cobre comparação YoY pra qualquer trimestre). Visão Geral filtra slice em
+# memória pros presets curtos; Por usina/Por grupo usam direto (15M cobre
+# os 12M que pediam antes — calcular_3_periodos só usa os 3 últimos meses
+# anyway).
+#
+# Categorical OBRIGATÓRIO em USINA/RAZAO/FONTE/SUBMERCADO/UF:
+# - Sem Categorical: footprint estimado ~750MB → OOM no Cloud free tier 1GB
+#   (mesmo motivo que removeu sub-aba Por estado em 2abd77b).
+# - Com Categorical: footprint estimado ~180-220MB. Margem confortável.
+# - USINA tem ~700 únicos, RAZAO 4, FONTE 2, SUBMERCADO 4, UF ~13 — todos
+#   altíssimo grau de repetição em ~3.6M+ linhas, ganho típico 5-10×.
+#
+# Decisões de chave de cache:
+# - 3 args escalares (date, date, tuple) — hash trivial.
+# - TTL 6h alinha com carregar_curtailment upstream (não fica mais stale).
+# - Sem hash_funcs custom (args primitivos imutáveis).
+#
+# Cold start estimado (Cloud free tier): 40-45s na 1ª chamada da sessão.
+# Trocas subsequentes (preset, sub-aba): <1s (cache hit).
+# Ganho colateral: _aplicar_rateio_cached agora é chamado com (janela_ampla,
+# fonte) → cache hit em qualquer troca, não só Por usina ↔ Por grupo.
+# =============================================================================
+
+
+@st.cache_data(show_spinner=False, ttl=6 * 3600)
+def _carregar_curtailment_janela_ampla(
+    data_ini_ampla: date,
+    data_fim_ampla: date,
+    fontes: tuple = ("eolica", "solar"),
+) -> pd.DataFrame:
+    """Carrega janela ampla 15M e converte strings pra Categorical."""
+    df = carregar_curtailment(data_ini_ampla, data_fim_ampla, fontes)
+    if len(df) == 0:
+        return df
+    for col in ("USINA", "RAZAO", "FONTE", "SUBMERCADO", "UF"):
+        if col in df.columns:
+            df[col] = df[col].astype("category")
+    return df
+
+
+# =============================================================================
 # Função principal da aba
 # =============================================================================
 
@@ -1410,42 +1455,66 @@ def _render_aba_curtailment_impl() -> None:
             index=0,
             key="curt_fonte",
         )
+        # TODO (Fase F polimento): data_ini/data_fim calculados aqui ficam
+        # ÓRFÃOS pós-refator do Caminho 1 — Por usina/Por grupo passaram a
+        # usar a janela ampla 15M direto via _carregar_curtailment_janela_ampla
+        # (calcular_3_periodos só usa os 3 últimos meses, então a janela
+        # extra não muda nada matematicamente). Aceitável agora pra manter
+        # diff cirúrgico; limpar em sessão futura.
         data_fim = max_d_curt
         data_ini = max(min_d_curt, max_d_curt - timedelta(days=365))
         granularidade = None
         granularidade_ui = None
 
     # =========================================================================
-    # Carregar curtailment com a JANELA SELECIONADA pelo usuário
-    # (cache do loader é por mês — chamadas incrementais ao trocar preset)
+    # Carregar curtailment via wrapper de janela ampla (15M = 5 trimestres).
+    # Visão Geral filtra slice em memória pros presets curtos; Por usina/
+    # Por grupo usam direto. Detalhes da decisão no cabeçalho do
+    # _carregar_curtailment_janela_ampla.
     # =========================================================================
+    data_ini_ampla = max(
+        min_d_curt, _inicio_trimestre_anterior(max_d_curt, 4)
+    )
+
     with st.spinner(
         "Carregando dados de curtailment do ONS "
-        "(1ª chamada por janela: pode levar alguns minutos)…"
+        "(1ª chamada da sessão: pode levar 40-60s)…"
     ):
-        df_curt_raw = carregar_curtailment(
-            data_inicio=data_ini,
-            data_fim=data_fim,
+        df_curt_raw_amplo = _carregar_curtailment_janela_ampla(
+            data_ini_ampla=data_ini_ampla,
+            data_fim_ampla=max_d_curt,
             fontes=("eolica", "solar"),
         )
 
-    if df_curt_raw is None or len(df_curt_raw) == 0:
+    if df_curt_raw_amplo is None or len(df_curt_raw_amplo) == 0:
         st.error(
             "Não foi possível carregar dados de curtailment para esta janela. "
             "Tente outro período ou verifique a conexão com o ONS."
         )
         return
 
-    # ---- Filter por fonte + Aplicar rateio (cacheado por janela+fonte) ----
-    # Wrapper _aplicar_rateio_cached encapsula filter+rateio. Filter ANTES
-    # do rateio reduz volume 3× (3.6M -> 1.1M Solar / 2.5M Eólica). Cache
-    # evita re-execução em reruns sem mudança de (data_ini, data_fim,
-    # fonte_label). Validação de equivalência matemática:
-    # scripts/validar_filter_antes_rateio.py
-    df_filtrado = _aplicar_rateio_cached(
-        data_ini, data_fim, fonte_label,
-        df_curt_raw, df_grupos, aliases,
+    # ---- Filter por fonte + Aplicar rateio (cacheado por janela_ampla+fonte) ----
+    # Chamado SEMPRE com (data_ini_ampla, max_d_curt) — não com a janela curta
+    # da Visão Geral. Razão: cache key fica (janela_ampla, fonte_label) = 2
+    # entradas por sessão (Solar + Eólica). Cache hit em qualquer troca de
+    # preset OU sub-aba, não só Por usina ↔ Por grupo. Equivalência matemática
+    # validada em scripts/validar_cache_janela_ampla.py — rateio é
+    # multiplicação element-wise, slice posterior por DATA é distributivo.
+    df_filtrado_amplo = _aplicar_rateio_cached(
+        data_ini_ampla, max_d_curt, fonte_label,
+        df_curt_raw_amplo, df_grupos, aliases,
     )
+
+    # Visão Geral: filter por DATA pra janela curta selecionada (ms).
+    # Por usina/Por grupo: usam o df_filtrado_amplo direto (15M cobre os
+    # 12M antigos; calcular_3_periodos só usa os 3 últimos meses).
+    if sub_aba == "Visão geral":
+        df_filtrado = df_filtrado_amplo[
+            (df_filtrado_amplo["DATA"] >= data_ini)
+            & (df_filtrado_amplo["DATA"] <= data_fim)
+        ]
+    else:
+        df_filtrado = df_filtrado_amplo
 
     if len(df_filtrado) == 0:
         st.warning("Sem dados pra esta combinação de filtros.")
