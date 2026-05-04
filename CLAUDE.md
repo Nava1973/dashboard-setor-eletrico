@@ -2153,6 +2153,125 @@ inline + 1 trigger de transição) porque só uma das 3 granularidades
 precisa de default distinto. Migrar pra forma estilo Geração quando
 PLD ganhar mais granularidades com defaults únicos.
 
+### 5.37 Rebranding BBI (login + sidebar)
+
+**Decisão:** dashboard adota identidade visual Bradesco BBI sem
+abandonar o design system Bauhaus existente. Mudanças mínimas e
+cirúrgicas em duas telas: login (vista 1× por sessão, cerimonial)
+e sidebar (permanente durante navegação). Todas as outras telas
+internas (abas PLD, Reservatórios, ENA, Geração, Carga, Curtailment)
+ficam intactas.
+
+**Decisões de produto:**
+
+- Cores Bauhaus do projeto (`BAUHAUS_RED #D62828`, `BAUHAUS_BLUE
+  #2A6F97`, `BAUHAUS_YELLOW #F6BD16`, `BAUHAUS_BLACK #1A1A1A`,
+  `BAUHAUS_CREAM #F5F1E8`) são MANTIDAS. Não houve substituição
+  por cores BBI — diferenças seriam imperceptíveis e custo de
+  mudar (revisar gráficos, KPIs, prints) não compensa.
+- Vermelho BBI `#CC092F` é usado APENAS no logo da tela de login
+  (re-colorido a partir do logo branco da sidebar pra coerência
+  visual). Não substitui o vermelho Bauhaus em nenhum outro lugar.
+- Amarelo Bauhaus mantido apesar de a paleta BBI não ter amarelo.
+  Justificativa: amarelo é central na identidade Bauhaus (botões
+  ativos, submercado NE, cabeçalhos da sidebar) e seria caro de
+  remover.
+
+**Logos e geração:**
+
+- Fontes originais: `BBI Logo 2.jpg` (vertical vermelho),
+  `Bradesco_BBIS_RGB_BLACK (1).jpg` (horizontal preto). Originais
+  preservados em `assets/source_logos/`.
+- Pipeline de geração via Pillow (3 scripts em `scripts/`):
+  - `gerar_logos_bbi.py`: remove fundo branco com tolerância de
+    antialiasing, gera `bbi_horizontal_white.png` a partir do JPG
+    preto (inverte preto pra branco, preserva alpha).
+  - `gerar_logo_vermelho.py`: re-colore o branco pra vermelho BBI
+    `#CC092F` preservando alpha. Gera `bbi_horizontal_red.png`.
+    Garante que login e sidebar têm logos com mesma "geometria de
+    bordas".
+  - `crop_logo_white.py`: cropa margens transparentes herdadas do
+    JPG original (5.5% laterais + 20.7% verticais). Aplicado
+    APENAS no branco — vermelho mantém proporção original já
+    calibrada com o título da tela de login.
+- Previews descartáveis (`assets/logos/_preview_*.png`) ignorados
+  via `.gitignore`.
+
+**Tela de login (`auth.py`):**
+
+- Logo BBI horizontal vermelho centralizado na tela.
+- Título "Dashboard Setor Elétrico — Brasil" com barra vermelha
+  Bauhaus (`border-left: 10px solid {_RED}`). `width: fit-content +
+  margin: 0 auto` faz o bloco título+barra centralizar como UNIDADE
+  mantendo `text-align: left` interno (técnica que evita brigar com
+  `text-align: center vs left` no mesmo bloco).
+- Autores "Navarrete | Fagundes | Caruso" centralizados em linha
+  única, preto Bauhaus.
+- Form com `max-width: 600px` (calibrado empiricamente pra borda
+  direita coincidir com final do "l" de "Brasil").
+- `!important` nas props de `.login-title` pra vencer regra global
+  `h1` do `app.py` (border-left 7px Bauhaus padrão de seção).
+
+**Sidebar (`app.py`):**
+
+- Logo BBI horizontal branco no topo (alinhado à esquerda — precisou
+  cropar PNG porque margem transparente do source desalinhava
+  visualmente vs. o texto da sidebar).
+- Título "DASHBOARD SETOR ELÉTRICO" Bebas Neue 1.25rem
+  `letter-spacing: 0.20em` (calibrado pra abrir letras condensadas
+  em font-size pequeno).
+- Username "Nava" Inter 1rem cinza `#A0A0A0` (igual ao `st.caption`
+  default em dark theme, `rgba(250,250,250,0.6)` renderizado),
+  margin-top empurra pra baixo aproximando do Sair.
+- Botão Sair com `margin-top: -0.5rem !important` (sobe dentro do
+  `element_container` do Streamlit pra colar no username, sem
+  alterar o container — alternativa a `:has()` que sabemos que
+  trava o app, decisão 4.1).
+- Seletor preciso `button[data-sair="true"]` usa o JS marker já
+  existente.
+- Seção "BBI UTILITIES TEAM:" no rodapé via `st.divider()` nativo
+  + label Bebas Neue amarelo + 3 nomes Inter brancos alinhados à
+  esquerda.
+
+**Patterns reutilizáveis (registrados pra próximas mudanças
+visuais):**
+
+1. **Logos em base64 lidos 1× no nível do módulo** via `Path` +
+   `try/except` defensivo. Se `assets/logos/` ausente, app não
+   quebra — só não renderiza logo.
+2. **Classes próprias** (`.sidebar-*`, `.login-*`) com seletor
+   `[data-testid="stSidebar"] .classe` pra especificidade alta sem
+   empilhar `!important` em cima de `!important`.
+3. **Cropar margens transparentes de PNGs gerados a partir de JPGs**
+   antes de usar em layouts críticos. Margens herdadas do JPG fonte
+   (5-20% comum) desalinham visualmente o conteúdo.
+4. **Cor cinza claro de `st.caption`** em dark theme do projeto =
+   `~#A0A0A0` (rgba(250,250,250,0.6) renderizado). Útil pra replicar
+   em classes próprias que substituem o caption preservando o look.
+5. **Bebas Neue em font-size pequeno** (≤1.25rem): precisa
+   `letter-spacing ≥ 0.20em` pra ficar legível. Inter pode ficar
+   mais socada (default já funciona).
+6. **`width: fit-content + margin: 0 auto`** centraliza um bloco
+   block-level mantendo `text-align: left` interno — útil pra
+   "barra vermelha + texto" que precisa centralizar como unidade
+   sem perder a barra à esquerda.
+
+**Quando aplicar este pattern em outras telas:**
+
+- Mudanças visuais futuras que precisem inserir branding ou
+  alterar visual de telas específicas (login, telas de erro, modais)
+  sem refatorar o design system Bauhaus de gráficos/abas internas.
+- Inserção de logos institucionais em qualquer ponto do app
+  (preview de relatório, header de export PDF futuro).
+
+**Quando NÃO aplica:**
+
+- Mudanças de paleta global (gráficos, KPIs, abas internas) — exigem
+  refator amplo das 5+ abas e dezenas de prints validados.
+- Substituição de cores estruturais Bauhaus (`BAUHAUS_RED` etc.) —
+  são identidade do projeto há múltiplas sessões e estão em
+  centenas de pontos do código.
+
 ---
 
 ## 6. Fluxo de Desenvolvimento

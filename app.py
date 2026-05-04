@@ -10,12 +10,22 @@ Fonte: CCEE - Portal Dados Abertos
 https://dadosabertos.ccee.org.br/dataset/pld_media_diaria
 """
 
+import base64
+from pathlib import Path
+
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import timedelta
 
 from auth import require_login, logout_button
+
+# Logo BBI horizontal branco — lido 1x no nível do módulo, usado na sidebar
+_LOGO_WHITE_PATH = Path(__file__).parent / "assets" / "logos" / "bbi_horizontal_white.png"
+try:
+    _LOGO_WHITE_B64 = base64.b64encode(_LOGO_WHITE_PATH.read_bytes()).decode()
+except Exception:
+    _LOGO_WHITE_B64 = ""
 from data_loader import (
     load_pld_media_diaria,
     load_pld_horaria,
@@ -1239,8 +1249,20 @@ def _add_wet_season_bands(fig, *, date_start, date_end):
 # SIDEBAR
 # =============================================================================
 with st.sidebar:
-    st.markdown("### Dashboard Setor Elétrico")
-    st.caption(f"**{user}**")
+    if _LOGO_WHITE_B64:
+        st.markdown(
+            f'<img src="data:image/png;base64,{_LOGO_WHITE_B64}" '
+            f'class="sidebar-logo" alt="Bradesco BBI" />',
+            unsafe_allow_html=True,
+        )
+    st.markdown(
+        '<div class="sidebar-title">Dashboard Setor Elétrico</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f'<div class="sidebar-username">{user}</div>',
+        unsafe_allow_html=True,
+    )
 
     # Botões Sair e Atualizar — mesmo estilo: borda amarela fina, fundo transparente,
     # texto amarelo. JS marca cada um com data-sair/data-atualizar pra CSS atingir.
@@ -1312,6 +1334,77 @@ with st.sidebar:
             border: 1px solid #F6BD16 !important;
             color: #F6BD16 !important;
         }
+
+        /* Rebranding BBI — logo branco no topo da sidebar */
+        [data-testid="stSidebar"] .sidebar-logo {
+            display: block;
+            width: 85%;
+            max-width: 260px;
+            height: auto;
+            margin: 0.5rem 0 1.2rem 0;
+        }
+
+        /* Título da sidebar — Bebas Neue, letter-spacing e font-size
+           calibrados pra abrir ar entre as letras condensadas e reduzir
+           sensação de "socado". Classe própria evita colisão com a regra
+           global de h3 (border-bottom Bauhaus). */
+        [data-testid="stSidebar"] .sidebar-title {
+            font-family: 'Bebas Neue', 'Inter', sans-serif !important;
+            font-size: 1.25rem !important;
+            letter-spacing: 0.20em !important;
+            color: #F6BD16 !important;
+            line-height: 1.15 !important;
+            margin: 0.4rem 0 0.4rem 0 !important;
+        }
+
+        /* Username — Inter, cor cinza-claro próxima ao st.caption default
+           (em tema dark, caption é ~rgba(250,250,250,0.6) ≈ #A0A0A0).
+           margin-top empurra Nava pra baixo aproximando do Sair; margin-bottom
+           zerado pra colar mais — combina com margin-top: -0.5rem do Sair. */
+        [data-testid="stSidebar"] .sidebar-username {
+            font-family: 'Inter', sans-serif !important;
+            font-size: 1rem !important;
+            font-weight: 600 !important;
+            color: #A0A0A0 !important;
+            margin: 0.8rem 0 0 0 !important;
+        }
+
+        /* Cabeçalho da seção de autores — Bebas Neue amarelo. font-size
+           1.2rem (vs nomes em 1rem Inter) compensa visualmente o fato de
+           Bebas ser condensada e parecer menor que Inter no mesmo tamanho. */
+        [data-testid="stSidebar"] .sidebar-authors-label {
+            font-family: 'Bebas Neue', 'Inter', sans-serif !important;
+            font-size: 1.2rem !important;
+            letter-spacing: 0.15em !important;
+            color: #F6BD16 !important;
+            margin: 0 0 0.15rem 0 !important;
+        }
+
+        /* Autores no rodapé — 1 nome por linha, alinhados à esquerda
+           (mesmo padding natural do username e do caption). Separação
+           visual feita via st.divider() nativo. margin-top zerado pra
+           que o gap divider→primeiro-nome iguale o gap divider→botão
+           Atualizar. */
+        [data-testid="stSidebar"] .sidebar-authors {
+            font-family: 'Inter', sans-serif !important;
+            font-size: 1rem !important;
+            color: #F2F2F2 !important;
+            text-align: left !important;
+            letter-spacing: 0.04em !important;
+            line-height: 1.5 !important;
+            margin: 0 0 0.5rem 0 !important;
+        }
+
+        /* Cola o botão Sair no username — Streamlit injeta margin no
+           element_container do botão, que cria gap visível mesmo com
+           .sidebar-username margin-bottom: 0.1rem. Margin-top negativo
+           direto no button (via marker data-sair="true" do bloco JS
+           abaixo) sobe o botão dentro do container sem alterar o
+           container em si. Aplicado SÓ no Sair — Atualizar (data-atualizar)
+           segue após divider e tem espaçamento próprio adequado. */
+        [data-testid="stSidebar"] .stButton > button[data-sair="true"] {
+            margin-top: -0.5rem !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1334,6 +1427,17 @@ with st.sidebar:
 
     st.caption(
         "Dados atualizados automaticamente 1x ao dia."
+    )
+
+    # Autores — rodapé da sidebar (1 nome por linha, alinhados à esquerda).
+    # Divider nativo cria a separação visual coerente com o resto da sidebar.
+    st.divider()
+    st.markdown(
+        '<div class="sidebar-authors-label">BBI Utilities Team:</div>'
+        '<div class="sidebar-authors">'
+        'Navarrete<br>Fagundes<br>Caruso'
+        '</div>',
+        unsafe_allow_html=True,
     )
 
 # Sem barra superior — Sair fica no final da sidebar (vide bloco SIDEBAR abaixo).
