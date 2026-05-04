@@ -712,7 +712,7 @@ _CSS_TABELA_UNIDADES = """
     font-family: 'Inter', sans-serif;
     font-size: 0.85rem;
 }
-/* 22% Unidade + 22% Proprietário + 18% × 3 períodos = 100% */
+/* 22% Unidade + 22% Grupo + 18% × 3 períodos = 100% */
 .curt-tab-unid th:nth-child(1), .curt-tab-unid td:nth-child(1) { width: 22%; }
 .curt-tab-unid th:nth-child(2), .curt-tab-unid td:nth-child(2) { width: 22%; }
 .curt-tab-unid th.col-num, .curt-tab-unid td.col-num { width: 18%; }
@@ -862,7 +862,7 @@ def _montar_html_tabela_unidades(periodos: dict, linhas: list) -> str:
     headers = (
         '<thead><tr>'
         '<th>Unidade</th>'
-        '<th>Proprietário</th>'
+        '<th>Grupo</th>'
         f'{_header_cell(periodos["mes_corrente"])}'
         f'{_header_cell(periodos["mes_anterior"])}'
         f'{_header_cell(periodos["penultimo"])}'
@@ -1337,7 +1337,8 @@ def _render_aba_curtailment_impl() -> None:
     st.markdown("""
     <style>
     [class*="st-key-btn_curt_subaba_"] button[kind="primary"] {
-        background-color: #FFFFFF !important;
+        /* G.2 (Fase G): amarelo Bauhaus, alinha com presets de período. */
+        background-color: #F6BD16 !important;  /* BAUHAUS_YELLOW */
         color: #1A1A1A !important;
         border: 2px solid #1A1A1A !important;
         border-radius: 0 !important;
@@ -1476,10 +1477,25 @@ def _render_aba_curtailment_impl() -> None:
         min_d_curt, _inicio_trimestre_anterior(max_d_curt, 4)
     )
 
-    with st.spinner(
-        "Carregando dados de curtailment do ONS "
-        "(1ª chamada da sessão: pode levar 40-60s)…"
-    ):
+    # G.3 (Fase G): mensagem informativa diferenciada.
+    # 1ª carga da sessão: spinner com mensagem completa (40-60s esperados).
+    # Cargas subsequentes: cache hit é instantâneo (<100ms); spinner que
+    # pisca rápido demais polui visualmente — usar silêncio (sem with
+    # st.spinner). Flag _curt_ja_carregou só vira True após sucesso —
+    # próxima tentativa pós-erro mostra a mensagem completa de novo.
+    ja_carregou_curt = st.session_state.get("_curt_ja_carregou", False)
+
+    if not ja_carregou_curt:
+        with st.spinner(
+            "Carregando 15 meses de dados ONS — primeira carga da sessão "
+            "(pode levar 40-60s)…"
+        ):
+            df_curt_raw_amplo = _carregar_curtailment_janela_ampla(
+                data_ini_ampla=data_ini_ampla,
+                data_fim_ampla=max_d_curt,
+                fontes=("eolica", "solar"),
+            )
+    else:
         df_curt_raw_amplo = _carregar_curtailment_janela_ampla(
             data_ini_ampla=data_ini_ampla,
             data_fim_ampla=max_d_curt,
@@ -1492,6 +1508,8 @@ def _render_aba_curtailment_impl() -> None:
             "Tente outro período ou verifique a conexão com o ONS."
         )
         return
+
+    st.session_state["_curt_ja_carregou"] = True
 
     # ---- Filter por fonte + Aplicar rateio (cacheado por janela_ampla+fonte) ----
     # Chamado SEMPRE com (data_ini_ampla, max_d_curt) — não com a janela curta
