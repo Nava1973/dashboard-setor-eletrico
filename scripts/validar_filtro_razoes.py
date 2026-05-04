@@ -100,6 +100,7 @@ def _comparar_paths(df_filtrado: pd.DataFrame, fonte_label: str) -> bool:
     cols_pcts = (
         "mes_corrente", "mes_anterior", "penultimo",
         "tri_corrente", "tri_anterior_1", "tri_anterior_2", "tri_anterior_3",
+        "ultimos_12m",  # G.7
     )
     n_diff_unidade = 0
     n_diff_prop = 0
@@ -161,7 +162,7 @@ def _comparar_paths(df_filtrado: pd.DataFrame, fonte_label: str) -> bool:
             print(f"    - {d}")
 
     if ok:
-        print(f"  ✓ Bit-a-bit: ordem, proprietário e 7 % por linha idênticos")
+        print(f"  ✓ Bit-a-bit: ordem, proprietário e 8 % por linha idênticos")
 
     return ok
 

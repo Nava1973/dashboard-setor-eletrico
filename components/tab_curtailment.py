@@ -40,7 +40,7 @@ from utils.utils_periodos import adicionar_chave_periodo
 from utils.utils_curtailment import (
     calcular_pct_curtailment, serie_temporal,
     calcular_periodos_curtailment, pct_no_periodo,
-    _inicio_trimestre, _inicio_trimestre_anterior,
+    _inicio_trimestre, _inicio_trimestre_anterior, _inicio_mes_anterior,
 )
 
 
@@ -159,20 +159,11 @@ def _fmt_pct_curt(x, casas: int = 2) -> str:
 # =============================================================================
 
 
-# _inicio_trimestre e _inicio_trimestre_anterior movidos pra
-# utils/utils_curtailment.py em 2026-05-04 (G.5) — importados no topo.
-# _inicio_mes_anterior permanece aqui: caller único é os presets
-# MENSAL deste módulo, não tem demanda em outros lugares.
-
-
-def _inicio_mes_anterior(d: date, n: int) -> date:
-    """Primeiro dia do mês N meses antes do mês de d (n=0 → mês de d)."""
-    ano = d.year
-    mes = d.month - n
-    while mes <= 0:
-        mes += 12
-        ano -= 1
-    return date(ano, mes, 1)
+# _inicio_trimestre, _inicio_trimestre_anterior e _inicio_mes_anterior
+# movidos pra utils/utils_curtailment.py (G.5 + G.7) — importados no
+# topo. Mesma família de helpers temporais que _inicio_mes (já em
+# utils desde antes). Scripts em scripts/ ainda têm cópias locais —
+# TODO sessão futura: importar de utils.
 
 
 # =============================================================================
@@ -704,10 +695,12 @@ _CSS_TABELA_UNIDADES = """
     font-family: 'Inter', sans-serif;
     font-size: 0.85rem;
 }
-/* G.5 (9 colunas): 18% Unidade + 18% Grupo + 9% × 3 meses + 9.25% × 4 trimestres = 100% */
-.curt-tab-unid th:nth-child(1), .curt-tab-unid td:nth-child(1) { width: 18%; }
-.curt-tab-unid th:nth-child(2), .curt-tab-unid td:nth-child(2) { width: 18%; }
-.curt-tab-unid th.col-num, .curt-tab-unid td.col-num { width: 9.14%; }
+/* G.7 (10 colunas): 15% Unidade + 15% Grupo + 8.75% × 8 numéricas
+   (3 meses + 4 trimestres + LTM) = 100%. Em viewport 1400px (G.4):
+   col-num ≈ 122px, label cols ≈ 210px. */
+.curt-tab-unid th:nth-child(1), .curt-tab-unid td:nth-child(1) { width: 15%; }
+.curt-tab-unid th:nth-child(2), .curt-tab-unid td:nth-child(2) { width: 15%; }
+.curt-tab-unid th.col-num, .curt-tab-unid td.col-num { width: 8.75%; }
 /* Linha vertical sutil entre coluna do penúltimo mês (FEV) e trimestre
    corrente (2T 26) — separador conceitual mês↔trimestre. Cor #A8A8A8
    é cinza médio: contrasta o suficiente pra marcar a transição em fundo
@@ -750,6 +743,22 @@ _CSS_TABELA_UNIDADES = """
     letter-spacing: 0;
     margin-top: 2px;
     opacity: 0.85;
+}
+/* G.7: 2ª linha do header com MESMO peso visual do label principal
+   (vs col-sufixo que é sutil). Usado pelo período LTM ("Últimos" +
+   "12 meses") onde a 2ª linha é descrição ESSENCIAL da janela, não
+   detalhe sufixado. font-size 0.85rem == thead th default → mesma
+   hierarquia visual. line-height 1.05 compacta a altura pra não
+   estourar o header. */
+.curt-tab-unid thead th .col-sub-label {
+    display: block;
+    margin-top: 2px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    font-size: 0.85rem;
+    line-height: 1.05;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
 }
 .curt-tab-unid tbody td {
     padding: 10px 14px;
@@ -831,9 +840,9 @@ def _calcular_linhas_unidade(
     razões excluídas. Preserva OUTPUT íntegro, ajusta só o numerador.
 
     Cacheado: o cálculo é determinístico em (df, razoes_marcadas), e
-    roda ~1890× pct_no_periodo (~270 unidades × 7 períodos pós-G.5:
-    3 meses + 4 trimestres). Cache evita repetir em reruns que não
-    mudam (df_filtrado, razoes_marcadas).
+    roda ~2160× pct_no_periodo (~270 unidades × 8 períodos pós-G.7:
+    3 meses + 4 trimestres + 1 LTM). Cache evita repetir em reruns
+    que não mudam (df_filtrado, razoes_marcadas).
     """
     if len(df) == 0 or df["DATA"].isna().all():
         return []
@@ -870,6 +879,8 @@ def _calcular_linhas_unidade(
             "tri_anterior_1": pcts["tri_anterior_1"],
             "tri_anterior_2": pcts["tri_anterior_2"],
             "tri_anterior_3": pcts["tri_anterior_3"],
+            # 1 LTM (G.7)
+            "ultimos_12m":    pcts["ultimos_12m"],
         })
 
     # G.5: ordenação por trimestre corrente (não mais mês corrente).
@@ -888,9 +899,11 @@ def _calcular_linhas_unidade(
 def _montar_html_tabela_unidades(periodos: dict, linhas: list) -> str:
     """Monta string HTML da tabela. CSS em _CSS_TABELA_UNIDADES.
 
-    Pós-G.5: 9 colunas (Unidade + Grupo + 3 meses + 4 trimestres). Classe
-    `col-divisor` no PRIMEIRO trimestre (tri_corrente, 6ª coluna) marca
-    a transição visual mês→trimestre via border-left no CSS.
+    Pós-G.7: 10 colunas (Unidade + Grupo + 3 meses + 4 trimestres + LTM).
+    Classe `col-divisor` no PRIMEIRO trimestre (tri_corrente, 6ª coluna)
+    marca a transição visual mês→trimestre via border-left no CSS.
+    NÃO há separador entre 3T 25 e Últimos 12m — decisão G.7 pra evitar
+    tabela "compartimentada demais".
     """
     rows_html = []
     for r in linhas:
@@ -908,16 +921,25 @@ def _montar_html_tabela_unidades(periodos: dict, linhas: list) -> str:
             f'<td class="col-num">{_fmt_pct_curt(r["tri_anterior_1"])}</td>'
             f'<td class="col-num">{_fmt_pct_curt(r["tri_anterior_2"])}</td>'
             f'<td class="col-num">{_fmt_pct_curt(r["tri_anterior_3"])}</td>'
+            f'<td class="col-num">{_fmt_pct_curt(r["ultimos_12m"])}</td>'
             '</tr>'
         )
 
     def _header_cell(p: dict, divisor: bool = False) -> str:
-        sufixo = p.get("sufixo_parcial", "")
-        sufixo_html = (
-            f'<span class="col-sufixo">{sufixo}</span>' if sufixo else ""
-        )
+        # Mutex: segunda_linha (col-sub-label, mesmo peso) tem precedência
+        # sobre sufixo_parcial (col-sufixo, sutil). Helper escolhe um dos
+        # dois conforme presença no dict do período.
+        extra_html = ""
+        if p.get("segunda_linha"):
+            extra_html = (
+                f'<span class="col-sub-label">{p["segunda_linha"]}</span>'
+            )
+        elif p.get("sufixo_parcial"):
+            extra_html = (
+                f'<span class="col-sufixo">{p["sufixo_parcial"]}</span>'
+            )
         classes = "col-num col-divisor" if divisor else "col-num"
-        return f'<th class="{classes}">{p["label_curto"]}{sufixo_html}</th>'
+        return f'<th class="{classes}">{p["label_curto"]}{extra_html}</th>'
 
     headers = (
         '<thead><tr>'
@@ -930,6 +952,7 @@ def _montar_html_tabela_unidades(periodos: dict, linhas: list) -> str:
         f'{_header_cell(periodos["tri_anterior_1"])}'
         f'{_header_cell(periodos["tri_anterior_2"])}'
         f'{_header_cell(periodos["tri_anterior_3"])}'
+        f'{_header_cell(periodos["ultimos_12m"])}'
         '</tr></thead>'
     )
     body = f'<tbody>{"".join(rows_html)}</tbody>'
@@ -946,7 +969,7 @@ def _render_por_unidade(
     razoes_marcadas: tuple = ("CNF", "ENE", "REL"),
 ) -> None:
     """Sub-aba "Por usina" — tabela de unidades com curtailment nos
-    7 períodos pós-G.5 (3 meses + 4 trimestres).
+    8 períodos pós-G.7 (3 meses + 4 trimestres + 1 LTM).
 
     razoes_marcadas (G.6): tuple SORTED de razões a contar. Caller
     intercepta vazio antes de chamar — aqui assume tupla não vazia.
@@ -965,7 +988,7 @@ def _render_por_unidade(
 
     if not linhas:
         st.info(
-            "Nenhuma unidade com curtailment registrado nos 7 períodos analisados."
+            "Nenhuma unidade com curtailment registrado nos 8 períodos analisados."
         )
         return
 
@@ -974,7 +997,7 @@ def _render_por_unidade(
         'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
         'margin:0.6rem 0 0.5rem 0;">'
         'Cada linha é uma unidade geradora com algum corte registrado pelo '
-        'ONS em pelo menos um dos 7 períodos (3 meses + 4 trimestres). '
+        'ONS em pelo menos um dos 8 períodos (3 meses + 4 trimestres + LTM). '
         'Unidades sem ocorrências de curtailment não aparecem. % calculado '
         'sobre geração potencial da unidade no período. Ordenado por % do '
         'trimestre corrente.'
