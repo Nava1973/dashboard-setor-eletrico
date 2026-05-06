@@ -4019,63 +4019,18 @@ elif aba == "Despacho Térmico":
             [class*="st-key-termico_eneva_data_"] [data-testid="stDateInput"] {
                 margin-top: 0 !important;
             }
-            /* Botões de ano + trim em Trimestral (Fase D.2 / restaurado
-               na Fase H.4 — C1 ao reverter st.checkbox → st.button +
-               ::before): compactos sem quebra de linha. [kind] empata
-               especificidade com .stButton button[kind] do CSS global. */
-            [class*="st-key-termico_eneva_btn_ano_"] button[kind],
-            [class*="st-key-termico_eneva_btn_t_"] button[kind] {
+            /* Botões de ano em Trimestral: compactos sem quebra de linha.
+               [kind] empata especificidade com .stButton button[kind] do
+               CSS global. Regras `_btn_t_` removidas na Fase H.7.C ao
+               migrar trims pra st.checkbox nativo (decisão 5.48 reaplicada
+               após identificar interferência do CSS scoped residual no
+               bug do tick branco da H.4 — C1). */
+            [class*="st-key-termico_eneva_btn_ano_"] button[kind] {
                 white-space: nowrap !important;
                 padding-left: 0.25rem !important;
                 padding-right: 0.25rem !important;
                 font-size: 0.85rem !important;
                 min-width: 0 !important;
-            }
-            /* Decoração checkbox ☐/☑ ANTES do label (decisão 5.48
-               restaurada pela Fase H.4 — C1). */
-            [class*="st-key-termico_eneva_btn_t_"] button[kind]::before {
-                content: "☐";
-                margin-right: 0.3rem;
-                font-weight: 700;
-                font-size: 1rem;
-                line-height: 1;
-            }
-            [class*="st-key-termico_eneva_btn_t_"] button[kind="primary"]::before {
-                content: "☑";
-            }
-            /* Trim INATIVO (kind="") — soltos transparent. */
-            [class*="st-key-termico_eneva_btn_t_"] button[kind] {
-                background: transparent !important;
-                background-color: transparent !important;
-                border: none !important;
-                box-shadow: none !important;
-                color: #1A1A1A !important;
-                font-weight: 400 !important;
-            }
-            /* Trim ATIVO (kind="primary") — fundo preto + texto branco
-               (Fase H.6 — A: revertida H5.C que invertia cores). Visual
-               desejado conforme print do PLD = caixa preenchimento preto
-               + tick branco. Glyph ☑ herda color do parent → vira branco
-               automaticamente. */
-            [class*="st-key-termico_eneva_btn_t_"] button[kind="primary"] {
-                background: #1A1A1A !important;
-                background-color: #1A1A1A !important;
-                border: none !important;
-                box-shadow: none !important;
-                color: #FFFFFF !important;
-                font-weight: 400 !important;
-            }
-            /* Hover INATIVO — escurece levemente o transparent. */
-            [class*="st-key-termico_eneva_btn_t_"] button[kind]:hover {
-                background: rgba(0, 0, 0, 0.05) !important;
-                background-color: rgba(0, 0, 0, 0.05) !important;
-                color: #1A1A1A !important;
-            }
-            /* Hover ATIVO — clareia levemente o preto, mantém texto branco. */
-            [class*="st-key-termico_eneva_btn_t_"] button[kind="primary"]:hover {
-                background: #2A2A2A !important;
-                background-color: #2A2A2A !important;
-                color: #FFFFFF !important;
             }
             /* Botões de ano "colados" — sobreposição sutil de 1px cria
                aparência de segmento contínuo (Fase H — Item 4).
@@ -4381,61 +4336,91 @@ elif aba == "Despacho Térmico":
                             st.session_state["termico_eneva_ltm_marcado"] = not ltm_marcado
                             st.rerun()
 
-                # Botões trimestrais 1T/2T/3T/4T — multi-select com transições
-                # ano_completo ↔ historico (decisão 5.40). Decoração ☐/☑ via
-                # CSS scoped ::before (decisão 5.48).
-                presets_t = [
-                    (1, "1T"),
-                    (2, "2T"),
-                    (3, "3T"),
-                    (4, "4T"),
-                ]
+                # Trims 1T/2T/3T/4T como st.checkbox nativo (Fase H.7.C).
+                # Visual herdado do CSS global (filter grayscale →
+                # quadradinho preto + tick branco). Restaura decisão 5.48
+                # Refinamento H.1, revertida pela H.4 — C1 e agora
+                # aplicada de novo após identificar causa raiz: CSS
+                # scoped residual `_btn_t_` interferia. Limpeza CSS no
+                # Edit 2 desta fase.
+                #
+                # UX preservada (decisão 5.40 + ativo_visual):
+                # - LTM puro (trims=[]): 4 checkboxes aparecem MARCADOS
+                #   visualmente, mas filter ignora e usa só anos+LTM.
+                # - Click pra desmarcar 1 trim em LTM puro → entra em
+                #   modo histórico com os 3 restantes + todos anos.
+                # - Click em modo histórico → toggle multi-select normal.
+                # - Desmarcar último trim → força LTM puro.
+                #
+                # Reset session_state em transições: Streamlit "prende"
+                # estado interno do checkbox após primeiro click, ignorando
+                # `value=`. `del` antes de `st.rerun()` força re-render
+                # respeitar value novo.
+                presets_t = [(1, "1T"), (2, "2T"), (3, "3T"), (4, "4T")]
                 cols_p = st.columns([1, 1, 1, 1, 6])
+
+                # Snapshot pré-render
+                trims_anteriores_real = list(trims_marcados)
+                em_ltm_puro_antes = not trims_anteriores_real
+
+                # Render checkboxes + coleta estado pós-render
+                estado_visual_pos = []
                 for i, (num, label) in enumerate(presets_t):
-                    ativo = num in trims_marcados
-                    # Fase H.4 — C2: em LTM puro (trims_marcados vazio), todos os
-                    # 4 trims renderizam visualmente marcados (type="primary").
-                    # Filter ignora trims_marcados=[] (continua usando só anos+LTM).
-                    # Lógica de toggle abaixo continua baseada em `ativo` real.
-                    ativo_visual = ativo or (not trims_marcados)
-
-                    if modo_trim == "ano_completo":
-                        help_txt = f"Comparar {label} cross-anos"
-                    elif ativo:
-                        help_txt = f"Click pra desmarcar {label}"
-                    else:
-                        help_txt = f"Adicionar {label} à comparação"
-
-                    # Fase H.4 — C1: revertido st.checkbox → st.button + ::before
-                    # (decisão 5.48 restaurada). Tick branco do checkbox global
-                    # PLD não estava aparecendo nos trims aninhados em Trimestral.
+                    ativo_real = num in trims_marcados
+                    ativo_visual = ativo_real or em_ltm_puro_antes
                     with cols_p[i]:
-                        if st.button(
+                        marcado = st.checkbox(
                             label,
-                            use_container_width=True,
-                            key=f"termico_eneva_btn_t_{label}",
-                            type="primary" if ativo_visual else "secondary",
-                            help=help_txt,
-                        ):
-                            if modo_trim == "ano_completo":
-                                # Transição → historico: marca TODOS anos disponíveis
-                                st.session_state["termico_eneva_trims_marcados"] = [num]
-                                st.session_state["termico_eneva_anos_comparacao"] = sorted(anos_disponiveis)
-                                # LTM mantém estado anterior
-                            else:  # historico — multi-select
-                                if ativo:
-                                    novos_trims = [t for t in trims_marcados if t != num]
-                                    st.session_state["termico_eneva_trims_marcados"] = novos_trims
-                                    if not novos_trims:
-                                        # Transição reverso historico → ano_completo:
-                                        # força default LTM puro
-                                        st.session_state["termico_eneva_anos_comparacao"] = []
-                                        st.session_state["termico_eneva_ltm_marcado"] = True
-                                else:
-                                    st.session_state["termico_eneva_trims_marcados"] = sorted(
-                                        trims_marcados + [num]
-                                    )
-                            st.rerun()
+                            value=ativo_visual,
+                            key=f"termico_eneva_chk_t_{label}",
+                        )
+                        estado_visual_pos.append(marcado)
+
+                # Calcula trims_real_pos baseado no contexto
+                if em_ltm_puro_antes:
+                    if all(estado_visual_pos):
+                        # Permanece LTM puro
+                        trims_real_pos = []
+                    else:
+                        # Transição LTM puro → histórico
+                        trims_real_pos = [
+                            num for (num, _), m in zip(presets_t, estado_visual_pos) if m
+                        ]
+                else:
+                    # Em histórico: estado visual = estado real
+                    trims_real_pos = [
+                        num for (num, _), m in zip(presets_t, estado_visual_pos) if m
+                    ]
+
+                # Detecta mudança e aplica transições da decisão 5.40
+                if trims_real_pos != trims_anteriores_real:
+                    if em_ltm_puro_antes and trims_real_pos:
+                        # LTM puro → histórico: marca TODOS anos
+                        st.session_state["termico_eneva_trims_marcados"] = trims_real_pos
+                        st.session_state["termico_eneva_anos_comparacao"] = sorted(anos_disponiveis)
+                        # Reset state dos checkboxes pra próxima render
+                        # respeitar value= novo (não preserva ativo_visual)
+                        for _, lbl in presets_t:
+                            key_chk = f"termico_eneva_chk_t_{lbl}"
+                            if key_chk in st.session_state:
+                                del st.session_state[key_chk]
+                        st.rerun()
+                    elif trims_anteriores_real and not trims_real_pos:
+                        # Histórico → ano_completo: limpa anos, força LTM puro
+                        st.session_state["termico_eneva_trims_marcados"] = []
+                        st.session_state["termico_eneva_anos_comparacao"] = []
+                        st.session_state["termico_eneva_ltm_marcado"] = True
+                        # Reset state dos checkboxes pra próxima render
+                        # mostrar todos marcados (LTM puro = ativo_visual=True)
+                        for _, lbl in presets_t:
+                            key_chk = f"termico_eneva_chk_t_{lbl}"
+                            if key_chk in st.session_state:
+                                del st.session_state[key_chk]
+                        st.rerun()
+                    else:
+                        # Multi-select dentro de histórico (sem transição de modo)
+                        st.session_state["termico_eneva_trims_marcados"] = sorted(trims_real_pos)
+                        st.rerun()
 
                 # Edge case "tudo desmarcado" (refinamento decisão 5.20): nem
                 # anos individuais nem LTM — reset automático pro default LTM
