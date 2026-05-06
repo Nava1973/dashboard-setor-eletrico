@@ -777,17 +777,20 @@ def _render_period_controls(
                 "Dia", min_value=min_d, max_value=max_d,
                 key=session_key_ini,
                 on_change=_sync_single_day_fim,
+                format="DD/MM/YYYY",
             )
     else:
         with cols[n + 1]:
             st.date_input(
                 "Data inicial", min_value=min_d, max_value=max_d,
                 key=session_key_ini,
+                format="DD/MM/YYYY",
             )
         with cols[n + 2]:
             st.date_input(
                 "Data final", min_value=min_d, max_value=max_d,
                 key=session_key_fim,
+                format="DD/MM/YYYY",
             )
 
 
@@ -831,6 +834,7 @@ def _render_period_controls_horaria(
         st.date_input(
             "Data base", min_value=min_d, max_value=max_d,
             key=session_key_base,
+            format="DD/MM/YYYY",
         )
 
 
@@ -1416,7 +1420,7 @@ with st.sidebar:
 
     aba = st.radio(
         "NAVEGAÇÃO",
-        ["PLD", "Reservatórios", "ENA/Chuva", "Geração", "Carga", "Curtailment"],
+        ["PLD", "Reservatórios", "ENA/Chuva", "Despacho Térmico", "Geração", "Carga", "Curtailment"],
         label_visibility="collapsed",
     )
 
@@ -2946,6 +2950,1953 @@ elif aba == "ENA/Chuva":
         mime="text/csv",
         use_container_width=False,
     )
+
+elif aba == "Despacho Térmico":
+    # -----------------------------------------------------------------------
+    # Aba Despacho Térmico — Fase C.1 (esqueleto navegável).
+    # Sub-views: Sistema (térmico Brasil) + Eneva (portfólio 11 usinas).
+    # Backend pronto em data_loaders/data_loader_termico.py (Fase B). Nesta
+    # fase, apenas estrutura — sem dados, gráficos ou filtros funcionais.
+    # -----------------------------------------------------------------------
+    # Init only if absent — preserva a escolha do usuário entre reruns.
+    # Deve ser ANTES do título pra que o título dinâmico (Fase E.11) possa
+    # ler o state na 1ª visita absoluta.
+    if "termico_subview" not in st.session_state:
+        st.session_state["termico_subview"] = "Eneva"
+    _subview = st.session_state["termico_subview"]
+
+    # Título dinâmico (Fase E.11): muda conforme sub-view ativa.
+    # Lag de 1 render no click do pill — no render do click, título mostra
+    # valor antigo até o st.rerun() completar (sem flicker perceptível).
+    if _subview == "Sistema":
+        _titulo_aba = "SIN - Despacho Termelétrico Total"
+    else:
+        _titulo_aba = "Eneva — Despacho Termelétrico"
+    st.markdown(f"# {_titulo_aba}")
+    st.markdown(
+        '<div style="border-bottom: 2px solid #1A1A1A; '
+        'margin: 0 0 -1.5rem 0;"></div>',
+        unsafe_allow_html=True,
+    )
+
+    # Controle binário Sistema/Eneva — pills full-width estilo Curtailment.
+    # CSS scoped via [class*="st-key-termico_btn_subview_"]: ativo amarelo
+    # Bauhaus, inativo preto com texto creme, ambos Inter bold mixed-case.
+    # Escopo restrito por nome de key — não vaza pra outros botões (toggle
+    # MWm/GWh, presets de período etc).
+    st.markdown(
+        """
+        <style>
+        [class*="st-key-termico_btn_subview_"] button[kind="primary"] {
+            background-color: #F6BD16 !important;
+            color: #1A1A1A !important;
+            border: 2px solid #1A1A1A !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            font-family: 'Inter', sans-serif !important;
+            font-weight: 700 !important;
+            white-space: nowrap !important;
+        }
+        [class*="st-key-termico_btn_subview_"] button[kind="secondary"] {
+            background-color: #1A1A1A !important;
+            color: #F5F1E8 !important;
+            border: 2px solid #1A1A1A !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            font-family: 'Inter', sans-serif !important;
+            font-weight: 600 !important;
+            white-space: nowrap !important;
+        }
+        [class*="st-key-termico_btn_subview_"] button:hover { opacity: 0.9; }
+        /* Reduzir gap pills↔linha 1 (Fase H.4 — Problema A): margin-
+           bottom negativo no wrapper dos pills puxa o conteúdo seguinte
+           pra cima sem afetar h1 dinâmico nem outras abas. */
+        [class*="st-key-termico_btn_subview_"] {
+            margin-bottom: -1rem !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    _sub = st.session_state["termico_subview"]
+    col_eneva, col_sys = st.columns(2)
+    with col_eneva:
+        if st.button(
+            "Eneva",
+            key="termico_btn_subview_eneva",
+            type="primary" if _sub == "Eneva" else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state["termico_subview"] = "Eneva"
+            st.rerun()
+    with col_sys:
+        if st.button(
+            "SIN - Despacho Termelétrico Total",
+            key="termico_btn_subview_sistema",
+            type="primary" if _sub == "Sistema" else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state["termico_subview"] = "Sistema"
+            st.rerun()
+
+    # === HOISTED (Fase E) — comum às 2 sub-views ===
+    # Loader, imports comuns e helper KPI compartilhados pelas sub-views
+    # Sistema e Eneva. Imports específicos da Eneva (USINAS_COBERTURA,
+    # usina_em_operacao) ficam dentro do branch dela.
+    from data_loaders.data_loader_termico import carregar_termico, MOTIVOS_COLS
+
+    with st.spinner("Carregando dados de despacho térmico…"):
+        try:
+            df_term = carregar_termico(ano_ini=2022)
+        except Exception as e:
+            st.error(f"Falha ao carregar dados do ONS: {e}")
+            debug = st.session_state.get("_debug_erros", [])
+            if debug:
+                st.subheader("Detalhes técnicos do erro")
+                for d in debug[:20]:
+                    st.code(d)
+            st.stop()
+
+    if df_term.empty:
+        st.warning("Nenhum dado de despacho térmico disponível.")
+        st.stop()
+
+    # Helper compartilhado pelas 2 sub-views (Sistema e Eneva).
+    # Triple-double-quote pra não precisar escapar aspas simples internas
+    # do CSS (decisão da Fase C.2.3).
+    def _render_kpi_termico(
+        label: str, valor: str, unit: str = "",
+        valor_cor: str = BAUHAUS_BLACK,
+    ) -> str:
+        unit_html = (
+            f'<span style="font-family:\'Inter\',sans-serif; '
+            f'font-size:0.85rem; font-weight:600; '
+            f'color:{BAUHAUS_BLACK}; margin-left:0.4rem;">{unit}</span>'
+            if unit else ""
+        )
+        return f"""
+        <div style="background: {BAUHAUS_CREAM};
+                    border: 2px solid {BAUHAUS_BLACK};
+                    padding: 0.8rem 1rem; min-height: 5rem;
+                    display: flex; flex-direction: column;
+                    justify-content: center;">
+            <div style="font-family: 'Inter', sans-serif;
+                        font-size: 0.75rem; text-transform: uppercase;
+                        letter-spacing: 0.16em; font-weight: 700;
+                        color: {BAUHAUS_BLACK}; margin-bottom: 0.3rem;">
+                {label}
+            </div>
+            <div>
+                <span style="font-family: 'Bebas Neue', sans-serif;
+                             font-size: 1.45rem; letter-spacing: 0.02em;
+                             color: {valor_cor};">
+                    {valor}
+                </span>{unit_html}
+            </div>
+        </div>
+        """
+
+    # Caption do gráfico — Fase E.17 (helper local, escopo restrito ao
+    # bloco térmico). Estrutura: top row com bordas top+bottom (Bebas
+    # Neue, sub_label à esquerda + data à direita) + sub-caption italic
+    # "Valor {adjetivo} · {unidade}" abaixo. data_html condicional por
+    # granularidade: range em Mensal/Diário, data única em Horário,
+    # vazio em Trimestral.
+    _ADJETIVOS_TERMICO = {
+        "Mensal":     "mensal",
+        "Diário":     "diário",
+        "Horário":    "horário",
+        "Trimestral": "trimestral",
+    }
+
+    def _render_termico_chart_caption(
+        sub_label: str,
+        gran_label: str,
+        data_ini,
+        data_fim,
+        unidade_label: str,
+    ) -> None:
+        if gran_label == "Trimestral":
+            data_html = ""
+        elif gran_label == "Horário":
+            data_html = data_ini.strftime("%d/%m/%Y")
+        else:  # Mensal, Diário
+            data_html = (
+                f"{data_ini.strftime('%d/%m/%Y')} - "
+                f"{data_fim.strftime('%d/%m/%Y')}"
+            )
+        adjetivo = _ADJETIVOS_TERMICO.get(gran_label, gran_label.lower())
+        # Header alinhado com pattern aba Carga (Fase H — Item 1):
+        # sem border-top, border-bottom 2px, font-size 1.1rem, letter-
+        # spacing 0.08em, padding-bottom 3px, margin 2.6rem 0 0.3rem 0.
+        st.markdown(
+            f'<div style="display: flex; '
+            f'justify-content: space-between; '
+            f'align-items: baseline; '
+            f'font-family: \'Bebas Neue\', sans-serif; '
+            f'font-size: 1.1rem; '
+            f'letter-spacing: 0.08em; '
+            f'color: #1A1A1A; '
+            f'margin: 2.6rem 0 0.3rem 0; '
+            f'padding-bottom: 3px; '
+            f'border-bottom: 2px solid #1A1A1A;">'
+            f'<span>{sub_label}</span>'
+            f'<span>{data_html}</span>'
+            f'</div>'
+            f'<div style="font-family: \'Inter\', sans-serif; '
+            f'font-style: italic; '
+            f'color: #6B6B6B; '
+            f'font-size: 0.85rem; '
+            f'margin: 0.4rem 0 0.3rem 0;">'
+            f'Valor {adjetivo} · {unidade_label}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    if st.session_state["termico_subview"] == "Sistema":
+        # === Sub-view Sistema — Fase E ===
+        # Caption interno removido na Fase E.11 — título dinâmico no topo
+        # do bloco da aba já mostra "SIN - Despacho Termelétrico Total (MWm)".
+
+        # Fix de alinhamento (Fase E.2 / Item 1):
+        # CSS global em app.py:359-362 aplica margin-top:-1.5rem em todo
+        # st.date_input pra alinhar pela base com botões de preset (cenário
+        # das outras abas). No Sistema os date_inputs estão na mesma linha
+        # do selectbox (que não tem o offset) — o ajuste global causa
+        # desalinhamento de 1.5rem. CSS scoped por nome de key cancela só
+        # nos 2 date_inputs do Sistema, sem afetar outras abas.
+        st.markdown(
+            """
+            <style>
+            .st-key-termico_sistema_data_ini,
+            .st-key-termico_sistema_data_fim,
+            [class*="st-key-termico_sistema_data_"] .stDateInput,
+            [class*="st-key-termico_sistema_data_"] [data-testid="stDateInput"] {
+                margin-top: 0 !important;
+            }
+            /* Botões de ano + trim em Trimestral (Fase E.4.2 / restaurado
+               na Fase H.4 — C1 ao reverter st.checkbox → st.button +
+               ::before): compactos sem quebra de linha. [kind] empata
+               especificidade com .stButton button[kind] do CSS global pra
+               que !important desta regra (mais nova no DOM) sobrescreva. */
+            [class*="st-key-termico_sistema_btn_ano_"] button[kind],
+            [class*="st-key-termico_sistema_btn_t_"] button[kind] {
+                white-space: nowrap !important;
+                padding-left: 0.25rem !important;
+                padding-right: 0.25rem !important;
+                font-size: 0.85rem !important;
+                min-width: 0 !important;
+            }
+            /* Decoração checkbox ☐/☑ ANTES do label (Fase E.16 / decisão
+               5.48 restaurada pela Fase H.4 — C1). Glyph branco quando
+               kind="primary" via herança de color do parent. */
+            [class*="st-key-termico_sistema_btn_t_"] button[kind]::before {
+                content: "☐";
+                margin-right: 0.3rem;
+                font-weight: 700;
+                font-size: 1rem;
+                line-height: 1;
+            }
+            [class*="st-key-termico_sistema_btn_t_"] button[kind="primary"]::before {
+                content: "☑";
+            }
+            /* Trim INATIVO (kind="") — soltos transparent. */
+            [class*="st-key-termico_sistema_btn_t_"] button[kind] {
+                background: transparent !important;
+                background-color: transparent !important;
+                border: none !important;
+                box-shadow: none !important;
+                color: #1A1A1A !important;
+                font-weight: 400 !important;
+            }
+            /* Trim ATIVO (kind="primary") — fundo preto + texto branco
+               (Fase H.6 — A: revertida H5.C que invertia cores). Visual
+               desejado conforme print do PLD = caixa preenchimento preto
+               + tick branco. Glyph ☑ herda color do parent → vira branco
+               automaticamente. */
+            [class*="st-key-termico_sistema_btn_t_"] button[kind="primary"] {
+                background: #1A1A1A !important;
+                background-color: #1A1A1A !important;
+                border: none !important;
+                box-shadow: none !important;
+                color: #FFFFFF !important;
+                font-weight: 400 !important;
+            }
+            /* Hover INATIVO — escurece levemente o transparent. */
+            [class*="st-key-termico_sistema_btn_t_"] button[kind]:hover {
+                background: rgba(0, 0, 0, 0.05) !important;
+                background-color: rgba(0, 0, 0, 0.05) !important;
+                color: #1A1A1A !important;
+            }
+            /* Hover ATIVO — clareia levemente o preto, mantém texto branco. */
+            [class*="st-key-termico_sistema_btn_t_"] button[kind="primary"]:hover {
+                background: #2A2A2A !important;
+                background-color: #2A2A2A !important;
+                color: #FFFFFF !important;
+            }
+            /* Botões de ano "colados" — sobreposição sutil de 1px cria
+               aparência de segmento contínuo (Fase H — Item 4).
+               border-radius: 0 garante cantos retos. */
+            [class*="st-key-termico_sistema_btn_ano_"] button[kind] {
+                margin-left: -10px !important;
+                border-radius: 0 !important;
+            }
+            /* Regra `margin-top: -0.5rem` no `_btn_ano_` removida na
+               Fase H.4 — B: atacava o wrapper do botão (`.stButton`),
+               não o gap entre rows de st.columns. Substituída por
+               spacer HTML negativo ANTES do cols_anos no bloco Python
+               do Trimestral (mais previsível). */
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # Imports específicos do Sistema (lazy)
+        import plotly.graph_objects as go
+        import calendar
+        from datetime import date as _date_sis
+
+        # Sistema usa o df_term completo (todas as usinas, sem filtro Eneva).
+        df_sis = df_term
+
+        # Range disponível
+        min_d_sis = df_sis["data"].min().date()
+        max_d_sis = df_sis["data"].max().date()
+
+        # Init de state
+        if "termico_sistema_granularidade" not in st.session_state:
+            st.session_state["termico_sistema_granularidade"] = "Mensal"
+        # Migração defensiva da Fase E.1 (que removia "Horário" e mapeava
+        # estado legado pra "Mensal") foi removida na Fase E.14 — "Horário"
+        # voltou às opções do selectbox e o remap silencioso quebrava a
+        # seleção pelo usuário.
+        if "termico_sistema_unidade" not in st.session_state:
+            st.session_state["termico_sistema_unidade"] = "MWm"
+        # Trimestres marcados (Fase E.9): list[int] (subset de [1,2,3,4]).
+        # [] = modo "ano completo" (4 trims por ano marcado);
+        # [T1, T2, ...] = modo "histórico" (trims selecionados cross-anos).
+        # Renomeada de termico_sistema_trimestre_comparacao (era int|None) —
+        # state legado fica órfão, novo state nasce limpo como list.
+        if "termico_sistema_trimestres_marcados" not in st.session_state:
+            st.session_state["termico_sistema_trimestres_marcados"] = []
+        # Anos selecionados pra comparação (Fase E.4): lista de inteiros.
+        # Reset block (Trimestral) sobrescreve com [] na transição.
+        if "termico_sistema_anos_comparacao" not in st.session_state:
+            st.session_state["termico_sistema_anos_comparacao"] = list(
+                range(2022, max_d_sis.year + 1)
+            )
+        # LTM marcado (Fase E.5): bool separado dos anos pra type-safety.
+        # Default 1ª visita Trimestral: True (filter "últimos 12 meses").
+        if "termico_sistema_ltm_marcado" not in st.session_state:
+            st.session_state["termico_sistema_ltm_marcado"] = False
+
+        # Linha 1: granularidade (selectbox) + data_inicial + data_final
+        # st.columns(...) cria os 4 containers; selectbox e date_inputs são
+        # instanciados em momentos diferentes:
+        #  - selectbox PRIMEIRO (define gran_atual usado pelo reset block)
+        #  - reset block depois (escreve em state)
+        #  - date_inputs por ÚLTIMO (leem state pós-reset)
+        # Proporção col_g 3.6 = 6 botões × 0.6 (alinha visualmente com a
+        # largura dos botões ano colados; Fase H — Item 4b).
+        col_g, _spc_g, col_di, col_df = st.columns([3.6, 3.4, 1.5, 1.5])
+
+        with col_g:
+            gran_atual = st.selectbox(
+                "Granularidade",
+                ["Mensal", "Diário", "Horário", "Trimestral"],
+                key="termico_sistema_granularidade",
+            )
+
+        # Sair de Trimestral limpa trims marcados (Fase E.3 / atualizado E.9).
+        # Idempotente: re-aplica em todo render onde gran != Trimestral.
+        if gran_atual != "Trimestral":
+            st.session_state["termico_sistema_trimestres_marcados"] = []
+
+        # Reset block + transição de granularidade (decisão 5.16/5.20 simplificada)
+        prev_gran = st.session_state.get("_termico_sistema_last_gran")
+        em_transicao = prev_gran is not None and prev_gran != gran_atual
+
+        # Removido `data_ini not in state` (cond_a) — date_inputs com
+        # disabled=True em Trimestral sofrem widget cleanup do Streamlit
+        # (decisão 5.16 do CLAUDE.md), causando precisa_reset=True a cada
+        # render e sobrescrevendo state via reset block (bug Fase E.5).
+        # Sentinelas _dataset_max/_min cobrem o caso "1ª visita" (None ≠
+        # date) sem suscetibilidade ao cleanup.
+        precisa_reset = (
+            st.session_state.get("_termico_sistema_dataset_max") != max_d_sis
+            or st.session_state.get("_termico_sistema_dataset_min") != min_d_sis
+            or em_transicao
+        )
+
+        if precisa_reset:
+            if gran_atual == "Diário":
+                # Diário — últimos 30 dias móveis
+                st.session_state["termico_sistema_data_ini"] = max(
+                    min_d_sis, max_d_sis - timedelta(days=30)
+                )
+                st.session_state["termico_sistema_data_fim"] = max_d_sis
+            elif gran_atual == "Horário":
+                # Horário — 1 dia móvel (24 barras) — Fase E.14
+                st.session_state["termico_sistema_data_ini"] = max_d_sis
+                st.session_state["termico_sistema_data_fim"] = max_d_sis
+            elif gran_atual == "Trimestral":
+                # Trimestral default (Fase E.5 / atualizado E.9): trims=[],
+                # anos=[], LTM=True (modo "ano completo" com janela LTM pura).
+                # Filter usa trims+anos+LTM (não data_ini/data_fim) — date_inputs
+                # ficam disabled sempre em Trimestral. data_ini/data_fim
+                # mantidos como fallback informativo (últimos 12 meses).
+                st.session_state["termico_sistema_trimestres_marcados"] = []
+                st.session_state["termico_sistema_anos_comparacao"] = []
+                st.session_state["termico_sistema_ltm_marcado"] = True
+                st.session_state["termico_sistema_data_ini"] = max(
+                    min_d_sis, max_d_sis - timedelta(days=365)
+                )
+                st.session_state["termico_sistema_data_fim"] = max_d_sis
+            else:
+                # Mensal — default 12M (decisão Q4 reavaliada pra E.1)
+                st.session_state["termico_sistema_data_ini"] = max(
+                    min_d_sis, max_d_sis - timedelta(days=365)
+                )
+                st.session_state["termico_sistema_data_fim"] = max_d_sis
+            st.session_state["_termico_sistema_dataset_max"] = max_d_sis
+            st.session_state["_termico_sistema_dataset_min"] = min_d_sis
+
+        st.session_state["_termico_sistema_last_gran"] = gran_atual
+
+        # Period controls — só botões de preset (date_inputs estão na linha 1
+        # junto com o selectbox). Layout muda por granularidade.
+        # Trimestral: 4 botões 1T/2T/3T/4T do ano corrente do dataset.
+        #   Trimestres futuros (data_ini > max_d_sis) ficam disabled.
+        #   Trimestre corrente acumulado até hoje (data_fim = min(d_fim_t, max_d_sis)).
+        # Diário: 4 botões 1D/7D/15D/30D (janela móvel ancorada em max_d_sis).
+        # Mensal: 5 botões clássicos 1M/3M/6M/12M/Máx.
+        if gran_atual == "Trimestral":
+            ano_corrente_sis = max_d_sis.year
+            trims_marcados = st.session_state["termico_sistema_trimestres_marcados"]
+
+            # Botões toggle de ano + LTM — sempre visíveis em Trimestral
+            # (Fase E.5 / atualizado E.9). Comportamento depende do modo:
+            #   - "ano_completo" (trims=[]): single-select (anos+LTM mutuamente
+            #     exclusivos; não pode ficar tudo vazio → força LTM).
+            #   - "historico" (trims!=[]): multi-select (anos+LTM independentes).
+            anos_disponiveis = sorted(df_sis["data"].dt.year.unique().tolist())
+            anos_marcados = st.session_state["termico_sistema_anos_comparacao"]
+            ltm_marcado = st.session_state["termico_sistema_ltm_marcado"]
+            modo_trim = "historico" if trims_marcados else "ano_completo"
+
+            # Layout 6 botões iguais + spacer (Fase E.5).
+            cols_anos = st.columns([0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 6.4])
+            for i, ano in enumerate(anos_disponiveis):
+                if i >= 5:
+                    break  # defesa: layout suporta até 5 anos
+                ativo_ano = ano in anos_marcados
+                with cols_anos[i]:
+                    if st.button(
+                        str(ano),
+                        use_container_width=True,
+                        key=f"termico_sistema_btn_ano_{ano}",
+                        type="primary" if ativo_ano else "secondary",
+                    ):
+                        # Click ano = toggle multi-select (Fase H — Item 6,
+                        # reverte parcial decisão 5.40 — single-select foi
+                        # removido). Preserva trims; **desliga LTM** ao
+                        # marcar ano (Fase H.1 — Ajuste 3: UX prefere
+                        # análise focada em anos específicos vs LTM puro).
+                        # Quando 1º ano é marcado SEM trims explícitos,
+                        # marca todos os 4 trims pra UX coerente (default
+                        # = ano cheio). Edge case "tudo desmarcado" abaixo
+                        # garante que LTM volte a ativar se anos vazios.
+                        if ativo_ano:
+                            st.session_state["termico_sistema_anos_comparacao"] = [
+                                a for a in anos_marcados if a != ano
+                            ]
+                        else:
+                            if not trims_marcados:
+                                st.session_state["termico_sistema_trimestres_marcados"] = [1, 2, 3, 4]
+                            st.session_state["termico_sistema_anos_comparacao"] = sorted(
+                                anos_marcados + [ano]
+                            )
+                            st.session_state["termico_sistema_ltm_marcado"] = False
+                        st.rerun()
+
+            # Botão LTM — janela móvel "últimos 4 trimestres" (Fase E.8).
+            # Comportamento depende do modo (Fase E.9):
+            #   - ano_completo: single-select; LTM ativo é no-op (força mantém);
+            #     LTM inativo substitui ano selecionado.
+            #   - historico: toggle independente.
+            with cols_anos[5]:
+                if st.button(
+                    "LTM",
+                    use_container_width=True,
+                    key="termico_sistema_btn_ano_LTM",
+                    type="primary" if ltm_marcado else "secondary",
+                    help="Últimos 4 trimestres (móveis)",
+                ):
+                    if modo_trim == "ano_completo":
+                        if ltm_marcado:
+                            pass  # no-op (não pode desmarcar tudo)
+                        else:
+                            # Single-select: substitui ano selecionado
+                            st.session_state["termico_sistema_anos_comparacao"] = []
+                            st.session_state["termico_sistema_ltm_marcado"] = True
+                            st.rerun()
+                    else:  # historico — toggle independente
+                        st.session_state["termico_sistema_ltm_marcado"] = not ltm_marcado
+                        st.rerun()
+
+            # Botões trimestrais 1T/2T/3T/4T — renderizados ABAIXO dos botões
+            # de ano (Fase E.5 / passo P2). Multi-select com transições
+            # ano_completo ↔ historico (Fase E.9).
+            presets_t = [
+                (1, "1T"),
+                (2, "2T"),
+                (3, "3T"),
+                (4, "4T"),
+            ]
+            cols_p = st.columns([1, 1, 1, 1, 6])
+            for i, (num, label) in enumerate(presets_t):
+                ativo = num in trims_marcados
+                # Fase H.4 — C2: em LTM puro (trims_marcados vazio), todos os
+                # 4 trims renderizam visualmente marcados (type="primary").
+                # Filter ignora trims_marcados=[] (continua usando só anos+LTM).
+                # Lógica de toggle abaixo continua baseada em `ativo` real.
+                ativo_visual = ativo or (not trims_marcados)
+
+                if modo_trim == "ano_completo":
+                    help_txt = f"Comparar {label} cross-anos"
+                elif ativo:
+                    help_txt = f"Click pra desmarcar {label}"
+                else:
+                    help_txt = f"Adicionar {label} à comparação"
+
+                # Fase H.4 — C1: revertido st.checkbox → st.button + ::before
+                # (decisão 5.48 restaurada). Tick branco do checkbox global
+                # PLD não estava aparecendo nos trims aninhados em Trimestral.
+                with cols_p[i]:
+                    if st.button(
+                        label,
+                        use_container_width=True,
+                        key=f"termico_sistema_btn_t_{label}",
+                        type="primary" if ativo_visual else "secondary",
+                        help=help_txt,
+                    ):
+                        if modo_trim == "ano_completo":
+                            # Transição → historico: marca TODOS anos disponíveis
+                            st.session_state["termico_sistema_trimestres_marcados"] = [num]
+                            st.session_state["termico_sistema_anos_comparacao"] = sorted(anos_disponiveis)
+                            # LTM mantém estado anterior
+                        else:  # historico — multi-select
+                            if ativo:
+                                novos_trims = [t for t in trims_marcados if t != num]
+                                st.session_state["termico_sistema_trimestres_marcados"] = novos_trims
+                                if not novos_trims:
+                                    # Transição reverso historico → ano_completo:
+                                    # força default LTM puro
+                                    st.session_state["termico_sistema_anos_comparacao"] = []
+                                    st.session_state["termico_sistema_ltm_marcado"] = True
+                            else:
+                                st.session_state["termico_sistema_trimestres_marcados"] = sorted(
+                                    trims_marcados + [num]
+                                )
+                        st.rerun()
+
+            # Edge case "tudo desmarcado" (Fase E.5): nem anos individuais
+            # nem LTM — reset automático pro default LTM. Garante que sempre
+            # exista pelo menos uma fonte temporal ativa.
+            if (
+                not st.session_state["termico_sistema_anos_comparacao"]
+                and not st.session_state["termico_sistema_ltm_marcado"]
+            ):
+                st.session_state["termico_sistema_trimestres_marcados"] = []
+                st.session_state["termico_sistema_anos_comparacao"] = []
+                st.session_state["termico_sistema_ltm_marcado"] = True
+                st.rerun()
+
+        elif gran_atual == "Diário":
+            # Diário — presets removidos (Fase E.7). Período controlado
+            # exclusivamente via date_inputs (default 30 dias móveis vem
+            # do reset block; validação >30 dias é aplicada antes da
+            # filtragem mais abaixo).
+            pass
+
+        elif gran_atual == "Horário":
+            # Horário — sem presets (Fase E.14). Período via date_inputs
+            # (default 1 dia móvel pelo reset block; validação >15 dias
+            # aplicada antes da filtragem).
+            pass
+
+        else:
+            # Mensal — presets reduzidos a 12M / Máx (Fase E.7).
+            # Date_inputs habilitados pra range customizado.
+            # .get() com default seguro contra widget cleanup do Streamlit
+            # (decisão 5.16; fix Fase E.12). Default = Mensal 12M.
+            data_ini_atual = st.session_state.get(
+                "termico_sistema_data_ini",
+                max(min_d_sis, max_d_sis - timedelta(days=365)),
+            )
+            data_fim_atual = st.session_state.get(
+                "termico_sistema_data_fim", max_d_sis
+            )
+            preset_atual = None
+            if data_fim_atual == max_d_sis:
+                if (max_d_sis - data_ini_atual).days == 365:
+                    preset_atual = "12M"
+                elif data_ini_atual == min_d_sis:
+                    preset_atual = "Máx"
+
+            cols_p = st.columns([1, 1, 8])
+            presets_sis = [
+                ("12M", 365, False),
+                ("Máx", None, True),
+            ]
+            for i, (label, delta, is_max) in enumerate(presets_sis):
+                with cols_p[i]:
+                    tipo = "primary" if label == preset_atual else "secondary"
+                    if st.button(
+                        label,
+                        use_container_width=True,
+                        key=f"termico_sistema_btn_p_{label}",
+                        type=tipo,
+                    ):
+                        if is_max:
+                            st.session_state["termico_sistema_data_ini"] = min_d_sis
+                        else:
+                            st.session_state["termico_sistema_data_ini"] = max(
+                                min_d_sis, max_d_sis - timedelta(days=delta)
+                            )
+                        st.session_state["termico_sistema_data_fim"] = max_d_sis
+                        st.rerun()
+
+        # Date_inputs instanciados APÓS os period controls (Solução A da Fase
+        # E.3.1). Pattern do _render_period_controls global: state escrito
+        # pelos presets ANTES do widget com mesma key ser instanciado, evita
+        # StreamlitAPIException. Containers col_di/col_df foram criados na
+        # linha 1 (junto com selectbox via st.columns) — visual final mantém
+        # date_inputs lá, só a ordem temporal de instanciação muda.
+        # Em Trimestral (Fase E.16): filter sempre usa anos+LTM (não datas),
+        # então date_inputs nem renderizam — col_di/col_df ficam vazios.
+        # Em Horário (Fase E.15): single-day picker — 1 date_input "Data" em
+        # col_di; col_df fica vazio. data_fim sincroniza com data_ini pra que
+        # filtragem (data >= data_ini & data <= data_fim) pegue exatamente
+        # 1 dia (24 horas). Escrita em data_fim é OK porque o widget de
+        # data_fim NÃO é instanciado em Horário (key não está bound).
+        if gran_atual == "Horário":
+            with col_di:
+                st.date_input(
+                    "Data",
+                    min_value=min_d_sis, max_value=max_d_sis,
+                    key="termico_sistema_data_ini",
+                    format="DD/MM/YYYY",
+                )
+            st.session_state["termico_sistema_data_fim"] = (
+                st.session_state["termico_sistema_data_ini"]
+            )
+        elif gran_atual == "Trimestral":
+            # Date_inputs não renderizam em Trimestral (Fase E.16) — filter
+            # usa trims+anos+LTM. col_di/col_df ficam vazios.
+            pass
+        else:
+            # Mensal/Diário — 2 date_inputs habilitados.
+            with col_di:
+                st.date_input(
+                    "Data inicial",
+                    min_value=min_d_sis, max_value=max_d_sis,
+                    key="termico_sistema_data_ini",
+                    format="DD/MM/YYYY",
+                )
+            with col_df:
+                st.date_input(
+                    "Data final",
+                    min_value=min_d_sis, max_value=max_d_sis,
+                    key="termico_sistema_data_fim",
+                    format="DD/MM/YYYY",
+                )
+
+        # Caption "Histórico em cache" movida pra footnote pós-gráfico
+        # (Fase H.2 — Ajuste 4). Ver bloco abaixo de st.plotly_chart.
+
+        # Toggle MWm/GWh removido na Fase E.6 — Sistema fixo em MWm.
+        # Branches GWh da agregação permanecem como dead code (não removidos
+        # pra minimizar risco; nunca executam com unidade_sis hardcoded).
+        unidade_sis = "MWm"
+        # .get() com default seguro contra widget cleanup do Streamlit
+        # (decisão 5.16; fix Fase E.12). Default = Mensal 12M.
+        data_ini_sis = st.session_state.get(
+            "termico_sistema_data_ini",
+            max(min_d_sis, max_d_sis - timedelta(days=365)),
+        )
+        data_fim_sis = st.session_state.get(
+            "termico_sistema_data_fim", max_d_sis
+        )
+
+        # Validação
+        if data_ini_sis > data_fim_sis:
+            st.error("Data inicial maior que data final.")
+            st.stop()
+
+        # Validação Diário — período máximo 30 dias (Fase E.7).
+        if (
+            gran_atual == "Diário"
+            and (data_fim_sis - data_ini_sis).days > 30
+        ):
+            st.error(
+                "Período máximo no Diário é 30 dias. Selecione um "
+                "intervalo menor ou troque a granularidade."
+            )
+            st.stop()
+
+        # Validação Horário >15 dias removida (Fase E.15) — single-day
+        # picker garante data_ini = data_fim (0 dias).
+
+        # Filtragem — Fase E.5/E.9: Trimestral sempre usa anos+LTM como fonte
+        # temporal (não data_ini/data_fim). Modo "histórico" (trims_filt != [])
+        # adiciona filtro por meses dos trimestres marcados. Modo "ano completo"
+        # (trims_filt == []) usa só fonte temporal. Outras granularidades usam
+        # datas explícitas como antes.
+        trims_filt = st.session_state.get("termico_sistema_trimestres_marcados", [])
+        anos_filt = st.session_state.get("termico_sistema_anos_comparacao", [])
+        ltm_filt = st.session_state.get("termico_sistema_ltm_marcado", False)
+
+        if gran_atual == "Trimestral":
+            # Mask "fonte temporal" = anos individuais OR janela LTM (OR lógico).
+            if anos_filt:
+                mask_anos = df_sis["data"].dt.year.isin(anos_filt)
+            else:
+                mask_anos = pd.Series(False, index=df_sis.index)
+            if ltm_filt:
+                # LTM = trim corrente + 3 anteriores = 4 barras (Fase E.8).
+                # Recuo de 9 meses do início do trim corrente cobre exatos 4 trims.
+                _mes_inicial_corrente = ((max_d_sis.month - 1) // 3) * 3 + 1
+                _mes_cutoff_offset = _mes_inicial_corrente - 9
+                if _mes_cutoff_offset <= 0:
+                    _ano_ltm = max_d_sis.year - 1
+                    _mes_ltm = _mes_cutoff_offset + 12
+                else:
+                    _ano_ltm = max_d_sis.year
+                    _mes_ltm = _mes_cutoff_offset
+                ltm_cutoff = _date_sis(_ano_ltm, _mes_ltm, 1)
+                mask_ltm = df_sis["data"].dt.date >= ltm_cutoff
+            else:
+                mask_ltm = pd.Series(False, index=df_sis.index)
+            mask_temporal = mask_anos | mask_ltm
+
+            if trims_filt:
+                # Histórico: filtra por meses dos trimestres marcados AND fonte temporal.
+                meses_trim = []
+                for trim_num in trims_filt:
+                    meses_trim.extend([
+                        3 * (trim_num - 1) + 1,
+                        3 * (trim_num - 1) + 2,
+                        3 * (trim_num - 1) + 3,
+                    ])
+                mask_periodo_sis = (
+                    df_sis["data"].dt.month.isin(meses_trim) & mask_temporal
+                )
+            else:
+                # Ano completo: todos os trims dentro da fonte temporal.
+                mask_periodo_sis = mask_temporal
+        else:
+            mask_periodo_sis = (
+                (df_sis["data"].dt.date >= data_ini_sis)
+                & (df_sis["data"].dt.date <= data_fim_sis)
+            )
+        df_filt_sis = df_sis[mask_periodo_sis].copy()
+
+        # Paleta de motivos (cor + label PT-BR)
+        PALETA_MOTIVOS_SIS = {
+            "val_verifinflexibilidade":    ("#D62828", "Inflexibilidade"),
+            "val_verifordemmerito":        ("#1D3557", "Ordem de mérito"),
+            "val_verifunitcommitment":     ("#F6BD16", "Unit commitment"),
+            "val_verifexportacao":         ("#6B6B6B", "Exportação"),
+            "val_verifgsub":               ("#A8A8A8", "GSUB"),
+            "val_verifrazaoeletrica":      ("#4A4A4A", "Razão elétrica"),
+            "val_verifgarantiaenergetica": ("#1A1A1A", "Garantia energética"),
+        }
+
+        # Agregação por granularidade — MOVIDA pra ANTES dos KPIs (Fase E.3).
+        # Produz agg_sis + sufixo_unidade_sis + fmt_hover_sis pra ambos:
+        #   - KPIs (TOTAL = soma das barras visíveis via agg_sis)
+        #   - Gráfico (reusa agg_sis sem recalcular)
+        if df_filt_sis.empty:
+            agg_sis = None
+            sufixo_unidade_sis = unidade_sis
+            fmt_hover_sis = ",.0f"
+        else:
+            if gran_atual == "Mensal":
+                df_filt_sis["ano_mes"] = df_filt_sis["data"].dt.to_period("M").dt.to_timestamp()
+                agg_sis = df_filt_sis.groupby("ano_mes")[MOTIVOS_COLS].sum().reset_index()
+                agg_sis["label"] = agg_sis["ano_mes"].apply(
+                    lambda ts: f"{_MESES_BR[ts.month]}/{str(ts.year)[2:]}"
+                )
+                if unidade_sis == "MWm":
+                    horas_por_linha_sis = agg_sis["ano_mes"].apply(
+                        lambda ts: calendar.monthrange(ts.year, ts.month)[1] * 24
+                    )
+                    for col in MOTIVOS_COLS:
+                        agg_sis[col] = agg_sis[col] / horas_por_linha_sis
+                    sufixo_unidade_sis = "MWm"
+                    fmt_hover_sis = ",.0f"
+                else:
+                    for col in MOTIVOS_COLS:
+                        agg_sis[col] = agg_sis[col] / 1000.0
+                    sufixo_unidade_sis = "GWh"
+                    fmt_hover_sis = ",.0f"
+
+            elif gran_atual == "Diário":
+                df_filt_sis["dia"] = df_filt_sis["data"].dt.date
+                agg_sis = df_filt_sis.groupby("dia")[MOTIVOS_COLS].sum().reset_index()
+                agg_sis["label"] = agg_sis["dia"].apply(lambda d: d.strftime("%d/%m"))
+                if unidade_sis == "MWm":
+                    for col in MOTIVOS_COLS:
+                        agg_sis[col] = agg_sis[col] / 24.0
+                    sufixo_unidade_sis = "MWm"
+                    fmt_hover_sis = ",.0f"
+                else:
+                    for col in MOTIVOS_COLS:
+                        agg_sis[col] = agg_sis[col] / 1000.0
+                    sufixo_unidade_sis = "GWh"
+                    fmt_hover_sis = ",.1f"
+
+            elif gran_atual == "Horário":
+                # Cada linha do df_filt_sis já é 1 hora — groupby por
+                # (data, hora) agrega motivos quando há múltiplas usinas no
+                # mesmo instante (Fase E.14). label vai como datetime (não
+                # string) pra que xaxis.tickformat/hoverformat controlem
+                # eixo curto "HH:00" e tooltip rico "DD/MM/YYYY HH:00"
+                # (Fase E.14.1).
+                agg_sis = (
+                    df_filt_sis.groupby(["data", "hora"])[MOTIVOS_COLS]
+                    .sum()
+                    .reset_index()
+                )
+                agg_sis["instante"] = (
+                    agg_sis["data"]
+                    + pd.to_timedelta(agg_sis["hora"], unit="h")
+                )
+                agg_sis["label"] = agg_sis["instante"]
+                if unidade_sis == "MWm":
+                    # Cada linha do agg = 1 hora → sum direto = MWmédio
+                    # da hora (denominador implícito = 1h, sem divisão).
+                    sufixo_unidade_sis = "MWm"
+                    fmt_hover_sis = ",.0f"
+                else:
+                    for col in MOTIVOS_COLS:
+                        agg_sis[col] = agg_sis[col] / 1000.0
+                    sufixo_unidade_sis = "GWh"
+                    fmt_hover_sis = ",.2f"
+
+            elif gran_atual == "Trimestral":  # agregação por trimestre civil
+                df_filt_sis["trimestre"] = df_filt_sis["data"].dt.to_period("Q").dt.to_timestamp()
+                agg_sis = df_filt_sis.groupby("trimestre")[MOTIVOS_COLS].sum().reset_index()
+                agg_sis["label"] = agg_sis["trimestre"].apply(
+                    lambda ts: f"{((ts.month - 1) // 3) + 1}T/{str(ts.year)[2:]}"
+                )
+                # Filtra trims sem dados (Fase H — Item 6 bonus). Trims com
+                # sum=0 em todos os motivos vêm de filter por anos+meses
+                # incluindo trims futuros (ex: 4T/26 ainda não chegou). Sem
+                # filter, gerariam barras vazias no eixo X.
+                agg_sis = agg_sis[
+                    agg_sis[MOTIVOS_COLS].sum(axis=1) > 0
+                ].reset_index(drop=True)
+                if unidade_sis == "MWm":
+                    def _horas_trimestre(ts):
+                        ano, mes = ts.year, ts.month
+                        total = 0
+                        for m in (mes, mes + 1, mes + 2):
+                            total += calendar.monthrange(ano, m)[1] * 24
+                        return total
+                    horas_por_linha_sis = agg_sis["trimestre"].apply(_horas_trimestre)
+                    for col in MOTIVOS_COLS:
+                        agg_sis[col] = agg_sis[col] / horas_por_linha_sis
+                    sufixo_unidade_sis = "MWm"
+                    fmt_hover_sis = ",.0f"
+                else:
+                    for col in MOTIVOS_COLS:
+                        agg_sis[col] = agg_sis[col] / 1000.0
+                    sufixo_unidade_sis = "GWh"
+                    fmt_hover_sis = ",.0f"
+
+        # KPIs removidos na Fase E.6 — gráfico fala por si.
+        # PALETA_MOTIVOS_SIS continua usada pelo gráfico (mantida acima).
+
+        # Gráfico — agg_sis pré-calculado antes do bloco do gráfico.
+        if df_filt_sis.empty:
+            st.warning(
+                f"Nenhum dado disponível no período "
+                f"{data_ini_sis.strftime('%d/%m/%Y')} → "
+                f"{data_fim_sis.strftime('%d/%m/%Y')}."
+            )
+        else:
+            # Guard "Sem despacho" — agg vazio ou sum total = 0
+            # (Fase H — Item 2). Decisão 5.24: st.info + st.stop bloqueia
+            # caption + gráfico quando não há nada pra mostrar. df_filt_sis
+            # NÃO está vazio aqui (else do empty acima), mas a soma dos
+            # motivos pode ser zero (despacho zerado mesmo com dados).
+            if agg_sis.empty or agg_sis[MOTIVOS_COLS].sum().sum() == 0:
+                if gran_atual == "Horário":
+                    msg_sd_sis = (
+                        f"Sem despacho em {data_ini_sis.strftime('%d/%m/%Y')}."
+                    )
+                elif gran_atual == "Trimestral":
+                    msg_sd_sis = "Sem despacho no período selecionado."
+                else:
+                    msg_sd_sis = (
+                        f"Sem despacho no período "
+                        f"{data_ini_sis.strftime('%d/%m/%Y')} → "
+                        f"{data_fim_sis.strftime('%d/%m/%Y')}."
+                    )
+                st.info(msg_sd_sis)
+                st.stop()
+
+            # Caption do gráfico — Fase E.17 (helper top do bloco térmico).
+            # Sistema sempre passa "MWmed" como rótulo de unidade
+            # (granularidade variável; data_html depende de gran_atual).
+            _render_termico_chart_caption(
+                sub_label="SIN",
+                gran_label=gran_atual,
+                data_ini=data_ini_sis,
+                data_fim=data_fim_sis,
+                unidade_label="MWmed",
+            )
+
+            # Construir figura — stacked bar
+            fig_sis = go.Figure()
+
+            # Trace Total (Scatter invisível) ANTES do loop pra ficar no
+            # FUNDO do tooltip (decisão Fase C.2.3.1).
+            agg_total_sis = agg_sis[MOTIVOS_COLS].sum(axis=1)
+            hovertemplate_total_sis = (
+                f'<span style="color:{BAUHAUS_BLACK}; font-weight:700;">'
+                f'{"Total".ljust(20).replace(" ", "&nbsp;")}</span>'
+                f'&nbsp;&nbsp;'
+                f'<span style="color:{BAUHAUS_BLACK}; font-weight:700;">'
+                f'%{{y:{fmt_hover_sis}}} {sufixo_unidade_sis}</span>'
+                f'<extra></extra>'
+            )
+            fig_sis.add_trace(go.Scatter(
+                x=agg_sis["label"],
+                y=agg_total_sis,
+                name="Total",
+                mode="lines",
+                line=dict(color="rgba(0,0,0,0)"),
+                hovertemplate=hovertemplate_total_sis,
+                showlegend=False,
+                hoverlabel=dict(
+                    bgcolor=BAUHAUS_CREAM,
+                    bordercolor=BAUHAUS_BLACK,
+                ),
+            ))
+
+            for col in MOTIVOS_COLS:
+                cor_sis, label_sis = PALETA_MOTIVOS_SIS[col]
+                label_pad_sis = label_sis.ljust(20).replace(" ", "&nbsp;")
+                hovertemplate_sis = (
+                    f'<span style="color:{cor_sis}; font-weight:700;">{label_pad_sis}</span>'
+                    f'&nbsp;&nbsp;'
+                    f'<span style="color:#1A1A1A;">%{{y:{fmt_hover_sis}}} {sufixo_unidade_sis}</span>'
+                    f'<extra></extra>'
+                )
+                if gran_atual == "Horário":
+                    # Área stackada (Fase E.15) — mode="none" oculta linha,
+                    # fillcolor preenche entre traces consecutivos do
+                    # stackgroup. barmode="stack" do update_layout não
+                    # afeta Scatter (só aplica a Bar).
+                    fig_sis.add_trace(go.Scatter(
+                        x=agg_sis["label"],
+                        y=agg_sis[col],
+                        name=label_sis,
+                        stackgroup="motivos",
+                        mode="none",
+                        fillcolor=cor_sis,
+                        hovertemplate=hovertemplate_sis,
+                    ))
+                else:
+                    fig_sis.add_trace(go.Bar(
+                        x=agg_sis["label"],
+                        y=agg_sis[col],
+                        name=label_sis,
+                        marker_color=cor_sis,
+                        hovertemplate=hovertemplate_sis,
+                    ))
+
+            # xaxis_kwargs condicional ao modo (Fase E.14.1):
+            # em Horário, x=datetime + tickformat curto + hoverformat rico.
+            xaxis_kwargs = dict(
+                title=None, showgrid=False, showline=True,
+                linewidth=2, linecolor=BAUHAUS_BLACK,
+                ticks="outside", tickcolor=BAUHAUS_BLACK,
+                tickfont=dict(family="Inter, sans-serif", size=12, color=BAUHAUS_BLACK),
+            )
+            if gran_atual == "Horário":
+                xaxis_kwargs["tickformat"] = "%H:00"
+                xaxis_kwargs["hoverformat"] = "%d/%m/%Y %H:00"
+
+            fig_sis.update_layout(
+                barmode="stack",
+                height=450,
+                margin=dict(l=20, r=20, t=10, b=20),
+                paper_bgcolor=BAUHAUS_CREAM,
+                plot_bgcolor=BAUHAUS_CREAM,
+                separators=",.",
+                hovermode="x unified",
+                hoverlabel=dict(
+                    bgcolor=BAUHAUS_CREAM,
+                    bordercolor=BAUHAUS_BLACK,
+                    font=dict(family="'IBM Plex Mono', 'Courier New', monospace", size=12, color=BAUHAUS_BLACK),
+                ),
+                showlegend=True,
+                legend=dict(
+                    orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
+                    bgcolor="rgba(0,0,0,0)",
+                    font=dict(family="Inter, sans-serif", size=13, color=BAUHAUS_BLACK),
+                    traceorder="normal",
+                ),
+                xaxis=xaxis_kwargs,
+                yaxis=dict(
+                    title=None,
+                    showgrid=True, gridcolor=BAUHAUS_LIGHT, gridwidth=1,
+                    showline=True, linewidth=2, linecolor=BAUHAUS_BLACK,
+                    ticks="outside", tickcolor=BAUHAUS_BLACK,
+                    tickfont=dict(family="Inter, sans-serif", size=12, color=BAUHAUS_BLACK),
+                    zeroline=False,
+                    tickformat=",.0f",
+                ),
+                font=dict(family="Inter, sans-serif", size=12),
+            )
+
+            st.plotly_chart(fig_sis, use_container_width=True, config={"displaylogo": False})
+
+        # Caption "Histórico em cache" — footnote pós-gráfico (Fase H.2 —
+        # Ajuste 4). Indentado 8 espaços (nível subview Sistema), FORA
+        # do else do empty pra sempre renderizar (mesmo quando gráfico
+        # foi suprimido por warning/info).
+        st.markdown(
+            f'<div style="font-family:\'Inter\', sans-serif; '
+            f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+            f'margin:1rem 0 0 0;">'
+            f'Histórico em cache: desde {min_d_sis.strftime("%d/%m/%Y")}.'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        # === Sub-view Eneva — Fase C.2.1 ===
+        # Caption interno removido na Fase E.11 — título dinâmico no topo
+        # do bloco da aba já mostra "Eneva — Despacho Termelétrico (GWh)".
+
+        # Fix de alinhamento (Fase D.1.1):
+        # Replica do CSS scoped do Sistema (linhas 3161-3170) — cancela
+        # margin-top:-1.5rem global (app.py:359-362) pros date_inputs
+        # da Eneva, que ficam na mesma linha do selectbox de granularidade
+        # (não abaixo dos presets como nas outras abas). Scope via key
+        # prefix garante zero impacto em outras sub-views/abas.
+        st.markdown(
+            """
+            <style>
+            .st-key-termico_eneva_data_ini,
+            .st-key-termico_eneva_data_fim,
+            [class*="st-key-termico_eneva_data_"] .stDateInput,
+            [class*="st-key-termico_eneva_data_"] [data-testid="stDateInput"] {
+                margin-top: 0 !important;
+            }
+            /* Botões de ano + trim em Trimestral (Fase D.2 / restaurado
+               na Fase H.4 — C1 ao reverter st.checkbox → st.button +
+               ::before): compactos sem quebra de linha. [kind] empata
+               especificidade com .stButton button[kind] do CSS global. */
+            [class*="st-key-termico_eneva_btn_ano_"] button[kind],
+            [class*="st-key-termico_eneva_btn_t_"] button[kind] {
+                white-space: nowrap !important;
+                padding-left: 0.25rem !important;
+                padding-right: 0.25rem !important;
+                font-size: 0.85rem !important;
+                min-width: 0 !important;
+            }
+            /* Decoração checkbox ☐/☑ ANTES do label (decisão 5.48
+               restaurada pela Fase H.4 — C1). */
+            [class*="st-key-termico_eneva_btn_t_"] button[kind]::before {
+                content: "☐";
+                margin-right: 0.3rem;
+                font-weight: 700;
+                font-size: 1rem;
+                line-height: 1;
+            }
+            [class*="st-key-termico_eneva_btn_t_"] button[kind="primary"]::before {
+                content: "☑";
+            }
+            /* Trim INATIVO (kind="") — soltos transparent. */
+            [class*="st-key-termico_eneva_btn_t_"] button[kind] {
+                background: transparent !important;
+                background-color: transparent !important;
+                border: none !important;
+                box-shadow: none !important;
+                color: #1A1A1A !important;
+                font-weight: 400 !important;
+            }
+            /* Trim ATIVO (kind="primary") — fundo preto + texto branco
+               (Fase H.6 — A: revertida H5.C que invertia cores). Visual
+               desejado conforme print do PLD = caixa preenchimento preto
+               + tick branco. Glyph ☑ herda color do parent → vira branco
+               automaticamente. */
+            [class*="st-key-termico_eneva_btn_t_"] button[kind="primary"] {
+                background: #1A1A1A !important;
+                background-color: #1A1A1A !important;
+                border: none !important;
+                box-shadow: none !important;
+                color: #FFFFFF !important;
+                font-weight: 400 !important;
+            }
+            /* Hover INATIVO — escurece levemente o transparent. */
+            [class*="st-key-termico_eneva_btn_t_"] button[kind]:hover {
+                background: rgba(0, 0, 0, 0.05) !important;
+                background-color: rgba(0, 0, 0, 0.05) !important;
+                color: #1A1A1A !important;
+            }
+            /* Hover ATIVO — clareia levemente o preto, mantém texto branco. */
+            [class*="st-key-termico_eneva_btn_t_"] button[kind="primary"]:hover {
+                background: #2A2A2A !important;
+                background-color: #2A2A2A !important;
+                color: #FFFFFF !important;
+            }
+            /* Botões de ano "colados" — sobreposição sutil de 1px cria
+               aparência de segmento contínuo (Fase H — Item 4).
+               border-radius: 0 garante cantos retos. */
+            [class*="st-key-termico_eneva_btn_ano_"] button[kind] {
+                margin-left: -10px !important;
+                border-radius: 0 !important;
+            }
+            /* Regra `margin-top: -0.5rem` no `_btn_ano_` removida na
+               Fase H.4 — B: atacava o wrapper do botão (`.stButton`),
+               não o gap entre rows de st.columns. Substituída por
+               margin-top negativo no spacer-label da H2.E (mais
+               previsível e mantém compensação de altura do col_meio). */
+            /* Regra `[..._btn_p_] { margin-top }` removida na Fase
+               H.6 — C.4: atacava o wrapper interno do botão, não o
+               `gap` do stVerticalBlock parent. Substituída por spacer
+               HTML negativo ANTES do cols_p no bloco Python do Mensal
+               (consistência com Sistema, mesma mecânica do Trimestral). */
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # Imports específicos da Eneva (carregar_termico já hoistado).
+        from data_loaders.data_loader_termico import (
+            USINAS_COBERTURA, usina_em_operacao,
+        )
+
+        # Filtrar só linhas Eneva pra esta sub-view
+        df_eneva = df_term[df_term["usina_eneva"].notna()].copy()
+        if df_eneva.empty:
+            st.warning("Nenhum dado de usinas Eneva no período carregado.")
+            st.stop()
+
+        # Init de granularidade (Layout C — Fase D.1).
+        # Default Mensal preserva comportamento histórico da Eneva.
+        if "termico_eneva_granularidade" not in st.session_state:
+            st.session_state["termico_eneva_granularidade"] = "Mensal"
+
+        # Init de state Trimestral (Fase D.2 — replicado do Sistema).
+        # Anos disponíveis: 2022..ano_corrente do dataset (mesma janela
+        # do Sistema). Reset block do Trimestral força anos=[] / ltm=True
+        # na transição (modo "ano completo + LTM puro" como default UX).
+        if "termico_eneva_anos_comparacao" not in st.session_state:
+            st.session_state["termico_eneva_anos_comparacao"] = list(
+                range(2022, df_eneva["data"].max().year + 1)
+            )
+        # Trimestres marcados (decisão 5.39): list[int] subset de [1,2,3,4].
+        # [] = modo "ano completo"; [T1, T2, ...] = modo "histórico".
+        if "termico_eneva_trims_marcados" not in st.session_state:
+            st.session_state["termico_eneva_trims_marcados"] = []
+        # LTM marcado (decisão 5.38): bool separado dos anos pra type-safety.
+        # Default 1ª visita (não-Trimestral): False; reset block do Trimestral
+        # promove pra True na transição (Fase D.2 default).
+        if "termico_eneva_ltm_marcado" not in st.session_state:
+            st.session_state["termico_eneva_ltm_marcado"] = False
+
+        min_d = df_eneva["data"].min().date()
+        max_d = df_eneva["data"].max().date()
+
+        # Spacer pra evitar overlap entre pills (Eneva|SIN) e date_inputs.
+        # CSS global aplica margin-top: -1.5rem nos date_inputs pra alinhar
+        # pela base com presets — não cancela em Despacho Térmico onde pills
+        # ficam entre o título e o helper. Fase E.13. Reduzido pra 0.8rem
+        # na Fase H — Item 7, depois pra 0.3rem na Fase H.3 — Ajuste 1
+        # (cola mais perto das pills; o CSS scoped V3 da D.1.1 zera margin-
+        # top dos dates da Eneva, então 0.3rem basta pra folga visual).
+        st.markdown(
+            '<div style="margin-top: 0.3rem;"></div>',
+            unsafe_allow_html=True,
+        )
+
+        # === Layout C linha 1: granularidade + Usina/Toggle + dates ===
+        # selectbox em col_g; Usina + Toggle dentro do col_meio (que era
+        # spacer vazio até a Fase H.1 — Ajuste 1); date_inputs em
+        # col_di/col_df renderizados condicionalmente APÓS os presets.
+        # Proporções alinhadas com Sistema pra paridade visual.
+        # col_g 3.6 = 6 botões × 0.6 (alinha selectbox com largura dos
+        # botões ano colados; Fase H — Item 4b).
+        col_g, col_meio, col_di, col_df = st.columns([3.6, 3.4, 1.5, 1.5])
+
+        with col_g:
+            gran_atual = st.selectbox(
+                "Granularidade",
+                ["Mensal", "Diário", "Horário", "Trimestral"],
+                key="termico_eneva_granularidade",
+            )
+
+        # Init de Usina + Unidade (state defaults). Fora do `with col_meio`
+        # pra que valores estejam disponíveis se o widget não renderizar
+        # nesse render (defensivo).
+        USINAS_TODAS = ["Consolidado"] + list(USINAS_COBERTURA.keys())  # 12 itens
+        if "termico_eneva_usina" not in st.session_state:
+            st.session_state["termico_eneva_usina"] = "Consolidado"
+        # Garantir valor válido (caso USINAS_COBERTURA mude).
+        if st.session_state["termico_eneva_usina"] not in USINAS_TODAS:
+            st.session_state["termico_eneva_usina"] = "Consolidado"
+        if "termico_eneva_unidade" not in st.session_state:
+            st.session_state["termico_eneva_unidade"] = "GWh"
+
+        # Usina + Toggle empilhados verticalmente dentro do col_meio
+        # (Fase H.1 — Ajuste 1). Toggle usa cols internas [1, 1] pra
+        # MWm/GWh side-by-side dentro do col_meio estreito.
+        with col_meio:
+            # Wrapper interno [1.5, 7, 1.5] (Fase H.2 — Ajuste B):
+            # centraliza Usina + Toggle em 70% da largura do col_meio,
+            # com spacers de 15% em cada lado. Toggle herda automaticamente
+            # a mesma largura via cols [1, 1] aninhadas dentro do wrapper.
+            _spc_l, col_usina_inner, _spc_r = st.columns([1.5, 7, 1.5])
+            with col_usina_inner:
+                usina_sel = st.selectbox(
+                    "Usina",
+                    USINAS_TODAS,
+                    key="termico_eneva_usina",
+                )
+                _unid = st.session_state["termico_eneva_unidade"]
+                col_mwm, col_gwh = st.columns([1, 1])
+                with col_mwm:
+                    if st.button(
+                        "MWM",
+                        key="termico_eneva_btn_mwm",
+                        type="primary" if _unid == "MWm" else "secondary",
+                        use_container_width=True,
+                    ):
+                        st.session_state["termico_eneva_unidade"] = "MWm"
+                        st.rerun()
+                with col_gwh:
+                    if st.button(
+                        "GWH",
+                        key="termico_eneva_btn_gwh",
+                        type="primary" if _unid == "GWh" else "secondary",
+                        use_container_width=True,
+                    ):
+                        st.session_state["termico_eneva_unidade"] = "GWh"
+                        st.rerun()
+        unidade = st.session_state["termico_eneva_unidade"]
+
+        # Reset block (decisão 5.16/5.20 — Layout C, Fase D.1).
+        # Sem `data_ini not in state` (cond_a) pra evitar bug Fase E.5
+        # análogo ao Sistema: date_inputs sofrem widget cleanup do
+        # Streamlit em Trimestral, causando precisa_reset=True a cada
+        # render. Sentinelas _dataset_max/_min cobrem 1ª visita.
+        prev_gran = st.session_state.get("_termico_eneva_last_gran")
+        em_transicao = prev_gran is not None and prev_gran != gran_atual
+
+        precisa_reset = (
+            st.session_state.get("_termico_eneva_dataset_max") != max_d
+            or st.session_state.get("_termico_eneva_dataset_min") != min_d
+            or em_transicao
+        )
+
+        if precisa_reset:
+            if gran_atual == "Diário":
+                # Diário — últimos 30 dias móveis
+                st.session_state["termico_eneva_data_ini"] = max(
+                    min_d, max_d - timedelta(days=30)
+                )
+                st.session_state["termico_eneva_data_fim"] = max_d
+            elif gran_atual == "Horário":
+                # Horário — 1 dia móvel (single-day picker, decisão 5.46)
+                st.session_state["termico_eneva_data_ini"] = max_d
+                st.session_state["termico_eneva_data_fim"] = max_d
+            elif gran_atual == "Trimestral":
+                # Trimestral default (Fase D.2 — replicado do Sistema):
+                # trims=[], anos=[], ltm=True — modo "ano completo" com
+                # janela LTM pura. Filter usa anos+LTM+trims (não dates).
+                # data_ini/data_fim mantidos como fallback informativo
+                # (últimos 12 meses — caption pode reusar).
+                st.session_state["termico_eneva_trims_marcados"] = []
+                st.session_state["termico_eneva_anos_comparacao"] = []
+                st.session_state["termico_eneva_ltm_marcado"] = True
+                st.session_state["termico_eneva_data_ini"] = max(
+                    min_d, max_d - timedelta(days=365)
+                )
+                st.session_state["termico_eneva_data_fim"] = max_d
+            else:
+                # Mensal — default 12M
+                st.session_state["termico_eneva_data_ini"] = max(
+                    min_d, max_d - timedelta(days=365)
+                )
+                st.session_state["termico_eneva_data_fim"] = max_d
+            st.session_state["_termico_eneva_dataset_max"] = max_d
+            st.session_state["_termico_eneva_dataset_min"] = min_d
+
+        st.session_state["_termico_eneva_last_gran"] = gran_atual
+
+        # Period controls condicionais por granularidade (Fase D.1/D.2).
+        # Mensal: 2 presets (12M/Máx) — alinhado com Sistema.
+        # Diário: pass — período via date_inputs (default 30d móveis).
+        # Horário: pass — single-day picker em col_di abaixo.
+        # Trimestral: botões ano (5) + LTM + trims (1T..4T) com lógica
+        #   contextual single↔multi-select (decisão 5.40).
+        if gran_atual == "Mensal":
+            data_ini_atual = st.session_state.get(
+                "termico_eneva_data_ini",
+                max(min_d, max_d - timedelta(days=365)),
+            )
+            data_fim_atual = st.session_state.get(
+                "termico_eneva_data_fim", max_d
+            )
+            preset_atual = None
+            if data_fim_atual == max_d:
+                if (max_d - data_ini_atual).days == 365:
+                    preset_atual = "12M"
+                elif data_ini_atual == min_d:
+                    preset_atual = "Máx"
+
+            cols_p = st.columns([1, 1, 8])
+            presets_mensal = [
+                ("12M", 365, False),
+                ("Máx", None, True),
+            ]
+            for i, (label, delta, is_max) in enumerate(presets_mensal):
+                with cols_p[i]:
+                    tipo = "primary" if label == preset_atual else "secondary"
+                    if st.button(
+                        label,
+                        use_container_width=True,
+                        key=f"termico_eneva_btn_p_{label}",
+                        type=tipo,
+                    ):
+                        if is_max:
+                            st.session_state["termico_eneva_data_ini"] = min_d
+                        else:
+                            st.session_state["termico_eneva_data_ini"] = max(
+                                min_d, max_d - timedelta(days=delta)
+                            )
+                        st.session_state["termico_eneva_data_fim"] = max_d
+                        st.rerun()
+        elif gran_atual == "Trimestral":
+            # Botões ano + LTM + trims (decisão 5.40 — interface temporal
+            # contextual single↔multi-select). Replica do Sistema linhas
+            # 3344-3475 com prefix termico_eneva_*.
+            anos_disponiveis = sorted(df_eneva["data"].dt.year.unique().tolist())
+            anos_marcados = st.session_state["termico_eneva_anos_comparacao"]
+            ltm_marcado = st.session_state["termico_eneva_ltm_marcado"]
+            trims_marcados = st.session_state["termico_eneva_trims_marcados"]
+            modo_trim = "historico" if trims_marcados else "ano_completo"
+
+            # Layout 6 botões iguais + spacer (5 anos + LTM)
+            cols_anos = st.columns([0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 6.4])
+            for i, ano in enumerate(anos_disponiveis):
+                if i >= 5:
+                    break  # defesa: layout suporta até 5 anos
+                ativo_ano = ano in anos_marcados
+                with cols_anos[i]:
+                    if st.button(
+                        str(ano),
+                        use_container_width=True,
+                        key=f"termico_eneva_btn_ano_{ano}",
+                        type="primary" if ativo_ano else "secondary",
+                    ):
+                        # Click ano = toggle multi-select (Fase H — Item 6,
+                        # reverte parcial decisão 5.40 — single-select foi
+                        # removido). Preserva trims; **desliga LTM** ao
+                        # marcar ano (Fase H.1 — Ajuste 3: UX prefere
+                        # análise focada em anos específicos vs LTM puro).
+                        # Quando 1º ano é marcado SEM trims explícitos,
+                        # marca todos os 4 trims pra UX coerente (default
+                        # = ano cheio). Edge case "tudo desmarcado" abaixo
+                        # garante que LTM volte a ativar se anos vazios.
+                        if ativo_ano:
+                            st.session_state["termico_eneva_anos_comparacao"] = [
+                                a for a in anos_marcados if a != ano
+                            ]
+                        else:
+                            if not trims_marcados:
+                                st.session_state["termico_eneva_trims_marcados"] = [1, 2, 3, 4]
+                            st.session_state["termico_eneva_anos_comparacao"] = sorted(
+                                anos_marcados + [ano]
+                            )
+                            st.session_state["termico_eneva_ltm_marcado"] = False
+                        st.rerun()
+
+            # Botão LTM — janela móvel "últimos 4 trimestres" (decisão 5.38).
+            # Comportamento depende do modo (decisão 5.40):
+            #   - ano_completo: single-select; LTM ativo é no-op (força mantém);
+            #     LTM inativo substitui ano selecionado.
+            #   - historico: toggle independente.
+            with cols_anos[5]:
+                if st.button(
+                    "LTM",
+                    use_container_width=True,
+                    key="termico_eneva_btn_ano_LTM",
+                    type="primary" if ltm_marcado else "secondary",
+                    help="Últimos 4 trimestres (móveis)",
+                ):
+                    if modo_trim == "ano_completo":
+                        if ltm_marcado:
+                            pass  # no-op (não pode desmarcar tudo)
+                        else:
+                            # Single-select: substitui ano selecionado
+                            st.session_state["termico_eneva_anos_comparacao"] = []
+                            st.session_state["termico_eneva_ltm_marcado"] = True
+                            st.rerun()
+                    else:  # historico — toggle independente
+                        st.session_state["termico_eneva_ltm_marcado"] = not ltm_marcado
+                        st.rerun()
+
+            # Botões trimestrais 1T/2T/3T/4T — multi-select com transições
+            # ano_completo ↔ historico (decisão 5.40). Decoração ☐/☑ via
+            # CSS scoped ::before (decisão 5.48).
+            presets_t = [
+                (1, "1T"),
+                (2, "2T"),
+                (3, "3T"),
+                (4, "4T"),
+            ]
+            cols_p = st.columns([1, 1, 1, 1, 6])
+            for i, (num, label) in enumerate(presets_t):
+                ativo = num in trims_marcados
+                # Fase H.4 — C2: em LTM puro (trims_marcados vazio), todos os
+                # 4 trims renderizam visualmente marcados (type="primary").
+                # Filter ignora trims_marcados=[] (continua usando só anos+LTM).
+                # Lógica de toggle abaixo continua baseada em `ativo` real.
+                ativo_visual = ativo or (not trims_marcados)
+
+                if modo_trim == "ano_completo":
+                    help_txt = f"Comparar {label} cross-anos"
+                elif ativo:
+                    help_txt = f"Click pra desmarcar {label}"
+                else:
+                    help_txt = f"Adicionar {label} à comparação"
+
+                # Fase H.4 — C1: revertido st.checkbox → st.button + ::before
+                # (decisão 5.48 restaurada). Tick branco do checkbox global
+                # PLD não estava aparecendo nos trims aninhados em Trimestral.
+                with cols_p[i]:
+                    if st.button(
+                        label,
+                        use_container_width=True,
+                        key=f"termico_eneva_btn_t_{label}",
+                        type="primary" if ativo_visual else "secondary",
+                        help=help_txt,
+                    ):
+                        if modo_trim == "ano_completo":
+                            # Transição → historico: marca TODOS anos disponíveis
+                            st.session_state["termico_eneva_trims_marcados"] = [num]
+                            st.session_state["termico_eneva_anos_comparacao"] = sorted(anos_disponiveis)
+                            # LTM mantém estado anterior
+                        else:  # historico — multi-select
+                            if ativo:
+                                novos_trims = [t for t in trims_marcados if t != num]
+                                st.session_state["termico_eneva_trims_marcados"] = novos_trims
+                                if not novos_trims:
+                                    # Transição reverso historico → ano_completo:
+                                    # força default LTM puro
+                                    st.session_state["termico_eneva_anos_comparacao"] = []
+                                    st.session_state["termico_eneva_ltm_marcado"] = True
+                            else:
+                                st.session_state["termico_eneva_trims_marcados"] = sorted(
+                                    trims_marcados + [num]
+                                )
+                        st.rerun()
+
+            # Edge case "tudo desmarcado" (refinamento decisão 5.20): nem
+            # anos individuais nem LTM — reset automático pro default LTM
+            # puro. Garante que sempre exista pelo menos uma fonte temporal
+            # ativa.
+            if (
+                not st.session_state["termico_eneva_anos_comparacao"]
+                and not st.session_state["termico_eneva_ltm_marcado"]
+            ):
+                st.session_state["termico_eneva_trims_marcados"] = []
+                st.session_state["termico_eneva_anos_comparacao"] = []
+                st.session_state["termico_eneva_ltm_marcado"] = True
+                st.rerun()
+        # Diário/Horário: sem presets (período via date_inputs).
+
+        # Date_inputs condicionais (col_di/col_df reusados — pattern Sistema).
+        # Horário: 1 date_input "Data" em col_di (single-day, decisão 5.46);
+        #   data_fim sincroniza com data_ini pra filter pegar 24h.
+        # Trimestral: nada (filter por anos/LTM em D.2).
+        # Mensal/Diário: 2 date_inputs habilitados.
+        if gran_atual == "Horário":
+            with col_di:
+                st.date_input(
+                    "Data",
+                    min_value=min_d, max_value=max_d,
+                    key="termico_eneva_data_ini",
+                    format="DD/MM/YYYY",
+                )
+            st.session_state["termico_eneva_data_fim"] = (
+                st.session_state["termico_eneva_data_ini"]
+            )
+        elif gran_atual == "Trimestral":
+            # Date_inputs não renderizam em Trimestral (D.2 vai ter ano/LTM).
+            pass
+        else:
+            # Mensal/Diário — 2 date_inputs habilitados.
+            with col_di:
+                st.date_input(
+                    "Data inicial",
+                    min_value=min_d, max_value=max_d,
+                    key="termico_eneva_data_ini",
+                    format="DD/MM/YYYY",
+                )
+            with col_df:
+                st.date_input(
+                    "Data final",
+                    min_value=min_d, max_value=max_d,
+                    key="termico_eneva_data_fim",
+                    format="DD/MM/YYYY",
+                )
+
+        # Caption "Histórico em cache" movida pra footnote pós-gráfico
+        # (Fase H.2 — Ajuste 4). Ver bloco abaixo de st.plotly_chart.
+
+        # Usina + Toggle MWm/GWh: movidos pro col_meio da linha 1
+        # (Fase H.1 — Ajuste 1). Variáveis usina_sel e unidade já estão
+        # definidas no escopo desde o `with col_meio:` acima.
+
+        # Leituras defensivas (.get com default) — decisão 5.16 + Fase E.12.
+        # Cobrem widget cleanup do Streamlit em transições entre layouts
+        # (ex: voltar pra Mensal de Trimestral onde dates não renderizam).
+        data_ini = st.session_state.get(
+            "termico_eneva_data_ini",
+            max(min_d, max_d - timedelta(days=365)),
+        )
+        data_fim = st.session_state.get("termico_eneva_data_fim", max_d)
+
+        # Validação básica
+        if data_ini > data_fim:
+            st.error("Data inicial maior que data final.")
+            st.stop()
+
+        # Validação Diário — período máximo 30 dias (Fase E.7 / Layout C).
+        if (
+            gran_atual == "Diário"
+            and (data_fim - data_ini).days > 30
+        ):
+            st.error(
+                "Período máximo no Diário é 30 dias. Selecione um "
+                "intervalo menor ou troque a granularidade."
+            )
+            st.stop()
+
+        # Imports lazy + filtro compartilhado entre KPIs (descontinuados
+        # na Fase E.6) e gráfico. `date` adicionado em D.2 pro cutoff LTM.
+        import plotly.graph_objects as go
+        import calendar
+        from datetime import date
+        from data_loaders.data_loader_termico import MOTIVOS_COLS
+
+        # Filtro: período + usina. Em Trimestral, fonte temporal é
+        # anos+LTM+trims (decisão 5.40 — interface contextual) — NÃO
+        # data_ini/data_fim. Outras granularidades usam datas explícitas
+        # como antes. Replica do filter do Sistema (linhas 3625-3672).
+        if gran_atual == "Trimestral":
+            trims_filt = st.session_state.get("termico_eneva_trims_marcados", [])
+            anos_filt = st.session_state.get("termico_eneva_anos_comparacao", [])
+            ltm_filt = st.session_state.get("termico_eneva_ltm_marcado", False)
+
+            # Mask "fonte temporal" = anos individuais OR janela LTM (OR lógico).
+            if anos_filt:
+                mask_anos = df_eneva["data"].dt.year.isin(anos_filt)
+            else:
+                mask_anos = pd.Series(False, index=df_eneva.index)
+            if ltm_filt:
+                # LTM = trim corrente + 3 anteriores = 4 barras (decisão 5.38).
+                # Recuo de 9 meses do início do trim corrente cobre exatos 4 trims.
+                _mes_inicial_corrente = ((max_d.month - 1) // 3) * 3 + 1
+                _mes_cutoff_offset = _mes_inicial_corrente - 9
+                if _mes_cutoff_offset <= 0:
+                    _ano_ltm = max_d.year - 1
+                    _mes_ltm = _mes_cutoff_offset + 12
+                else:
+                    _ano_ltm = max_d.year
+                    _mes_ltm = _mes_cutoff_offset
+                ltm_cutoff = date(_ano_ltm, _mes_ltm, 1)
+                mask_ltm = df_eneva["data"].dt.date >= ltm_cutoff
+            else:
+                mask_ltm = pd.Series(False, index=df_eneva.index)
+            mask_temporal = mask_anos | mask_ltm
+
+            if trims_filt:
+                # Histórico: filtra por meses dos trimestres marcados AND fonte.
+                meses_trim = []
+                for trim_num in trims_filt:
+                    meses_trim.extend([
+                        3 * (trim_num - 1) + 1,
+                        3 * (trim_num - 1) + 2,
+                        3 * (trim_num - 1) + 3,
+                    ])
+                mask_periodo = (
+                    df_eneva["data"].dt.month.isin(meses_trim) & mask_temporal
+                )
+            else:
+                # Ano completo: todos os trims dentro da fonte temporal.
+                mask_periodo = mask_temporal
+        else:
+            mask_periodo = (
+                (df_eneva["data"].dt.date >= data_ini)
+                & (df_eneva["data"].dt.date <= data_fim)
+            )
+
+        if usina_sel == "Consolidado":
+            df_filt = df_eneva[mask_periodo].copy()
+        else:
+            df_filt = df_eneva[mask_periodo & (df_eneva["usina_eneva"] == usina_sel)].copy()
+
+        # Paleta de motivos (cor + label PT-BR) — usada nos KPIs e no gráfico.
+        PALETA_MOTIVOS_KPI = {
+            "val_verifinflexibilidade":    ("#D62828", "Inflexibilidade"),
+            "val_verifordemmerito":        ("#1D3557", "Ordem de mérito"),
+            "val_verifunitcommitment":     ("#F6BD16", "Unit commitment"),
+            "val_verifexportacao":         ("#6B6B6B", "Exportação"),
+            "val_verifgsub":               ("#A8A8A8", "GSUB"),
+            "val_verifrazaoeletrica":      ("#4A4A4A", "Razão elétrica"),
+            "val_verifgarantiaenergetica": ("#1A1A1A", "Garantia energética"),
+        }
+
+        # KPIs removidos na Fase E.6 — gráfico fala por si.
+        # PALETA_MOTIVOS_KPI continua usada pelo gráfico (mantida acima).
+
+        # === Fase C.2.2 — gráfico stacked bar mensal ===
+        # df_filt já calculado acima — reusado aqui pra evitar dupla filtragem.
+
+        if df_filt.empty:
+            # Mensagem amigável quando o filtro cai em lacuna conhecida da usina
+            # (ex: LINHARES (LORM) em fev-abr/2026). Consolidado nunca cai aqui
+            # via lacuna — usina_em_operacao retorna True por default permissivo.
+            if usina_sel != "Consolidado":
+                em_op_ini = usina_em_operacao(
+                    usina_sel, data_ini.year, data_ini.month
+                )
+                em_op_fim = usina_em_operacao(
+                    usina_sel, data_fim.year, data_fim.month
+                )
+            else:
+                em_op_ini = True
+                em_op_fim = True
+
+            if not em_op_ini and not em_op_fim:
+                st.info(
+                    f"📅 **{usina_sel}** não tem dados no período selecionado "
+                    f"({data_ini.strftime('%d/%m/%Y')} → "
+                    f"{data_fim.strftime('%d/%m/%Y')}). "
+                    f"Tente selecionar um período onde a usina esteve em "
+                    f"operação, ou escolha 'Consolidado' para ver o "
+                    f"portfólio completo."
+                )
+            else:
+                st.warning(
+                    f"Nenhum dado disponível para {usina_sel} no período "
+                    f"{data_ini.strftime('%d/%m/%Y')} → "
+                    f"{data_fim.strftime('%d/%m/%Y')}."
+                )
+        else:
+            # 2) Agregação por granularidade (Fase D.1/D.2).
+            if gran_atual == "Mensal":
+                df_filt["ano_mes"] = df_filt["data"].dt.to_period("M").dt.to_timestamp()
+                agg = df_filt.groupby("ano_mes")[MOTIVOS_COLS].sum().reset_index()
+                # Labels PT-BR pré-construídos (Windows + Plotly + locale =
+                # inglês nos %b/%B nativos; padrão é _MESES_BR — decisão 3.5).
+                agg["label"] = agg["ano_mes"].apply(
+                    lambda ts: f"{_MESES_BR[ts.month]}/{str(ts.year)[2:]}"
+                )
+                if unidade == "GWh":
+                    for col in MOTIVOS_COLS:
+                        agg[col] = agg[col] / 1000.0
+                    sufixo_unidade = "GWh"
+                    fmt_hover = ",.1f"
+                elif unidade == "MWm":
+                    horas = agg["ano_mes"].apply(
+                        lambda ts: calendar.monthrange(ts.year, ts.month)[1] * 24
+                    )
+                    for col in MOTIVOS_COLS:
+                        agg[col] = agg[col] / horas
+                    sufixo_unidade = "MWm"
+                    fmt_hover = ",.1f"
+                else:
+                    sufixo_unidade = "MWh"
+                    fmt_hover = ",.0f"
+
+            elif gran_atual == "Diário":
+                df_filt["dia"] = df_filt["data"].dt.date
+                agg = df_filt.groupby("dia")[MOTIVOS_COLS].sum().reset_index()
+                agg["label"] = agg["dia"].apply(lambda d: d.strftime("%d/%m"))
+                if unidade == "GWh":
+                    for col in MOTIVOS_COLS:
+                        agg[col] = agg[col] / 1000.0
+                    sufixo_unidade = "GWh"
+                    fmt_hover = ",.1f"
+                elif unidade == "MWm":
+                    for col in MOTIVOS_COLS:
+                        agg[col] = agg[col] / 24.0
+                    sufixo_unidade = "MWm"
+                    fmt_hover = ",.0f"
+                else:
+                    sufixo_unidade = "MWh"
+                    fmt_hover = ",.0f"
+
+            elif gran_atual == "Horário":
+                # Cada linha do df_filt já é 1 hora — groupby por (data, hora)
+                # agrega motivos quando há múltiplas usinas no mesmo instante
+                # (decisão 5.44). label vai como datetime (não string) pra que
+                # xaxis.tickformat/hoverformat controlem eixo curto "HH:00" e
+                # tooltip rico "DD/MM/YYYY HH:00" (decisão 5.50).
+                agg = (
+                    df_filt.groupby(["data", "hora"])[MOTIVOS_COLS]
+                    .sum()
+                    .reset_index()
+                )
+                agg["instante"] = (
+                    agg["data"]
+                    + pd.to_timedelta(agg["hora"], unit="h")
+                )
+                agg["label"] = agg["instante"]
+                if unidade == "GWh":
+                    for col in MOTIVOS_COLS:
+                        agg[col] = agg[col] / 1000.0
+                    sufixo_unidade = "GWh"
+                    fmt_hover = ",.2f"
+                elif unidade == "MWm":
+                    # Cada linha do agg = 1 hora → sum direto = MWmédio
+                    # da hora (denominador implícito = 1h, sem divisão).
+                    sufixo_unidade = "MWm"
+                    fmt_hover = ",.0f"
+                else:
+                    sufixo_unidade = "MWh"
+                    fmt_hover = ",.0f"
+
+            else:  # gran_atual == "Trimestral"
+                # Agregação por trimestre civil (Fase D.2). Replica do
+                # Sistema linhas 3757-3779 com adaptação pra unidades MWh/
+                # MWm/GWh (Sistema só tem MWm).
+                df_filt["trimestre"] = (
+                    df_filt["data"].dt.to_period("Q").dt.to_timestamp()
+                )
+                agg = df_filt.groupby("trimestre")[MOTIVOS_COLS].sum().reset_index()
+                # Label "1T/24" (formato com slash, alinhado com Sistema).
+                agg["label"] = agg["trimestre"].apply(
+                    lambda ts: f"{((ts.month - 1) // 3) + 1}T/{str(ts.year)[2:]}"
+                )
+                # Filtra trims sem dados (Fase H — Item 6 bonus). Trims com
+                # sum=0 em todos os motivos vêm de filter por anos+meses
+                # incluindo trims futuros (ex: 4T/26 ainda não chegou). Sem
+                # filter, gerariam barras vazias no eixo X.
+                agg = agg[
+                    agg[MOTIVOS_COLS].sum(axis=1) > 0
+                ].reset_index(drop=True)
+                if unidade == "GWh":
+                    for col in MOTIVOS_COLS:
+                        agg[col] = agg[col] / 1000.0
+                    sufixo_unidade = "GWh"
+                    fmt_hover = ",.0f"
+                elif unidade == "MWm":
+                    # Horas no trimestre = soma de horas dos 3 meses.
+                    # `ts` é sempre o 1º dia do trim (jan/abr/jul/out).
+                    def _horas_trimestre(ts):
+                        ano, mes = ts.year, ts.month
+                        total = 0
+                        for m in (mes, mes + 1, mes + 2):
+                            total += calendar.monthrange(ano, m)[1] * 24
+                        return total
+                    horas = agg["trimestre"].apply(_horas_trimestre)
+                    for col in MOTIVOS_COLS:
+                        agg[col] = agg[col] / horas
+                    sufixo_unidade = "MWm"
+                    fmt_hover = ",.0f"
+                else:
+                    sufixo_unidade = "MWh"
+                    fmt_hover = ",.0f"
+
+            # Guard "Sem despacho" — agg vazio ou sum total = 0
+            # (Fase H — Item 2). Decisão 5.24: st.info + st.stop bloqueia
+            # paleta + caption + gráfico quando não há nada pra mostrar.
+            if agg.empty or agg[MOTIVOS_COLS].sum().sum() == 0:
+                if gran_atual == "Horário":
+                    msg_sd = f"Sem despacho em {data_ini.strftime('%d/%m/%Y')}."
+                elif gran_atual == "Trimestral":
+                    msg_sd = "Sem despacho no período selecionado."
+                else:
+                    msg_sd = (
+                        f"Sem despacho no período "
+                        f"{data_ini.strftime('%d/%m/%Y')} → "
+                        f"{data_fim.strftime('%d/%m/%Y')}."
+                    )
+                st.info(msg_sd)
+                st.stop()
+
+            # 3) Paleta + labels
+            PALETA_MOTIVOS = {
+                "val_verifinflexibilidade":    "#D62828",
+                "val_verifordemmerito":        "#1D3557",
+                "val_verifunitcommitment":     "#F6BD16",
+                "val_verifexportacao":         "#6B6B6B",
+                "val_verifgsub":               "#A8A8A8",
+                "val_verifrazaoeletrica":      "#4A4A4A",
+                "val_verifgarantiaenergetica": "#1A1A1A",
+            }
+            LABELS_MOTIVOS = {
+                "val_verifinflexibilidade":    "Inflexibilidade",
+                "val_verifordemmerito":        "Ordem de mérito",
+                "val_verifunitcommitment":     "Unit commitment",
+                "val_verifexportacao":         "Exportação",
+                "val_verifgsub":               "GSUB",
+                "val_verifrazaoeletrica":      "Razão elétrica",
+                "val_verifgarantiaenergetica": "Garantia energética",
+            }
+
+            # 4) Caption do gráfico — Fase E.17 (helper top do bloco térmico).
+            # gran_label dinâmico (Fase D.1). "MWm" mapeia pra "MWmed" no
+            # rótulo (decisão da fase); GWh/MWh passam direto.
+            _unidade_label_en = (
+                "MWmed" if sufixo_unidade == "MWm" else sufixo_unidade
+            )
+            _render_termico_chart_caption(
+                sub_label="Eneva",
+                gran_label=gran_atual,
+                data_ini=data_ini,
+                data_fim=data_fim,
+                unidade_label=_unidade_label_en,
+            )
+
+            # 5) Construir figura
+            fig = go.Figure()
+
+            # Trace invisível pra mostrar Total no hover unified.
+            # go.Scatter (não Bar) — não participa do barmode="stack",
+            # então não dobra a altura visual; aparece como linha
+            # extra no tooltip unified com label "Total" em destaque.
+            # Adicionado ANTES do loop dos 7 motivos pra aparecer no
+            # FUNDO do tooltip (Plotly: traces adicionados primeiro
+            # ficam embaixo no hover unified).
+            agg_total = agg[MOTIVOS_COLS].sum(axis=1)
+            hovertemplate_total = (
+                f'<span style="color:{BAUHAUS_BLACK}; font-weight:700;">'
+                f'{"Total".ljust(20).replace(" ", "&nbsp;")}</span>'
+                f'&nbsp;&nbsp;'
+                f'<span style="color:{BAUHAUS_BLACK}; font-weight:700;">'
+                f'%{{y:{fmt_hover}}} {sufixo_unidade}</span>'
+                f'<extra></extra>'
+            )
+            fig.add_trace(go.Scatter(
+                x=agg["label"],
+                y=agg_total,
+                name="Total",
+                mode="lines",
+                line=dict(color="rgba(0,0,0,0)"),
+                hovertemplate=hovertemplate_total,
+                showlegend=False,
+                hoverlabel=dict(
+                    bgcolor=BAUHAUS_CREAM,
+                    bordercolor=BAUHAUS_BLACK,
+                ),
+            ))
+
+            # Render condicional Bar/Scatter (decisão 5.47).
+            # Horário: área stackada (Scatter com stackgroup + fillcolor) —
+            #   mode="none" oculta linha; barmode="stack" não afeta Scatter.
+            # Mensal/Diário: barras empilhadas (Bar com barmode="stack").
+            for col in MOTIVOS_COLS:
+                label = LABELS_MOTIVOS[col]
+                cor = PALETA_MOTIVOS[col]
+                label_pad = label.ljust(20).replace(" ", "&nbsp;")
+                hovertemplate = (
+                    f'<span style="color:{cor}; font-weight:700;">{label_pad}</span>'
+                    f'&nbsp;&nbsp;'
+                    f'<span style="color:#1A1A1A;">%{{y:{fmt_hover}}} {sufixo_unidade}</span>'
+                    f'<extra></extra>'
+                )
+                if gran_atual == "Horário":
+                    fig.add_trace(go.Scatter(
+                        x=agg["label"],
+                        y=agg[col],
+                        name=label,
+                        stackgroup="motivos",
+                        mode="none",
+                        fillcolor=cor,
+                        hovertemplate=hovertemplate,
+                    ))
+                else:
+                    fig.add_trace(go.Bar(
+                        x=agg["label"],
+                        y=agg[col],
+                        name=label,
+                        marker_color=cor,
+                        hovertemplate=hovertemplate,
+                    ))
+
+            # xaxis_kwargs condicional ao modo (decisão 5.50).
+            # Em Horário, x=datetime + tickformat curto + hoverformat rico.
+            xaxis_kwargs = dict(
+                title=None, showgrid=False, showline=True,
+                linewidth=2, linecolor=BAUHAUS_BLACK,
+                ticks="outside", tickcolor=BAUHAUS_BLACK,
+                tickfont=dict(family="Inter, sans-serif", size=12, color=BAUHAUS_BLACK),
+            )
+            if gran_atual == "Horário":
+                xaxis_kwargs["tickformat"] = "%H:00"
+                xaxis_kwargs["hoverformat"] = "%d/%m/%Y %H:00"
+
+            fig.update_layout(
+                barmode="stack",
+                height=450,
+                margin=dict(l=20, r=20, t=10, b=20),
+                paper_bgcolor=BAUHAUS_CREAM,
+                plot_bgcolor=BAUHAUS_CREAM,
+                separators=",.",
+                hovermode="x unified",
+                hoverlabel=dict(
+                    bgcolor=BAUHAUS_CREAM,
+                    bordercolor=BAUHAUS_BLACK,
+                    font=dict(family="'IBM Plex Mono', 'Courier New', monospace", size=12, color=BAUHAUS_BLACK),
+                ),
+                showlegend=True,
+                legend=dict(
+                    orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
+                    bgcolor="rgba(0,0,0,0)",
+                    font=dict(family="Inter, sans-serif", size=13, color=BAUHAUS_BLACK),
+                    traceorder="normal",
+                ),
+                xaxis=xaxis_kwargs,
+                yaxis=dict(
+                    title=None,
+                    showgrid=True, gridcolor=BAUHAUS_LIGHT, gridwidth=1,
+                    showline=True, linewidth=2, linecolor=BAUHAUS_BLACK,
+                    ticks="outside", tickcolor=BAUHAUS_BLACK,
+                    tickfont=dict(family="Inter, sans-serif", size=12, color=BAUHAUS_BLACK),
+                    zeroline=False,
+                    tickformat=",.0f",
+                ),
+                font=dict(family="Inter, sans-serif", size=12),
+            )
+
+            st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
+
+        # Caption "Histórico em cache" — footnote pós-gráfico (Fase H.2 —
+        # Ajuste 4). Indentado 8 espaços (nível subview Eneva), FORA
+        # do else do empty pra sempre renderizar (mesmo quando gráfico
+        # foi suprimido por warning/info/sem despacho).
+        st.markdown(
+            f'<div style="font-family:\'Inter\', sans-serif; '
+            f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+            f'margin:1rem 0 0 0;">'
+            f'Histórico em cache: desde {min_d.strftime("%d/%m/%Y")}.'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
 elif aba == "Geração":
     # -----------------------------------------------------------------------
