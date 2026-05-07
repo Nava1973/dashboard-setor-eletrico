@@ -3249,20 +3249,43 @@ elif aba == "Despacho Térmico":
         data_ini,
         data_fim,
         unidade_label: str,
+        estilo_curtailment: bool = False,
     ) -> None:
         if gran_label == "Trimestral":
             data_html = ""
         elif gran_label == "Horário":
             data_html = data_ini.strftime("%d/%m/%Y")
         else:  # Mensal, Diário
+            _sep = " a " if estilo_curtailment else " - "
             data_html = (
-                f"{data_ini.strftime('%d/%m/%Y')} - "
+                f"{data_ini.strftime('%d/%m/%Y')}{_sep}"
                 f"{data_fim.strftime('%d/%m/%Y')}"
             )
         adjetivo = _ADJETIVOS_TERMICO.get(gran_label, gran_label.lower())
         # Header alinhado com pattern aba Carga (Fase H — Item 1):
         # sem border-top, border-bottom 2px, font-size 1.1rem, letter-
         # spacing 0.08em, padding-bottom 3px, margin 2.6rem 0 0.3rem 0.
+        # Sub-caption tem 2 estilos: default (italic cinza, padrão SIN)
+        # ou estilo Curtailment (Inter 500 preto, sem italic).
+        if estilo_curtailment:
+            sub_text = f"{gran_label} · {unidade_label}"
+            sub_style = (
+                "font-family: 'Inter', sans-serif; "
+                "font-size: 0.9rem; "
+                "color: #1A1A1A; "
+                "font-weight: 500; "
+                "letter-spacing: 0.04em; "
+                "margin: 0 0 0.5rem 0;"
+            )
+        else:
+            sub_text = f"Valor {adjetivo} · {unidade_label}"
+            sub_style = (
+                "font-family: 'Inter', sans-serif; "
+                "font-style: italic; "
+                "color: #6B6B6B; "
+                "font-size: 0.85rem; "
+                "margin: 0.4rem 0 0.3rem 0;"
+            )
         st.markdown(
             f'<div style="display: flex; '
             f'justify-content: space-between; '
@@ -3277,12 +3300,8 @@ elif aba == "Despacho Térmico":
             f'<span>{sub_label}</span>'
             f'<span>{data_html}</span>'
             f'</div>'
-            f'<div style="font-family: \'Inter\', sans-serif; '
-            f'font-style: italic; '
-            f'color: #6B6B6B; '
-            f'font-size: 0.85rem; '
-            f'margin: 0.4rem 0 0.3rem 0;">'
-            f'Valor {adjetivo} · {unidade_label}'
+            f'<div style="{sub_style}">'
+            f'{sub_text}'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -4002,12 +4021,16 @@ elif aba == "Despacho Térmico":
             # Caption do gráfico — Fase E.17 (helper top do bloco térmico).
             # Sistema sempre passa "MWmed" como rótulo de unidade
             # (granularidade variável; data_html depende de gran_atual).
+            # Title estilo Curtailment: SIN · DESPACHO TERMELÉTRICO TOTAL
+            # uppercase. Sub-caption muda pra Inter 500 preto (sem italic).
+            _sub_label_sin = "SIN · DESPACHO TERMELÉTRICO TOTAL"
             _render_termico_chart_caption(
-                sub_label="SIN",
+                sub_label=_sub_label_sin,
                 gran_label=gran_atual,
                 data_ini=data_ini_sis,
                 data_fim=data_fim_sis,
                 unidade_label="MWmed",
+                estilo_curtailment=True,
             )
 
             # Construir figura — stacked bar
@@ -4977,12 +5000,21 @@ elif aba == "Despacho Térmico":
             _unidade_label_en = (
                 "MWmed" if sufixo_unidade == "MWm" else sufixo_unidade
             )
+            # Title estilo Curtailment: ENEVA · DESPACHO TERMELÉTRICO · {USINA}
+            # uppercase. Sub-caption muda pra Inter 500 preto (sem italic).
+            _usina_label = (
+                usina_sel if usina_sel else "Consolidado"
+            ).upper()
+            _sub_label_eneva = (
+                f"ENEVA · DESPACHO TERMELÉTRICO · {_usina_label}"
+            )
             _render_termico_chart_caption(
-                sub_label="Eneva",
+                sub_label=_sub_label_eneva,
                 gran_label=gran_atual,
                 data_ini=data_ini,
                 data_fim=data_fim,
                 unidade_label=_unidade_label_en,
+                estilo_curtailment=True,
             )
 
             # 5) Construir figura
