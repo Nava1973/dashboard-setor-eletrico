@@ -3306,6 +3306,109 @@ elif aba == "Despacho Térmico":
             unsafe_allow_html=True,
         )
 
+    def _agregar_termico_sistema(
+        df_filt: pd.DataFrame,
+        modo: str,
+        unidade: str,
+    ) -> tuple[pd.DataFrame, str, str]:
+        """Agrega df_filt (ja filtrado) por modo + aplica conversao de
+        unidade. Retorna (agg, sufixo_unidade, fmt_hover).
+
+        Pre-condicao: df_filt nao-vazio (caller responsavel pelo guard).
+
+        Encapsula logica original em app.py:3895-3987 (Fase Drill.1).
+        Modos suportados: "Mensal", "Diário", "Horário", "Trimestral".
+
+        Schema do retorno:
+        - agg: DataFrame com label + chave-de-bucket por modo +
+               7 colunas de motivos (MOTIVOS_COLS) ja com unidade aplicada
+        - sufixo_unidade: "MWm" ou "GWh" pro hovertemplate
+        - fmt_hover: formato Plotly (",.0f", ",.1f", ",.2f")
+        """
+        import calendar
+
+        if modo == "Mensal":
+            df_filt["ano_mes"] = df_filt["data"].dt.to_period("M").dt.to_timestamp()
+            agg = df_filt.groupby("ano_mes")[MOTIVOS_COLS].sum().reset_index()
+            agg["label"] = agg["ano_mes"].apply(
+                lambda ts: f"{_MESES_BR[ts.month]}/{str(ts.year)[2:]}"
+            )
+            if unidade == "MWm":
+                horas = agg["ano_mes"].apply(
+                    lambda ts: calendar.monthrange(ts.year, ts.month)[1] * 24
+                )
+                for col in MOTIVOS_COLS:
+                    agg[col] = agg[col] / horas
+                return agg, "MWm", ",.0f"
+            else:
+                for col in MOTIVOS_COLS:
+                    agg[col] = agg[col] / 1000.0
+                return agg, "GWh", ",.0f"
+
+        elif modo == "Diário":
+            df_filt["dia"] = df_filt["data"].dt.date
+            agg = df_filt.groupby("dia")[MOTIVOS_COLS].sum().reset_index()
+            agg["label"] = agg["dia"].apply(lambda d: d.strftime("%d/%m"))
+            if unidade == "MWm":
+                for col in MOTIVOS_COLS:
+                    agg[col] = agg[col] / 24.0
+                return agg, "MWm", ",.0f"
+            else:
+                for col in MOTIVOS_COLS:
+                    agg[col] = agg[col] / 1000.0
+                return agg, "GWh", ",.1f"
+
+        elif modo == "Horário":
+            # Cada linha do df_filt ja eh 1 hora — groupby por (data, hora)
+            # agrega motivos quando ha multiplas usinas no mesmo instante.
+            # label vai como datetime (nao string) pra que xaxis.tickformat
+            # /hoverformat controlem eixo curto e tooltip rico.
+            agg = (
+                df_filt.groupby(["data", "hora"])[MOTIVOS_COLS]
+                .sum().reset_index()
+            )
+            agg["instante"] = (
+                agg["data"] + pd.to_timedelta(agg["hora"], unit="h")
+            )
+            agg["label"] = agg["instante"]
+            if unidade == "MWm":
+                # Cada linha do agg = 1 hora -> sum direto = MWmedio da hora
+                # (denominador implicito = 1h, sem divisao).
+                return agg, "MWm", ",.0f"
+            else:
+                for col in MOTIVOS_COLS:
+                    agg[col] = agg[col] / 1000.0
+                return agg, "GWh", ",.2f"
+
+        elif modo == "Trimestral":
+            df_filt["trimestre"] = df_filt["data"].dt.to_period("Q").dt.to_timestamp()
+            agg = df_filt.groupby("trimestre")[MOTIVOS_COLS].sum().reset_index()
+            agg["label"] = agg["trimestre"].apply(
+                lambda ts: f"{((ts.month - 1) // 3) + 1}T/{str(ts.year)[2:]}"
+            )
+            # Filtra trims sem dados (Fase H — Item 6 bonus). Trims com
+            # sum=0 vem de filter por anos+meses incluindo trims futuros.
+            agg = agg[
+                agg[MOTIVOS_COLS].sum(axis=1) > 0
+            ].reset_index(drop=True)
+            if unidade == "MWm":
+                def _horas_trim(ts):
+                    ano, mes = ts.year, ts.month
+                    return sum(
+                        calendar.monthrange(ano, m)[1] * 24
+                        for m in (mes, mes + 1, mes + 2)
+                    )
+                horas = agg["trimestre"].apply(_horas_trim)
+                for col in MOTIVOS_COLS:
+                    agg[col] = agg[col] / horas
+                return agg, "MWm", ",.0f"
+            else:
+                for col in MOTIVOS_COLS:
+                    agg[col] = agg[col] / 1000.0
+                return agg, "GWh", ",.0f"
+
+        raise ValueError(f"Modo invalido: {modo!r}")
+
     if st.session_state["termico_subview"] == "Sistema":
         # === Sub-view Sistema — Fase E ===
         # Caption interno removido na Fase E.11 — título dinâmico no topo
@@ -3883,7 +3986,8 @@ elif aba == "Despacho Térmico":
             "val_verifgarantiaenergetica": ("#1A1A1A", "Garantia energética"),
         }
 
-        # Agregação por granularidade — MOVIDA pra ANTES dos KPIs (Fase E.3).
+        # Agregação por granularidade — extraída pra _agregar_termico_sistema
+        # na Fase Drill.1 (helper top do bloco térmico, ~linha 3308).
         # Produz agg_sis + sufixo_unidade_sis + fmt_hover_sis pra ambos:
         #   - KPIs (TOTAL = soma das barras visíveis via agg_sis)
         #   - Gráfico (reusa agg_sis sem recalcular)
@@ -3892,99 +3996,11 @@ elif aba == "Despacho Térmico":
             sufixo_unidade_sis = unidade_sis
             fmt_hover_sis = ",.0f"
         else:
-            if gran_atual == "Mensal":
-                df_filt_sis["ano_mes"] = df_filt_sis["data"].dt.to_period("M").dt.to_timestamp()
-                agg_sis = df_filt_sis.groupby("ano_mes")[MOTIVOS_COLS].sum().reset_index()
-                agg_sis["label"] = agg_sis["ano_mes"].apply(
-                    lambda ts: f"{_MESES_BR[ts.month]}/{str(ts.year)[2:]}"
-                )
-                if unidade_sis == "MWm":
-                    horas_por_linha_sis = agg_sis["ano_mes"].apply(
-                        lambda ts: calendar.monthrange(ts.year, ts.month)[1] * 24
-                    )
-                    for col in MOTIVOS_COLS:
-                        agg_sis[col] = agg_sis[col] / horas_por_linha_sis
-                    sufixo_unidade_sis = "MWm"
-                    fmt_hover_sis = ",.0f"
-                else:
-                    for col in MOTIVOS_COLS:
-                        agg_sis[col] = agg_sis[col] / 1000.0
-                    sufixo_unidade_sis = "GWh"
-                    fmt_hover_sis = ",.0f"
-
-            elif gran_atual == "Diário":
-                df_filt_sis["dia"] = df_filt_sis["data"].dt.date
-                agg_sis = df_filt_sis.groupby("dia")[MOTIVOS_COLS].sum().reset_index()
-                agg_sis["label"] = agg_sis["dia"].apply(lambda d: d.strftime("%d/%m"))
-                if unidade_sis == "MWm":
-                    for col in MOTIVOS_COLS:
-                        agg_sis[col] = agg_sis[col] / 24.0
-                    sufixo_unidade_sis = "MWm"
-                    fmt_hover_sis = ",.0f"
-                else:
-                    for col in MOTIVOS_COLS:
-                        agg_sis[col] = agg_sis[col] / 1000.0
-                    sufixo_unidade_sis = "GWh"
-                    fmt_hover_sis = ",.1f"
-
-            elif gran_atual == "Horário":
-                # Cada linha do df_filt_sis já é 1 hora — groupby por
-                # (data, hora) agrega motivos quando há múltiplas usinas no
-                # mesmo instante (Fase E.14). label vai como datetime (não
-                # string) pra que xaxis.tickformat/hoverformat controlem
-                # eixo curto "HH:00" e tooltip rico "DD/MM/YYYY HH:00"
-                # (Fase E.14.1).
-                agg_sis = (
-                    df_filt_sis.groupby(["data", "hora"])[MOTIVOS_COLS]
-                    .sum()
-                    .reset_index()
-                )
-                agg_sis["instante"] = (
-                    agg_sis["data"]
-                    + pd.to_timedelta(agg_sis["hora"], unit="h")
-                )
-                agg_sis["label"] = agg_sis["instante"]
-                if unidade_sis == "MWm":
-                    # Cada linha do agg = 1 hora → sum direto = MWmédio
-                    # da hora (denominador implícito = 1h, sem divisão).
-                    sufixo_unidade_sis = "MWm"
-                    fmt_hover_sis = ",.0f"
-                else:
-                    for col in MOTIVOS_COLS:
-                        agg_sis[col] = agg_sis[col] / 1000.0
-                    sufixo_unidade_sis = "GWh"
-                    fmt_hover_sis = ",.2f"
-
-            elif gran_atual == "Trimestral":  # agregação por trimestre civil
-                df_filt_sis["trimestre"] = df_filt_sis["data"].dt.to_period("Q").dt.to_timestamp()
-                agg_sis = df_filt_sis.groupby("trimestre")[MOTIVOS_COLS].sum().reset_index()
-                agg_sis["label"] = agg_sis["trimestre"].apply(
-                    lambda ts: f"{((ts.month - 1) // 3) + 1}T/{str(ts.year)[2:]}"
-                )
-                # Filtra trims sem dados (Fase H — Item 6 bonus). Trims com
-                # sum=0 em todos os motivos vêm de filter por anos+meses
-                # incluindo trims futuros (ex: 4T/26 ainda não chegou). Sem
-                # filter, gerariam barras vazias no eixo X.
-                agg_sis = agg_sis[
-                    agg_sis[MOTIVOS_COLS].sum(axis=1) > 0
-                ].reset_index(drop=True)
-                if unidade_sis == "MWm":
-                    def _horas_trimestre(ts):
-                        ano, mes = ts.year, ts.month
-                        total = 0
-                        for m in (mes, mes + 1, mes + 2):
-                            total += calendar.monthrange(ano, m)[1] * 24
-                        return total
-                    horas_por_linha_sis = agg_sis["trimestre"].apply(_horas_trimestre)
-                    for col in MOTIVOS_COLS:
-                        agg_sis[col] = agg_sis[col] / horas_por_linha_sis
-                    sufixo_unidade_sis = "MWm"
-                    fmt_hover_sis = ",.0f"
-                else:
-                    for col in MOTIVOS_COLS:
-                        agg_sis[col] = agg_sis[col] / 1000.0
-                    sufixo_unidade_sis = "GWh"
-                    fmt_hover_sis = ",.0f"
+            agg_sis, sufixo_unidade_sis, fmt_hover_sis = _agregar_termico_sistema(
+                df_filt=df_filt_sis,
+                modo=gran_atual,
+                unidade=unidade_sis,
+            )
 
         # KPIs removidos na Fase E.6 — gráfico fala por si.
         # PALETA_MOTIVOS_SIS continua usada pelo gráfico (mantida acima).
