@@ -3306,6 +3306,49 @@ elif aba == "Despacho Térmico":
             unsafe_allow_html=True,
         )
 
+    def _filtrar_termico_por_mes(
+        df_term: pd.DataFrame,
+        mes_ref: pd.Timestamp,
+    ) -> pd.DataFrame:
+        """Retorna copia de df_term contendo apenas linhas do mes
+        especificado.
+
+        Args:
+            df_term: DataFrame top-level do loader.
+            mes_ref: Timestamp representando QUALQUER dia do mes alvo.
+                Comum: mes_ref = Timestamp(ano, mes, 1) ou ts.replace(day=1).
+
+        Returns:
+            DataFrame filtrado (copia) com linhas do mes mes_ref.year x
+            mes_ref.month.
+        """
+        mask = (
+            (df_term["data"].dt.year == mes_ref.year)
+            & (df_term["data"].dt.month == mes_ref.month)
+        )
+        return df_term[mask].copy()
+
+    def _filtrar_termico_por_dia(
+        df_term: pd.DataFrame,
+        dia_ref,  # date ou datetime
+    ) -> pd.DataFrame:
+        """Retorna copia de df_term contendo apenas linhas do dia
+        especificado (24 horas).
+
+        Args:
+            df_term: DataFrame top-level do loader.
+            dia_ref: date ou datetime do dia alvo.
+
+        Returns:
+            DataFrame filtrado (copia) com 24 linhas (uma por hora) por
+            usina presente nesse dia.
+        """
+        from datetime import date, datetime
+        if isinstance(dia_ref, datetime):
+            dia_ref = dia_ref.date()
+        mask = df_term["data"].dt.date == dia_ref
+        return df_term[mask].copy()
+
     def _agregar_termico_sistema(
         df_filt: pd.DataFrame,
         modo: str,
@@ -3409,6 +3452,144 @@ elif aba == "Despacho Térmico":
 
         raise ValueError(f"Modo invalido: {modo!r}")
 
+    def _construir_figura_termico_sin(
+        agg: pd.DataFrame,
+        gran_label: str,
+        sufixo_unidade: str,
+        fmt_hover: str,
+        paleta: dict,
+        height: int = 450,
+    ) -> "go.Figure":
+        """Constroi figura Plotly do grafico SIN (Mensal/Diario/
+        Horario/Trimestral). Reusa em mensal e em drill-down (Fase
+        Drill.2).
+
+        Encapsula logica original em app.py:4108-4211 (Fase Drill.2.B.0).
+
+        Args:
+            agg: DataFrame agregado (saida de _agregar_termico_sistema).
+                Schema: label + chave-de-bucket + 7 motivos.
+            gran_label: granularidade ("Mensal"/"Diario"/"Horario"/
+                "Trimestral"). Em Horario, usa Scatter stackgroup
+                (area stackada). Demais usam go.Bar stacked.
+            sufixo_unidade: rotulo de unidade pro hovertemplate
+                ("MWm"/"GWh").
+            fmt_hover: formato Plotly do valor (",.0f"/",.1f"/",.2f").
+            paleta: dict {coluna: (cor_hex, label_legenda)}. Chaves
+                determinam os motivos plotados (single source of
+                truth — nao depende de MOTIVOS_COLS externo).
+            height: altura em pixels (default 450).
+
+        Returns:
+            go.Figure pronto pra st.plotly_chart.
+        """
+        motivos = list(paleta.keys())
+        fig = go.Figure()
+
+        # Trace Total (Scatter invisivel) ANTES do loop pra ficar no
+        # FUNDO do tooltip (decisao Fase C.2.3.1).
+        agg_total = agg[motivos].sum(axis=1)
+        hovertemplate_total = (
+            f'<span style="color:{BAUHAUS_BLACK}; font-weight:700;">'
+            f'{"Total".ljust(20).replace(" ", "&nbsp;")}</span>'
+            f'&nbsp;&nbsp;'
+            f'<span style="color:{BAUHAUS_BLACK}; font-weight:700;">'
+            f'%{{y:{fmt_hover}}} {sufixo_unidade}</span>'
+            f'<extra></extra>'
+        )
+        fig.add_trace(go.Scatter(
+            x=agg["label"],
+            y=agg_total,
+            name="Total",
+            mode="lines",
+            line=dict(color="rgba(0,0,0,0)"),
+            hovertemplate=hovertemplate_total,
+            showlegend=False,
+            hoverlabel=dict(
+                bgcolor=BAUHAUS_CREAM,
+                bordercolor=BAUHAUS_BLACK,
+            ),
+        ))
+
+        for col in motivos:
+            cor, label = paleta[col]
+            label_pad = label.ljust(20).replace(" ", "&nbsp;")
+            hovertemplate = (
+                f'<span style="color:{cor}; font-weight:700;">{label_pad}</span>'
+                f'&nbsp;&nbsp;'
+                f'<span style="color:#1A1A1A;">%{{y:{fmt_hover}}} {sufixo_unidade}</span>'
+                f'<extra></extra>'
+            )
+            if gran_label == "Horário":
+                # Area stackada (Fase E.15) — mode="none" oculta linha,
+                # fillcolor preenche entre traces consecutivos do
+                # stackgroup. barmode="stack" do update_layout nao
+                # afeta Scatter (so aplica a Bar).
+                fig.add_trace(go.Scatter(
+                    x=agg["label"],
+                    y=agg[col],
+                    name=label,
+                    stackgroup="motivos",
+                    mode="none",
+                    fillcolor=cor,
+                    hovertemplate=hovertemplate,
+                ))
+            else:
+                fig.add_trace(go.Bar(
+                    x=agg["label"],
+                    y=agg[col],
+                    name=label,
+                    marker_color=cor,
+                    hovertemplate=hovertemplate,
+                ))
+
+        # xaxis_kwargs condicional ao modo (Fase E.14.1):
+        # em Horario, x=datetime + tickformat curto + hoverformat rico.
+        xaxis_kwargs = dict(
+            title=None, showgrid=False, showline=True,
+            linewidth=2, linecolor=BAUHAUS_BLACK,
+            ticks="outside", tickcolor=BAUHAUS_BLACK,
+            tickfont=dict(family="Inter, sans-serif", size=12, color=BAUHAUS_BLACK),
+        )
+        if gran_label == "Horário":
+            xaxis_kwargs["tickformat"] = "%H:00"
+            xaxis_kwargs["hoverformat"] = "%d/%m/%Y %H:00"
+
+        fig.update_layout(
+            barmode="stack",
+            height=height,
+            margin=dict(l=20, r=20, t=10, b=20),
+            paper_bgcolor=BAUHAUS_CREAM,
+            plot_bgcolor=BAUHAUS_CREAM,
+            separators=",.",
+            hovermode="x unified",
+            hoverlabel=dict(
+                bgcolor=BAUHAUS_CREAM,
+                bordercolor=BAUHAUS_BLACK,
+                font=dict(family="'IBM Plex Mono', 'Courier New', monospace", size=12, color=BAUHAUS_BLACK),
+            ),
+            showlegend=True,
+            legend=dict(
+                orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
+                bgcolor="rgba(0,0,0,0)",
+                font=dict(family="Inter, sans-serif", size=13, color=BAUHAUS_BLACK),
+                traceorder="normal",
+            ),
+            xaxis=xaxis_kwargs,
+            yaxis=dict(
+                title=None,
+                showgrid=True, gridcolor=BAUHAUS_LIGHT, gridwidth=1,
+                showline=True, linewidth=2, linecolor=BAUHAUS_BLACK,
+                ticks="outside", tickcolor=BAUHAUS_BLACK,
+                tickfont=dict(family="Inter, sans-serif", size=12, color=BAUHAUS_BLACK),
+                zeroline=False,
+                tickformat=",.0f",
+            ),
+            font=dict(family="Inter, sans-serif", size=12),
+        )
+
+        return fig
+
     if st.session_state["termico_subview"] == "Sistema":
         # === Sub-view Sistema — Fase E ===
         # Caption interno removido na Fase E.11 — título dinâmico no topo
@@ -3499,6 +3680,19 @@ elif aba == "Despacho Térmico":
         # Default 1ª visita Trimestral: True (filter "últimos 12 meses").
         if "termico_sistema_ltm_marcado" not in st.session_state:
             st.session_state["termico_sistema_ltm_marcado"] = False
+
+        # === Drill-down state (Fase Drill.2) ===
+        # Mes selecionado pro grafico drill diario (default: ultimo mes)
+        if "termico_sistema_drill_mes" not in st.session_state:
+            _ultimo_dia = df_sis["data"].max()
+            st.session_state["termico_sistema_drill_mes"] = (
+                _ultimo_dia.replace(day=1).normalize()
+            )
+        # Dia selecionado pro grafico drill horario (default: ultimo dia)
+        if "termico_sistema_drill_dia" not in st.session_state:
+            st.session_state["termico_sistema_drill_dia"] = (
+                df_sis["data"].max().date()
+            )
 
         # Linha 1: granularidade (selectbox) + data_inicial + data_final
         # st.columns(...) cria os 4 containers; selectbox e date_inputs são
@@ -4049,109 +4243,15 @@ elif aba == "Despacho Térmico":
                 estilo_curtailment=True,
             )
 
-            # Construir figura — stacked bar
-            fig_sis = go.Figure()
-
-            # Trace Total (Scatter invisível) ANTES do loop pra ficar no
-            # FUNDO do tooltip (decisão Fase C.2.3.1).
-            agg_total_sis = agg_sis[MOTIVOS_COLS].sum(axis=1)
-            hovertemplate_total_sis = (
-                f'<span style="color:{BAUHAUS_BLACK}; font-weight:700;">'
-                f'{"Total".ljust(20).replace(" ", "&nbsp;")}</span>'
-                f'&nbsp;&nbsp;'
-                f'<span style="color:{BAUHAUS_BLACK}; font-weight:700;">'
-                f'%{{y:{fmt_hover_sis}}} {sufixo_unidade_sis}</span>'
-                f'<extra></extra>'
-            )
-            fig_sis.add_trace(go.Scatter(
-                x=agg_sis["label"],
-                y=agg_total_sis,
-                name="Total",
-                mode="lines",
-                line=dict(color="rgba(0,0,0,0)"),
-                hovertemplate=hovertemplate_total_sis,
-                showlegend=False,
-                hoverlabel=dict(
-                    bgcolor=BAUHAUS_CREAM,
-                    bordercolor=BAUHAUS_BLACK,
-                ),
-            ))
-
-            for col in MOTIVOS_COLS:
-                cor_sis, label_sis = PALETA_MOTIVOS_SIS[col]
-                label_pad_sis = label_sis.ljust(20).replace(" ", "&nbsp;")
-                hovertemplate_sis = (
-                    f'<span style="color:{cor_sis}; font-weight:700;">{label_pad_sis}</span>'
-                    f'&nbsp;&nbsp;'
-                    f'<span style="color:#1A1A1A;">%{{y:{fmt_hover_sis}}} {sufixo_unidade_sis}</span>'
-                    f'<extra></extra>'
-                )
-                if gran_atual == "Horário":
-                    # Área stackada (Fase E.15) — mode="none" oculta linha,
-                    # fillcolor preenche entre traces consecutivos do
-                    # stackgroup. barmode="stack" do update_layout não
-                    # afeta Scatter (só aplica a Bar).
-                    fig_sis.add_trace(go.Scatter(
-                        x=agg_sis["label"],
-                        y=agg_sis[col],
-                        name=label_sis,
-                        stackgroup="motivos",
-                        mode="none",
-                        fillcolor=cor_sis,
-                        hovertemplate=hovertemplate_sis,
-                    ))
-                else:
-                    fig_sis.add_trace(go.Bar(
-                        x=agg_sis["label"],
-                        y=agg_sis[col],
-                        name=label_sis,
-                        marker_color=cor_sis,
-                        hovertemplate=hovertemplate_sis,
-                    ))
-
-            # xaxis_kwargs condicional ao modo (Fase E.14.1):
-            # em Horário, x=datetime + tickformat curto + hoverformat rico.
-            xaxis_kwargs = dict(
-                title=None, showgrid=False, showline=True,
-                linewidth=2, linecolor=BAUHAUS_BLACK,
-                ticks="outside", tickcolor=BAUHAUS_BLACK,
-                tickfont=dict(family="Inter, sans-serif", size=12, color=BAUHAUS_BLACK),
-            )
-            if gran_atual == "Horário":
-                xaxis_kwargs["tickformat"] = "%H:00"
-                xaxis_kwargs["hoverformat"] = "%d/%m/%Y %H:00"
-
-            fig_sis.update_layout(
-                barmode="stack",
+            # Construir figura — extraida pra _construir_figura_termico_sin
+            # na Fase Drill.2.B.0 (helper top do bloco termico, ~linha 3455).
+            fig_sis = _construir_figura_termico_sin(
+                agg=agg_sis,
+                gran_label=gran_atual,
+                sufixo_unidade=sufixo_unidade_sis,
+                fmt_hover=fmt_hover_sis,
+                paleta=PALETA_MOTIVOS_SIS,
                 height=450,
-                margin=dict(l=20, r=20, t=10, b=20),
-                paper_bgcolor=BAUHAUS_CREAM,
-                plot_bgcolor=BAUHAUS_CREAM,
-                separators=",.",
-                hovermode="x unified",
-                hoverlabel=dict(
-                    bgcolor=BAUHAUS_CREAM,
-                    bordercolor=BAUHAUS_BLACK,
-                    font=dict(family="'IBM Plex Mono', 'Courier New', monospace", size=12, color=BAUHAUS_BLACK),
-                ),
-                showlegend=True,
-                legend=dict(
-                    orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
-                    bgcolor="rgba(0,0,0,0)",
-                    font=dict(family="Inter, sans-serif", size=13, color=BAUHAUS_BLACK),
-                    traceorder="normal",
-                ),
-                xaxis=xaxis_kwargs,
-                yaxis=dict(
-                    title=None,
-                    showgrid=True, gridcolor=BAUHAUS_LIGHT, gridwidth=1,
-                    showline=True, linewidth=2, linecolor=BAUHAUS_BLACK,
-                    ticks="outside", tickcolor=BAUHAUS_BLACK,
-                    tickfont=dict(family="Inter, sans-serif", size=12, color=BAUHAUS_BLACK),
-                    zeroline=False,
-                    tickformat=",.0f",
-                ),
-                font=dict(family="Inter, sans-serif", size=12),
             )
 
             st.plotly_chart(fig_sis, use_container_width=True, config={"displaylogo": False})
