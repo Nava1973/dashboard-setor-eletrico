@@ -266,6 +266,78 @@ caminho fora do OneDrive. Venv especialmente.
   lateral abre com logs em tempo real. Procurar bloco "Building" /
   "Installing dependencies" com `ERROR:` do pip.
 
+### 4.6 Windows PowerShell 5.1 + UTF-8 + BOM (encoding hell)
+
+> **Nota de excecao**: esta armadilha contem glifos nao-ASCII
+> (em-dash, smart quote, a-circunflexo, simbolo do Euro) usados
+> para ilustrar o problema de encoding. Eh a UNICA secao do
+> CLAUDE.md onde glifos nao-ASCII sao intencionais - todas as
+> outras decisoes/armadilhas seguem ASCII puro nas adicoes da
+> sessao 07/05/2026 em diante.
+
+**`Set-Content -Encoding UTF8` em Windows PowerShell 5.1 escreve
+UTF-8 COM BOM** (`EF BB BF` nos primeiros 3 bytes), nao UTF-8 puro.
+Combinado com `Get-Content -Raw` que le com encoding default
+cp1252 (mesmo se o arquivo eh UTF-8 sem BOM), gera double-encoding
+silencioso e corrompe o arquivo.
+
+**Cenario reproduzido nesta sessao** (commit `c5ecf15` cleanup):
+
+1. Arquivo `.commit_msg.txt` criado pelo Write tool em UTF-8 puro
+   (sem BOM), contendo 1 em-dash (`—`, U+2014, bytes `E2 80 94`).
+2. PowerShell `Get-Content -Raw .commit_msg.txt` le os 3 bytes do
+   em-dash interpretando como cp1252:
+   - `0xE2` -> `â` (U+00E2)
+   - `0x80` -> `€` (U+20AC, smart quote)
+   - `0x94` -> `"` (U+201D, right double quote)
+3. `-replace [char]0x2014, '-'` nao casa porque o texto ja nao
+   contem U+2014, contem 3 chars cp1252.
+4. `Set-Content -Encoding UTF8` escreve esses 3 chars como UTF-8
+   COM BOM (`EF BB BF` no inicio + 3-9 bytes corrompidos no
+   meio). Total: 4 chars nao-ASCII no arquivo final.
+
+**Como detectar**: ler bytes brutos via
+`[System.IO.File]::ReadAllBytes` + verificar `bytes[0..2]` pra BOM
+e iterar bytes `> 127`:
+
+```powershell
+$bytes = [System.IO.File]::ReadAllBytes('arquivo.txt')
+"First 4 hex: $([BitConverter]::ToString($bytes[0..3]))"
+if ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+    "Has BOM"
+}
+```
+
+**Solucao recomendada (uso do Claude Code)**: usar Write tool /
+create_file pra escrever conteudo de arquivo. O Write tool escreve
+UTF-8 sem BOM, sem ler-modificar-escrever, sem PowerShell no
+caminho.
+
+**Solucao em PowerShell puro** (se inevitavel):
+
+```powershell
+# Escreve UTF-8 sem BOM
+[System.IO.File]::WriteAllText(
+    'arquivo.txt', $conteudo,
+    [System.Text.UTF8Encoding]::new($false)
+)
+```
+
+O `$false` no construtor `UTF8Encoding` suprime o BOM. PowerShell
+7+ tem `Set-Content -Encoding utf8NoBOM` mas nao funciona em 5.1.
+
+**Outras armadilhas relacionadas** (nao reproduzidas nesta sessao
+mas conhecidas):
+- `Out-File` default: UTF-16 LE com BOM em PowerShell 5.1.
+- `Get-Content` (sem `-Raw` e sem `-Encoding`) le com encoding
+  default da console (varia por OS - cp1252 em Windows pt-BR).
+- `>` redirect operator: usa o mesmo default do `Out-File`.
+
+**Regra pratica**: nunca usar PowerShell 5.1 pra ler-modificar-
+escrever arquivos UTF-8. Usar Python (`open(file, encoding='utf-
+8')`), Write tool (Claude Code), ou Git Bash. Se precisar usar
+PowerShell, usar `[System.IO.File]` direto.
+
 ---
 
 ## 5. Decisões Arquiteturais
@@ -749,6 +821,48 @@ no `precisa_reset`). Aplicação: 4 leituras de
 `termico_sistema_data_ini`/`_data_fim` (linhas 3388, 3389, 3460, 3461)
 com defaults Mensal 12M. Escritas continuam com `[...]` direto
 (não dão KeyError).
+
+**Refinamento (Bug 2 / Despacho Termico - 07/05/2026, commit
+`7b57925`):** o 6o gatilho da extensao Sessao 1.6 precisa de
+ADAPTACAO quando o cleanup do Streamlit DELETA a key (em vez de
+deixar valor stale).
+
+- **Caso original (Geracao):** `gen_data_ini` reaparece no state com
+  valor degenerado `== gen_data_fim`. As 2 keys ficam PRESENTES,
+  mas o range eh zero. Gatilho original detecta via `data_ini >=
+  data_fim`.
+- **Caso novo (Despacho Termico, ao trocar sub-view Eneva <-> Sistema):**
+  `termico_<sub>_data_ini` e/ou `_data_fim` sao DELETADAS, nao
+  reaparecem stale. O gatilho original (`"X" in state AND state[X]
+  >= state[Y]`) falha porque `"X" in state` retorna False.
+
+Adaptacao - trocar AND por OR no gatilho, usando curto-circuito
+pra proteger contra KeyError quando a key esta ausente:
+
+```python
+or (
+    gran_atual not in ("Trimestral", "Horario")
+    and (
+        "termico_<sub>_data_ini" not in st.session_state
+        or "termico_<sub>_data_fim" not in st.session_state
+        or st.session_state["termico_<sub>_data_ini"]
+            >= st.session_state["termico_<sub>_data_fim"]
+    )
+)
+```
+
+Aplicado em Sistema (`app.py:3322`) e Eneva (`app.py:4229`).
+Trimestral excluido (datas informativas, filter usa anos+LTM).
+Horario excluido (`data_ini == data_fim` eh design legitimo
+single-day, decisao 5.46).
+
+**Licao:** o cleanup do Streamlit pode se manifestar em 2 modos
+distintos - keys deletadas (Despacho Termico, mais comum quando
+widgets de uma sub-view nao instanciam por turnos consecutivos) ou
+keys recriadas com valor clamped (Geracao, quando widget
+re-instancia sem `value=` apos cleanup). Diagnosticar via debug
+`st.write` em runtime eh essencial pra distinguir os 2 casos
+antes de aplicar fix.
 
 ### 5.17 Dois eixos: range do dataset vs período visível
 
@@ -2860,6 +2974,224 @@ também a `yaxis_kwargs`, `legend_kwargs`.
 
 **Quando NÃO aplica**: Não aplicável a outras sub-views — Eneva Mensal já tem MWM/GWH em row 2 (commit `3c5257b`), e SIN não tem MWM/GWH (toggle exclusivo do Eneva).
 
+### 5.52 Refatoracao de st.radio principal pra loop de st.button (Fase Nav.1)
+
+**Decisao**: o radio principal da sidebar (NAVEGACAO, 7 abas) foi
+substituido por loop de `st.button` com state em
+`session_state["aba_selecionada"]`. Padrao reusavel pra qualquer
+sidebar que precise de hierarquia (sub-itens condicionais embaixo
+de um item principal).
+
+**Caso que motivou**: Fase Nav.2 precisa exibir sub-itens "Eneva" e
+"SIN" embaixo do botao "Despacho Termico" SOMENTE quando essa aba
+esta ativa. `st.radio` nao permite renderizar elementos
+intercalados entre as opcoes - opcoes vivem em uma lista fechada
+sem hooks de "apos a opcao X". Loop de `st.button` permite
+intercalar arbitrariamente.
+
+**Implementacao** (`app.py:1494-1541`):
+
+```python
+if "aba_selecionada" not in st.session_state:
+    st.session_state["aba_selecionada"] = "PLD"
+
+abas_principais = [
+    "PLD", "Reservatorios", "ENA/Chuva", "Despacho Termico",
+    "Geracao", "Carga", "Curtailment",
+]
+
+for _aba_opcao in abas_principais:
+    _is_active = (st.session_state["aba_selecionada"] == _aba_opcao)
+    if st.button(
+        _aba_opcao,
+        key=f"nav_aba_{_aba_opcao}",
+        type="primary" if _is_active else "secondary",
+        use_container_width=True,
+    ):
+        st.session_state["aba_selecionada"] = _aba_opcao
+        st.rerun()
+    # Sub-itens condicionais (Fase Nav.2) ficam aqui dentro do loop
+
+aba = st.session_state["aba_selecionada"]
+```
+
+Variavel `aba` retorna do session_state - 100% compativel com os 7
+branches `if/elif aba == ...` (PLD, Reservatorios, ENA, Despacho
+Termico, Geracao, Carga, Curtailment) sem mudancas nesses branches.
+
+**CSS scoped Fase Nav.1**:
+- Keys com prefixo `nav_aba_` permitem seletor scoped:
+  `[data-testid="stSidebar"] [class*="st-key-nav_aba_"] button`.
+- Alinhamento esquerdo: `text-align: left` + `justify-content:
+  flex-start` no botao + seletores filhos (`button > div`,
+  `button > div > p`, `button p`, `button[kind] *`) pra cobrir
+  o `<p>` interno que Streamlit pode renderizar.
+- Primary (ativo): `#F6BD16` amarelo Bauhaus + texto preto.
+- Secondary (inativo): transparente + texto cream `#F5F1E8`.
+- Hover em inativo: vira amarelo Bauhaus completo (replica visual
+  do ativo) - feedback de "selecionavel".
+- Hover em ativo: `opacity: 0.9` (escurecimento sutil).
+- Compactacao: `margin-bottom: -1rem` no wrapper +
+  `padding-top/bottom: 0.3rem` no botao - botoes proximos
+  verticalmente.
+
+**Trade-offs considerados**:
+- **DOM injection** (manipular DOM do `st.radio` via JS): rejeitada
+  por fragilidade. Streamlit reescreve a estrutura interna a cada
+  rerun, JS hook precisa ser re-anexado, ordem de execucao nao eh
+  garantida.
+- **Radio fora-da-lista** (radio com 7 opcoes + bloco condicional
+  separado depois): rejeitada por UX nao intuitiva. Sub-itens
+  ficariam visualmente desconectados do item pai.
+- **Botoes custom** (escolhido): cada botao eh um widget separado,
+  intercalar elementos eh trivial, CSS scoped ataca `[class*="st-
+  key-..."]` pra estilizar sem afetar outros botoes do app.
+
+**Trade-off aceito**: perda da semantica de "radio group" pra
+acessibilidade (screen readers). Mitigado parcialmente pelo
+`type="primary"` que sinaliza estado ativo. Aceitavel pra dashboard
+interno que nao tem requisitos de acessibilidade rigorosos.
+
+**Commit**: `a43ffce` (86 inserts, 5 deletes).
+
+**Quando aplicar este pattern em outras abas/sidebars**:
+- Quando precisar intercalar elementos condicionais entre as
+  opcoes de navegacao (sub-itens, separadores contextuais, badges
+  de estado).
+- Quando o radio default do Streamlit nao oferece controle visual
+  suficiente (ex: alinhamento, hover customizado, indicador
+  customizado por opcao).
+
+**Quando NAO aplica**:
+- Navegacoes simples sem hierarquia ou sub-itens. `st.radio`
+  continua sendo a opcao mais limpa e acessivel.
+- Listas dinamicas onde a quantidade de opcoes muda em runtime -
+  loop de buttons funciona, mas a complexidade de gerenciar keys
+  unicas cresce.
+
+### 5.53 Sub-itens contextuais Eneva/SIN no sidebar + remocao dos pills (Fase Nav.2)
+
+**Decisao**: o controle de sub-view do Despacho Termico (Eneva /
+SIN) foi MOVIDO dos pills no topo do conteudo principal pra
+**sub-itens contextuais embaixo do botao "Despacho Termico"** na
+sidebar. Sub-itens visiveis apenas quando essa aba esta ativa.
+
+**Caso que motivou**: o controle de sub-view conceitualmente eh
+"qual variante da aba estou vendo" - pertence a navegacao, nao ao
+conteudo. Pills no topo do conteudo:
+1. Ocupavam ~80px verticais que poderiam ser usados pelos graficos
+2. Duplicavam a hierarquia (radio aba + pill sub-view) - 2 niveis
+   de selecao em lugares visualmente desconectados
+3. Forcavam o usuario a procurar o controle no conteudo apos
+   selecionar a aba
+
+A Fase Nav.1 (decisao 5.52) preparou o terreno trocando o radio
+por loop de botoes - permite intercalar sub-itens condicionais.
+
+**Implementacao** (`app.py:1543-1561`):
+
+```python
+# Dentro do loop nav_aba_:
+if _aba_opcao == "Despacho Termico" and _is_active:
+    if "termico_subview" not in st.session_state:
+        st.session_state["termico_subview"] = "Eneva"
+    _subviews = [("Eneva", "Eneva"), ("SIN", "Sistema")]
+    for _label, _valor in _subviews:
+        _is_sub_active = (
+            st.session_state["termico_subview"] == _valor
+        )
+        # Indicador ativo: caractere | amarelo via Python label
+        _label_display = (
+            f"| {_label}" if _is_sub_active else _label
+        )
+        if st.button(
+            _label_display,
+            key=f"nav_sub_{_valor}",
+            type="primary" if _is_sub_active else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state["termico_subview"] = _valor
+            st.rerun()
+```
+
+Mapeamento label visual `"SIN"` -> state value `"Sistema"` via
+tuple `(label, valor)` - preserva compatibilidade com o branch
+`if subview == "Sistema":` no conteudo (`app.py:3343` apos a
+remocao dos pills).
+
+**CSS scoped Fase Nav.2**:
+- Keys `nav_sub_*` permitem seletor scoped sem vazar pros itens
+  principais (`nav_aba_*`).
+- Indentacao: `padding-left: 3rem` no botao + `padding-left:
+  0.8rem` no wrapper externo. Sub-itens visivelmente deslocados
+  em relacao aos itens principais.
+- Texto menor (`0.85rem` vs `0.95rem` dos principais),
+  `font-weight: 400`. Hierarquia visual: pai mais forte, filho
+  mais leve.
+- Inativo (secondary): cinza discreto `#999999`.
+- Ativo (primary): cream `#F5F1E8`. Sem amarelo de fundo (que
+  competiria com o amarelo do item pai ativo).
+- Hover: amarelo discreto `#F6BD16` no texto inteiro.
+- Compactacao: `margin-bottom: -1rem` entre wrappers + `padding-
+  top/bottom: 0.2rem` no botao - mais compactos que itens
+  principais (que usam `0.3rem`).
+
+**Indicador ativo - 3 abordagens consideradas**:
+1. **`::before` pseudo-elemento absoluto** (rejeitada): linha de
+   3px posicionada em `left: 1.2rem`, `top/bottom: 25%`. Funcionou
+   visualmente mas o posicionamento absoluto interferia com o
+   flex layout interno do botao do Streamlit. Manter
+   sincronizacao em diferentes alturas de botao exigia hardcoding.
+2. **`border-left: 3px`** (rejeitada): controle de altura
+   limitado (sem maneira simples de fazer linha curta). Forcaria
+   compensar `padding-left` via `calc(3rem - 3px)`.
+3. **Caractere `|` (U+2502) prefixado no label** (escolhida):
+   inserido no Python via label dinamico (`f"| {_label}"` se
+   ativo, `_label` se inativo). CSS `::first-letter` aplica
+   `color: #F6BD16` + `font-weight: 700` apenas no caractere
+   `|`. Solucao 100% no fluxo do texto - sem posicionamento
+   absoluto, sem fragilidade de altura.
+
+**Pills removidos do conteudo principal** (60 linhas, `app.py`
+linhas 3168-3228 antes da remocao):
+- Comentario sobre "Controle binario Sistema/Eneva - pills
+  full-width estilo Curtailment"
+- Bloco `st.markdown` com CSS scoped
+  `[class*="st-key-termico_btn_subview_"]`
+- `_sub = ...` + `st.columns(2)` + 2 `st.button` ("Eneva", "SIN -
+  Despacho Termeletrico Total")
+
+**Preservado intacto**:
+- Init `termico_subview` default `"Eneva"` (`app.py:3150-3152`)
+- Titulo dinamico h1 (linha 3157-3161): muda conforme
+  `termico_subview` selecionado pela sidebar
+- Border-bottom Bauhaus do titulo
+- Branch HOISTED Fase E (linha 3168 apos remocao)
+- Branch `if subview == "Sistema":` (`app.py:3343` apos remocao)
+
+**Trade-off aceito**: a sidebar fica visualmente mais densa quando
+"Despacho Termico" esta ativo (botao pai + 2 sub-itens). Aceitavel
+porque (1) a densidade eh contextual (so aparece em 1 das 7 abas),
+(2) o ganho de ~80px verticais no conteudo principal compensa, (3)
+hierarquia visual fica explicita.
+
+**Commit**: `c5ecf15` (82 inserts, 61 deletes).
+
+**Quando aplicar este pattern em outras abas**:
+- Qualquer aba que tenha sub-views (variantes da mesma aba).
+  Atualmente nenhuma alem de Despacho Termico.
+- Quando o controle de sub-view eh persistente durante a sessao
+  (nao eh um filtro temporario) e merece ficar na navegacao
+  hierarquica.
+
+**Quando NAO aplica**:
+- Filtros temporarios dentro do conteudo (granularidade,
+  submercado, periodo). Esses pertencem ao conteudo, nao a
+  navegacao - sao "visoes do mesmo dado", nao "variantes da aba".
+- Casos onde o usuario alterna sub-views frequentemente (cada
+  troca causa rerun completo da pagina). Pills inline tem latencia
+  ligeiramente menor.
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
@@ -3253,6 +3585,108 @@ baseadas no relatório.
     **Próxima fase:** Fase D (Eneva replica Layout C com 4
     granularidades + checkbox + caption + lógica E.9, mantendo
     selectbox de Usina e toggle MWm/GWh).
+
+26. **Sessao Bug-fix + Nav (07/05/2026)** - 3 commits sequenciais
+    + 1 fix manual sem commit. Sessao mista de bugs e refactor de
+    UX da sidebar.
+
+    **Bug 1 (Reservatorios) - cache parquet truncado** (sem
+    commit, fix manual via `clear_cache`):
+    - Sintoma: botoes 1A/3A/5A/10A/Max nao funcionavam (todos
+      caiam em `2026-01-01`, range zero ou poucos dias).
+    - Diagnostico: `data_ini == data_fim == 2026-01-01`. Inspecao
+      via debug temporario revelou `min_d` do dataset corrompido.
+      Cache em disco `~/.cache/dashboard-setor-
+      eletrico/reservatorios.parquet` tinha 10KB (vs ~900KB
+      esperado), so contendo 2026.
+    - Causa raiz: `load_reservatorios()` em `data_loader.py:1063-
+      1100` consolida 27 anos. Se 26 dos 27 downloads falharam
+      (rede ruim, Akamai), o loader persiste o resultado parcial
+      no disco sem validacao de cobertura minima. TTL 6h faz o
+      problema durar.
+    - Fix imediato: `Remove-Item` no parquet truncado + Atualizar
+      na sidebar (forca re-download fresh).
+    - Bug arquitetural latente registrado: validar cobertura
+      minima antes de `_try_write_reservatorios()`. Replicavel em
+      ENA, balanco, etc. Nao implementado nesta sessao.
+
+    **Bug 2 (Despacho Termico) - data_ini/data_fim ao trocar
+    sub-view** (commit `7b57925`, 36 linhas):
+    - Sintoma: Eneva Mensal customizado -> SIN Diario -> volta
+      pra Eneva Mensal resultava em `data_ini == data_fim ==
+      max_d` (range zero, grafico com 1 ponto).
+    - Diagnostico via debug `st.write` em runtime: `prev_gran ==
+      gran_atual == "Mensal"`, `em_transicao=False`, sentinelas
+      de dataset inalteradas, `data_ini=None data_fim=None`
+      (cleanup deletou as keys), `precisa_reset=False` no v1 do
+      gatilho, widget recria keys clamped pra `max_value`.
+    - Causa raiz: widget cleanup do Streamlit ao trocar sub-view
+      DELETA `termico_<sub>_data_ini/_data_fim`. Reset block
+      tinha 3 gatilhos (dataset_max, dataset_min, em_transicao)
+      mas nenhum detectava cleanup. Gatilho prescrito em Geracao
+      (decisao 5.16, Fase E.12) usava `data_ini >= data_fim` -
+      mas em Despacho Termico as keys sao DELETADAS (nao stale),
+      entao `"X" in state` retorna False e a comparacao `>=`
+      nunca executa.
+    - Fix v1 (rejeitado): replicar Geracao com `AND in state` -
+      nao detectava cleanup.
+    - Fix v2 (aplicado): trocar AND por OR no gatilho - dispara
+      reset se `key not in state OR range degenerado`. Curto-
+      circuito do `or` protege contra KeyError. Aplicado em
+      Sistema (`app.py:3322`) e Eneva (`app.py:4229`). Refinou
+      decisao 5.16 com nota sobre 2 modos do cleanup (Geracao =
+      keys recriadas com valor stale; Despacho Termico = keys
+      deletadas).
+
+    **Fase Nav.1 - refator radio principal pra botoes custom**
+    (commit `a43ffce`, 86 inserts / 5 deletes; decisao 5.52):
+    - Substitui `st.radio NAVEGACAO` por loop de `st.button` com
+      state `aba_selecionada`.
+    - Pre-requisito pra Fase Nav.2 (intercalar sub-itens
+      condicionais).
+    - CSS scoped com keys `nav_aba_*`: alinhamento esquerdo,
+      primary amarelo Bauhaus, secondary transparente cream,
+      hover replica visual do ativo.
+    - Compativel com 7 branches `if/elif aba == ...` sem mudancas
+      (variavel `aba` retorna do state).
+
+    **Fase Nav.2 - sub-itens Eneva/SIN no sidebar + remocao dos
+    pills** (commit `c5ecf15`, 82 inserts / 61 deletes; decisao
+    5.53):
+    - Sub-itens condicionais embaixo de "Despacho Termico" via
+      bloco condicional dentro do loop `nav_aba_`. Visiveis
+      apenas quando essa aba esta ativa.
+    - Indicador ativo: caractere `|` (U+2502) prefixado no label
+      via Python (`f"| {nome}"` se ativo) + CSS `::first-letter`
+      em amarelo Bauhaus. Solucao escolhida apos rejeitar `::
+      before` (fragilidade com flex layout) e `border-left` (sem
+      controle de altura).
+    - Pills removidos do conteudo principal (60 linhas: CSS
+      scoped + 2 `st.button`). Titulo dinamico h1 e branch `if
+      subview == "Sistema":` preservados.
+
+    **Bugs descobertos e corrigidos durante a sessao**:
+    - Bug 1 (Reservatorios cache truncado) - inspecao via debug
+      temporario revelou parquet stale.
+    - Bug 2 v1 (gatilho de Geracao nao funciona em Despacho
+      Termico) - debug em runtime revelou que cleanup deleta
+      keys em vez de deixar stale.
+    - PowerShell encoding hell (commit `c5ecf15` cleanup do
+      em-dash) - documentado na armadilha 4.6 com 4 chars nao-
+      ASCII no `.commit_msg.txt` apos `Set-Content -Encoding
+      UTF8 + Get-Content -Raw`.
+
+    **Bug pendente (nao incluido nesta sessao)**: granularidade
+    Eneva/Sistema tambem nao preserva ao trocar sub-view. Mesma
+    familia widget cleanup. Sintoma menos critico (volta pra
+    Mensal default, ainda usavel). Fica pra proxima sessao -
+    fix provavel: salvar `_termico_<sub>_last_gran` ao trocar
+    sub-view, restaurar ao voltar.
+
+    **Decisoes adicionadas nesta sessao**: 5.52 (Fase Nav.1),
+    5.53 (Fase Nav.2). Refinamento aplicado: 5.16 (extensao
+    para o caso de keys deletadas). Armadilha adicionada: 4.6
+    (PowerShell 5.1 + UTF-8 + BOM).
 
 ---
 
