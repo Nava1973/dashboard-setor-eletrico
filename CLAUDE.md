@@ -338,6 +338,43 @@ escrever arquivos UTF-8. Usar Python (`open(file, encoding='utf-
 8')`), Write tool (Claude Code), ou Git Bash. Se precisar usar
 PowerShell, usar `[System.IO.File]` direto.
 
+### 4.7 Streamlit rodando do Python global em vez do venv
+
+SINTOMA: graficos plotly_events renderizam invertidos (barras
+horizontais em vez de verticais). Lib instalada no venv mas nao
+acessivel em runtime.
+
+CAUSA: comando `streamlit run app.py` direto pega `python` do PATH
+do sistema (Python 3.14 global em
+`C:\Users\RENOMEAR\AppData\Local\Python\pythoncore-3.14-64\`), nao
+o do venv. Lib esta instalada no venv mas o Streamlit global nao
+tem acesso a ela.
+
+DIAGNOSTICO: console mostra `ModuleNotFoundError: No module named
+'streamlit_plotly_events'` com path do Python global. Plotly da
+versao global tambem pode ser diferente da do venv (ex: 6.x global
+vs 5.x venv) — figuras serializadas com APIs incompativeis
+renderizam invertidas.
+
+SOLUCAO: SEMPRE rodar do venv local:
+
+```powershell
+# Recomendado (-m streamlit pra invocar via python explicito)
+venv\Scripts\python -m streamlit run app.py
+
+# Ou ativar venv antes
+venv\Scripts\Activate.ps1
+streamlit run app.py
+```
+
+NUNCA: `streamlit run app.py` direto sem ativacao — pega `streamlit`
+do Python global do PATH.
+
+Detectado em: sessao 07/05/2026 durante diagnostico de inversao do
+grafico SIN. Fase Drill.2.C.1 — `streamlit-plotly-events` instalado
+no venv, mas Streamlit rodando do global gerava sintomas que pareciam
+bug da lib quando na verdade era ambiente errado.
+
 ---
 
 ## 5. Decisões Arquiteturais
@@ -3192,6 +3229,185 @@ hierarquia visual fica explicita.
   troca causa rerun completo da pagina). Pills inline tem latencia
   ligeiramente menor.
 
+### 5.54 Drill-down hierarquico SIN — fases A/B/B.0/C/D (07/05/2026)
+
+Implementa drill-down clicavel no SIN do Despacho Termico em 3 niveis
+hierarquicos: Mensal -> Diario -> Horario. Aparece apenas em modo
+Mensal (sub-view Sistema). Eneva e outras granularidades inalteradas.
+
+**Fase Drill.1**: extrai logica de agregacao do bloco Sistema em
+helper `_agregar_termico_sistema(df_filt, modo, unidade) -> tuple`
+retornando `(agg, sufixo_unidade, fmt_hover)`. 4 branches preservados
+(Mensal/Diario/Horario/Trimestral). Habilita reuso pelos drill-down.
+Stats: +110/-94 (+16 net). Commit `acdb336`.
+
+**Fase Drill.2.A**: helpers de filtragem + state init.
+- `_filtrar_termico_por_mes(df_term, mes_ref)`: mask por `dt.year` +
+  `dt.month`, retorna copia.
+- `_filtrar_termico_por_dia(df_term, dia_ref)`: mask por `dt.date`,
+  normaliza datetime->date.
+- State `termico_sistema_drill_mes` (Timestamp normalizado): default
+  = 1o dia do mes mais recente do dataset.
+- State `termico_sistema_drill_dia` (date): default = ultimo dia do
+  dataset.
+
+**Fase Drill.2.B.0**: extrai construcao da figura SIN em helper
+`_construir_figura_termico_sin(agg, gran_label, sufixo_unidade,
+fmt_hover, paleta, height=450) -> go.Figure`. Substitui MOTIVOS_COLS
+externo por `list(paleta.keys())` — single source of truth.
+
+**Fase Drill.2.B**: bloco condicional embaixo do grafico mensal SIN
+que renderiza 2 graficos drill-down em colunas 50/50:
+- Esquerda: Diario do mes selecionado.
+- Direita: Horario do dia selecionado.
+
+Defaults via state inicializado em Drill.2.A. Stats Drill.2.A+B.0+B
+combinados: +202/-102. Commits `108ab8f` (A+B.0) e `3de3704` (B).
+
+**Fase Drill.2.C**: click em barras pra navegar.
+- C.1: click numa barra mensal -> atualiza `drill_mes` + cascata
+  pro ultimo dia do novo mes (regra UX: drill_dia sempre dentro
+  de drill_mes).
+- C.2: click no drill diario -> atualiza `drill_dia` (sem cascata).
+- Drill horario: nao-clicavel (nivel mais detalhado).
+
+**Fase Drill.2.D** (polish): captions dos drill migrados pra
+`st.markdown` inline com div centralizado, single line:
+- Drill diario: `"DIARIO . MES/AA . data_ini a data_fim"`.
+- Drill horario: `"HORARIO . dd/mm/aaaa"`.
+- Mensal SIN e Eneva mantem `_render_termico_chart_caption`
+  (layout esquerda+direita).
+
+C+D consolidados no commit `b1f5c72`.
+
+**Quando aplicar este pattern**: outras abas com hierarquia natural
+de drill-down (mensal -> diario, diario -> horario). Reusa helper
+`_agregar_termico_sistema` (modo + unidade) e `_construir_figura_*`.
+
+**Quando NAO aplica**: drill-down nao-hierarquico (ex: clicar em
+serie pra mostrar series relacionadas em vez de zoom temporal).
+
+### 5.55 Captura de click em Plotly via streamlit-plotly-events (07/05/2026)
+
+`st.plotly_chart` com `on_select="rerun"` + `hovermode="x unified"`
+no Streamlit 1.56 NAO captura click simples — `selection.points`
+retorna vazio. Testado exaustivamente:
+
+- `clickmode="event"` e `clickmode="event+select"`.
+- `selection_mode=("points",)`.
+- `update_traces(unselected=...)` pra eliminar opacity drop.
+- `hovermode="closest"` em vez de "x unified".
+
+Nenhuma combo nativa funciona. Click em barra dispara box-select mode
+que esvazia `selection.points`.
+
+**Solucao**: `streamlit-plotly-events==0.0.6` (lib externa). Captura
+click via componente customizado em iframe, retorna `list[dict]` com
+keys camelCase (`curveNumber`, `pointNumber`, `x`, `y`).
+
+```python
+from streamlit_plotly_events import plotly_events
+
+_event = plotly_events(
+    fig,
+    click_event=True,
+    select_event=False,
+    hover_event=False,
+    key="...",
+    override_height=550,
+)
+if _event:
+    _idx = _event[0].get("pointNumber")
+    # ...
+```
+
+**Trade-offs aceitos**:
+- Lib inativa desde 2021 (risco baixo 6-12 meses).
+- `override_height` fixo (nao `use_container_width`).
+- Toolbar Plotly com logo (config nao suportado pela lib).
+- Plotly precisa ser `<6.0` (lib quebra com APIs internas do 6.x —
+  graficos renderizam com eixos invertidos).
+
+**Quando aplicar**: necessidade real de captura de click em barras
+Plotly + nenhuma alternativa nativa do Streamlit funciona. Drill-down
+SIN da decisao 5.54 e o caso de uso atual.
+
+**Quando NAO aplica**: outras formas de captura mais simples
+(selectbox, date_input, radio, button) cobrem a UX. Lib externa eh
+ultimo recurso.
+
+### 5.56 JS injection pra eliminar fundo preto do iframe streamlit-plotly-events (07/05/2026)
+
+PROBLEMA: tema dark do Streamlit (`config.toml backgroundColor=#0a0d10`)
+injeta `--background-color` DENTRO do iframe da `streamlit-plotly-
+events` via mecanismo automatico de theming pra custom components.
+CSS injection externo NAO atravessa iframe (cross-document policy).
+
+Sintoma: iframes do `plotly_events` aparecem com bordas pretas em
+volta do conteudo Plotly cream. CSS externo `iframe { background-
+color: #F5F1E8 }` nao funciona — pinta o quadro do iframe, nao o
+conteudo HTML interno.
+
+**Solucao**: `components.html` com `<script>` que acessa
+`window.parent.document` e injeta `<style>` dentro de cada iframe
+da lib (allow-same-origin desde Streamlit 0.73):
+
+```python
+import streamlit.components.v1 as components
+
+components.html("""
+<script>
+function fixPlotlyEventsBg() {
+    try {
+        const iframes = window.parent.document.querySelectorAll(
+            'iframe[title*="streamlit_plotly_events"]'
+        );
+        iframes.forEach(iframe => {
+            const innerDoc = iframe.contentDocument;
+            if (!innerDoc) return;
+            if (innerDoc.getElementById('bauhaus-bg-override')) return;
+            const style = innerDoc.createElement('style');
+            style.id = 'bauhaus-bg-override';
+            style.textContent = `
+                :root { --background-color: #F5F1E8 !important; }
+                body { background-color: #F5F1E8 !important; }
+                html { background-color: #F5F1E8 !important; }
+            `;
+            innerDoc.head.appendChild(style);
+        });
+    } catch(e) { console.warn(e); }
+}
+fixPlotlyEventsBg();
+setInterval(fixPlotlyEventsBg, 500);
+</script>
+""", height=0)
+```
+
+**Detalhes da implementacao**:
+- Polling 500ms via `setInterval` pra capturar reruns do
+  `plotly_events` (componente re-mounta entre cliques).
+- Idempotencia via `id="bauhaus-bg-override"` — skip se ja injetado.
+- 3 seletores cobertos (`:root`, `body`, `html`) por defesa.
+- `try/catch` pra bloqueio cross-document silencioso.
+- `height=0` no `components.html` torna o iframe injetor invisivel.
+
+**Limitacoes conhecidas**:
+- Flicker preto de ate 500ms na primeira renderizacao (limite do
+  polling).
+- Depende de `allow-same-origin` (Streamlit components custom desde
+  0.73 — sempre presente).
+- Frágil a mudancas de versao do Streamlit (se atributo `title` do
+  iframe da lib mudar, seletor quebra).
+
+**Quando aplicar**: tema dark do Streamlit + custom component em
+iframe + necessidade de override visual interno. Drill-down SIN da
+decisao 5.54 + lib `streamlit-plotly-events` da decisao 5.55.
+
+**Quando NAO aplica**: 
+- Tema light do Streamlit (sem fundo preto pra eliminar).
+- Custom components com `theme.backgroundColor` controlavel via API
+  da propria lib (raro).
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
@@ -3687,6 +3903,71 @@ baseadas no relatório.
     5.53 (Fase Nav.2). Refinamento aplicado: 5.16 (extensao
     para o caso de keys deletadas). Armadilha adicionada: 4.6
     (PowerShell 5.1 + UTF-8 + BOM).
+
+27. **Drill-down hierarquico SIN completo (07/05/2026 - sessao 2)**.
+    Continuacao da sessao 07/05/2026. Implementa drill-down clicavel
+    no SIN do Despacho Termico do zero ate funcional (Mensal -> Diario
+    -> Horario com cascata e click em barras).
+
+    **Fases entregues** (6 sub-fases, 3 commits):
+    - Drill.1 (`acdb336`): refactor agregacao SIN em
+      `_agregar_termico_sistema` helper.
+    - Drill.2.A + B.0 (`108ab8f`): helpers de filtragem
+      (`_filtrar_termico_por_mes`, `_filtrar_termico_por_dia`) +
+      state init (`drill_mes`, `drill_dia`) + extracao de figura
+      em `_construir_figura_termico_sin`.
+    - Drill.2.B (`3de3704`): renderizacao de 2 graficos drill-down
+      estaticos em colunas 50/50 quando granularidade = "Mensal".
+    - Drill.2.C + D (`b1f5c72`): click em barras + polish dos
+      captions.
+
+    **Cascata de drill-down**:
+    - Click no Mensal -> atualiza `drill_mes` + cascata
+      `drill_dia=ultimo_dia_do_mes`.
+    - Click no Drill Diario -> atualiza `drill_dia` (sem cascata).
+    - Drill Horario: nao-clicavel.
+
+    **Trabalho diagnostico massivo durante a sessao**:
+    - Diagnostico de inversao do grafico (causa: Streamlit rodando
+      do Python global, nao do venv — armadilha 4.7 nova).
+    - Diagnostico de fundo preto no iframe (causa: tema dark do
+      Streamlit injetado em iframe da lib — decisao 5.56 nova).
+    - Pesquisa exaustiva por libs alternativas
+      (`streamlit-plotly-events-mod` nao existe;
+      `streamlit-plotly-events-custom-data` inativo;
+      Plotly events nativo nao funciona em "x unified").
+    - Plotly downgrade pra `<6.0` (lib `streamlit-plotly-events`
+      0.0.6 quebra com Plotly 6.x).
+
+    **Workaround visual** (decisao 5.56): JS injection cross-iframe
+    via `components.html` + `setInterval` 500ms pra capturar reruns
+    do `plotly_events`. Idempotencia via `id="bauhaus-bg-override"`.
+
+    **Decisoes documentadas nesta sessao**: 5.54 (drill-down
+    hierarquico), 5.55 (captura de click via `streamlit-plotly-
+    events`), 5.56 (JS injection pra fundo preto).
+
+    **Armadilha documentada**: 4.7 (Streamlit Python global vs venv).
+
+    **requirements.txt atualizado**:
+    - `streamlit-plotly-events==0.0.6` adicionado.
+    - `plotly>=5.22,<6.0` (apertado de `<7.0`).
+
+    **Arquivos artefato gerados na sessao** (untracked, gitignore-
+    avel): `test_fig.html` + `test_fig.py` (smoke test de
+    construcao isolada de figura Plotly pra diagnostico).
+
+    **Bugs pendentes** (nao incluidos nesta sessao):
+    - Granularidade Eneva/Sistema preserva ao trocar sub-view (do
+      entry 26).
+    - Validacao cobertura minima em `load_reservatorios` (do
+      entry 26).
+    - Limpar import duplicado `streamlit.components.v1` (linhas
+      590 + 631 do `app.py`).
+
+    **Push final**: `b1f5c72` em `origin/main`. 14 commits
+    acumulados na branch (alguns desta sessao + alguns da sessao
+    anterior do mesmo dia 07/05/2026 entry 26).
 
 ---
 
