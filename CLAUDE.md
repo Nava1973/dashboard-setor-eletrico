@@ -742,6 +742,14 @@ improvável dado os widgets validarem).
 gen_data_fim` é LEGÍTIMO quando window=1 (data_base + 0 dias). Ver
 5.19 — mesmo padrão de exclusão por modo.
 
+**Refinamento (Fase E.12):** Defensivos `state.get(key, default)` nas
+leituras de chave (em vez de `state[key]`) cobrem o caso de cleanup
+mid-session sem regredir o bug E.5 (que motivou a remoção do `cond_a`
+no `precisa_reset`). Aplicação: 4 leituras de
+`termico_sistema_data_ini`/`_data_fim` (linhas 3388, 3389, 3460, 3461)
+com defaults Mensal 12M. Escritas continuam com `[...]` direto
+(não dão KeyError).
+
 ### 5.17 Dois eixos: range do dataset vs período visível
 
 **Decisão:** quando o tamanho do dataset carregado é decisão própria
@@ -1019,6 +1027,12 @@ controles de período diferentes. PLD tem 4 granularidades mas presets
 similares (`_render_period_controls` em todas). Reservatórios e ENA
 têm 1 modo só. Padrão fica reservado pra Geração por enquanto, mas
 a estrutura é generalizável se aparecer caso similar.
+
+**Refinamento (Fase E.5/E.9):** Padrão replicado em modo Trimestral
+com edge case "tudo desmarcado" (anos vazios + LTM=False). Edge case
+força default LTM=True como fallback (evita state inconsistente onde
+nenhum filtro temporal está ativo). Validado em transições reversas
+histórico → ano_completo.
 
 ### 5.21 KPIs em HTML custom quando o value tem letras mixed-case
 
@@ -2272,6 +2286,580 @@ visuais):**
   são identidade do projeto há múltiplas sessões e estão em
   centenas de pontos do código.
 
+### 5.38 LTM trimestral = 4 trimestres móveis (offset 9 meses)
+
+**Decisão**: Em modo Trimestral, "LTM" significa **trimestre corrente +
+3 anteriores** = 4 barras. Nunca 12 meses corridos como em
+granularidades menores.
+
+**Caso que motivou**: Sessão Despacho Térmico (Fase E.8). Tooltip dizia
+"Últimos 12 meses" mas o gráfico mostrava 4 barras (1 por trimestre),
+criando dissonância visual. Correto em finanças: LTM trimestral =
+4 trims (convenção de demonstrações financeiras).
+
+**Implementação**: cálculo aritmético do `ltm_cutoff` sem
+`relativedelta` (dependência adicional desnecessária):
+
+```python
+_mes_inicial_corrente = ((max_d.month - 1) // 3) * 3 + 1
+_mes_cutoff_offset = _mes_inicial_corrente - 9
+if _mes_cutoff_offset <= 0:
+    _ano_ltm = max_d.year - 1
+    _mes_ltm = _mes_cutoff_offset + 12
+else:
+    _ano_ltm = max_d.year
+    _mes_ltm = _mes_cutoff_offset
+ltm_cutoff = date(_ano_ltm, _mes_ltm, 1)
+```
+
+**Por quê 9 meses (e não 12)**: trimestre corrente + 3 anteriores
+começam exatamente 9 meses antes do início do trimestre corrente.
+Validação empírica em 4 cenários (1T/2T/3T/4T corrente).
+
+**Quando aplicar**: qualquer dashboard com modo Trimestral que precise
+de "LTM" semanticamente correto. Em modos não-Trimestral, manter
+LTM = 365 dias (`max_d - timedelta(days=365)`).
+
+### 5.39 State `int|None` → `list[int]` com rename pra forçar reset clean
+
+**Decisão**: Quando uma chave de `st.session_state` muda de tipo
+(ex: escalar pra lista), **renomear a chave** em vez de coexistir com
+tipo antigo. State legado fica órfão e Streamlit garante que a nova
+chave nasce limpa com o default novo.
+
+**Caso que motivou**: Fase E.9 — `termico_sistema_trimestre_comparacao:
+int|None` (single-select) virou `termico_sistema_trimestres_marcados:
+list[int]` (multi-select). Manter a mesma chave faria leituras
+downstream lerem state legado de tipos diferentes a depender da
+última escrita.
+
+**Implementação**: rename completo da chave + remoção de toda
+referência à chave antiga.
+
+**Por quê não migration in-place**: tentar
+`if isinstance(state[key], int): state[key] = [state[key]]` é frágil:
+- Não cobre `None` (precisa segundo `if`)
+- Pode rodar múltiplas vezes (se schema mudar de novo)
+- State legado de versões muito antigas pode ter outros tipos imprevisíveis
+
+**Quando aplicar**: qualquer mudança de tipo em chave de
+`session_state`. Renomear é mais barato que migrar.
+
+**Trade-off**: usuários com sessão antiga "perdem" o estado da chave
+(volta ao default). Aceitável pra estado de filtros (que o user vai
+re-selecionar mesmo).
+
+### 5.40 Interface temporal contextual (single↔multi-select com transições)
+
+**Decisão**: Em filtros temporais com modos compostos (ex: ano/LTM/trim),
+a UI muda comportamento conforme o modo ativo:
+- Modo "ano completo" (sem trim): single-select dos anos+LTM
+- Modo "histórico" (com trim): multi-select de tudo
+- Transições explícitas entre modos:
+  - "ano_completo → histórico" (1º click em trim): marca todos os anos
+    automaticamente
+  - "histórico → ano_completo" (último trim desmarcado): limpa anos,
+    força LTM=True
+
+**Caso que motivou**: Fase E.9. Usuário precisa de 2 análises distintas
+no Trimestral:
+- Comparar mesmo trim cross-anos (ex: "1T de 22, 23, 24, 25, 26")
+- Ver série completa de um ano (ex: "todos os trims de 2024")
+
+Sem transições explícitas, usuário precisaria desmarcar/marcar
+manualmente vários botões a cada mudança de análise.
+
+**Implementação**: handler de click de cada widget detecta `modo_trim`
+(derivado de `if not trims_marcados: "ano_completo" else: "historico"`)
+e aplica regra correspondente. Tooltips mudam por modo:
+- "Comparar {label} cross-anos" (ano_completo)
+- "Click pra desmarcar {label}" (historico ativo)
+- "Adicionar {label} à comparação" (historico inativo)
+
+**Quando aplicar**: filtros temporais com 2+ dimensões
+(ano × período-do-ano) onde o usuário precisa de análises diferentes.
+Não vale o overhead em filtros simples (só datas, só categorias).
+
+**Refinamento (Fase H — Item 6):** Click no botão de ano deixou de
+ser single-select em modo "ano_completo". Passou a ser **toggle
+multi-select sempre**, com regra adicional: se `trims_marcados` está
+vazio no momento de marcar um ano novo, marca automaticamente os 4
+trims (`[1, 2, 3, 4]`) — comportamento default "ano cheio". O modo
+ano_completo deixa de existir como operação distinta no botão de
+ano. Aplicado em ENEVA + SIN.
+
+Razão UX: single-select causava troca abrupta (clicar "2024" fazia
+"2023" sumir mesmo se user queria ambos). Multi-select é mais
+previsível — adiciona/remove sem perder seleção anterior. A regra
+"1ª vez marca trims" preserva o atalho histórico de ver "ano cheio"
+sem precisar marcar 4 trims manualmente.
+
+**O que continua valendo da decisão 5.40 original:**
+- Botão LTM: ainda usa lógica por modo (single-select em ano_completo
+  / toggle em historico). Não foi alterado.
+- Botão trim: ainda usa lógica por modo (transição ano_completo →
+  historico marca TODOS os anos disponíveis ao clicar 1º trim).
+- Help text dinâmico dos trims: ainda muda por modo
+  ("Comparar cross-anos" / "Click pra desmarcar" / "Adicionar à
+  comparação").
+- Edge case "tudo desmarcado" (`anos=[] AND ltm=False`): ainda
+  força `ltm=True` via `st.rerun()`.
+
+**Variável `modo_trim`:** ainda calculada e usada por LTM e trims;
+deixou de ser usada pelo botão de ano.
+
+**Refinamento (Fase H.1 — Ajuste 3):** Click no botão de ano agora
+**desliga LTM** automaticamente ao MARCAR ano. Reverte parcial o
+"preserva LTM" do Refinamento Fase H — Item 6 acima. Aplicado em
+ENEVA + SIN.
+
+Razão UX validada após print: ao clicar "2024" com LTM ativo no
+estado inicial, o user esperava ver "só 2024", não "2024 + LTM".
+Mantendo LTM ligado dava resultado confuso (mais barras do que o
+user pediu). Desligar LTM ao marcar ano alinha com a intenção de
+"foco em ano específico".
+
+**Implementação:** `st.session_state["..._ltm_marcado"] = False`
+adicionado APÓS as escritas de `anos_comparacao`/`trims_marcados`
+no branch "marcando" (`else` do `if ativo_ano:`). Sem efeito no
+branch "desmarcando" (preserva LTM ao remover ano). Edge case
+"tudo desmarcado" (`anos=[] AND ltm=False`) continua forçando
+`ltm=True` via `st.rerun()` — garante saída do estado inválido se
+user remove último ano com LTM já desligado.
+
+### 5.41 `traceorder="normal"` pra Plotly stacked bar
+
+**Decisão**: Em gráficos `barmode="stack"`, sempre setar
+`legend.traceorder="normal"`. Default do Plotly é `"reversed"` quando
+`barmode="stack"`, criando dissonância: a 1ª camada (base) aparece
+**à direita** da legenda em vez da esquerda.
+
+**Caso que motivou**: Fase E.7. Despacho Térmico SIN com 7 motivos
+empilhados (Inflexibilidade na base, Garantia energética no topo).
+Legenda mostrava "Garantia energética" à esquerda, "Inflexibilidade"
+à direita. Usuários liam legenda da esquerda pra direita esperando
+ordem visual idêntica.
+
+**Implementação**:
+
+```python
+fig.update_layout(
+    barmode="stack",
+    legend=dict(
+        traceorder="normal",
+        orientation="h",
+        ...
+    ),
+)
+```
+
+**Por quê não documentado pelo Plotly**: docs do Plotly mencionam
+`traceorder` em `legend` mas não destacam que `barmode="stack"` muda
+o default automaticamente. Pegadinha encontrada empíricamente.
+
+**Quando aplicar**: qualquer `go.Bar` ou `go.Scatter(stackgroup=...)`
+com 3+ traces empilhados.
+
+### 5.42 Estilo inline sobrescreve CSS global sem `!important`
+
+**Decisão**: Quando uma regra `<h3>`/`<h2>`/etc. global afeta uso
+pontual de tag (ex: `border-bottom: 2px solid #1A1A1A` em todo h3
+do projeto), **não usar `!important` no global**. Permite que estilos
+inline (`<h3 style="border-bottom: none;">`) sobrescrevam pontualmente
+sem precisar duplicar CSS scoped por aba.
+
+**Caso que motivou**: Fase E.10 — caption interna do Despacho Térmico
+(`### Despacho térmico nacional`) puxava linha horizontal do estilo
+global. Era preciso remover só nessa caption, não em outras abas.
+Solução: HTML inline
+`<h3 style="border-bottom: none; padding-bottom: 0;">...</h3>`.
+
+**Por quê funciona sem `!important`**: precedência CSS — estilo inline
+(1000) > seletor de tag (1). Se global usar `!important` (10000),
+inline precisa também usar `!important` pra ganhar (entra em "guerra
+de !importants" desnecessária).
+
+**Quando aplicar**: regras CSS de tags genéricas (h1-h6, p, table)
+onde casos pontuais podem precisar override. CSS scoped via
+`[class*="..."]` ainda usa `!important` quando necessário (Streamlit
+aplica regras posteriores no DOM).
+
+**Trade-off**: usuários ou outras abas podem acidentalmente
+sobrescrever via inline. Aceitável (override é decisão consciente).
+
+### 5.43 Spacer pra cancelar margin global Bauhaus em containers extras
+
+**Decisão**: O título Bauhaus padrão
+(`<div style="border-bottom: 2px solid #1A1A1A; margin: 0 0 -1.5rem 0;">`)
+usa `margin-bottom: -1.5rem` pra puxar o conteúdo seguinte pra cima
+e cancelar o `margin-top: -1.5rem` global dos `date_inputs`. Em abas
+com conteúdo extra entre título e date_inputs (ex: pills de sub-view),
+o cancelamento se quebra. Solução: adicionar
+`<div style="margin-top: 1.5rem;"></div>` antes do bloco que tem
+date_inputs.
+
+**Caso que motivou**: Fase E.13 — Despacho Térmico Eneva com pills
+(Eneva | SIN) entre título e helper `_render_period_controls`.
+Date_inputs sobrepondo o pill SIN (overlap geométrico de 0.5rem).
+
+**Cálculo**:
+- Pills.base = 2.4rem
+- Date_inputs Y = 1.9rem (= 3.4 - 1.5 do margin global)
+- Overlap = 0.5rem
+- Spacer 1.5rem cancela exatamente o `-1.5rem` global → date_inputs
+  voltam a alinhar pela base com presets
+
+**Quando aplicar**: qualquer aba com conteúdo entre título Bauhaus e
+date_inputs/period_controls. Outras 5 abas (PLD, Reservatórios, ENA,
+Geração, Carga) chamam helper direto e não precisam (cancelamento
+natural via Bauhaus).
+
+### 5.44 Dataset ONS horário nativo + `groupby(["data", "hora"])`
+
+**Decisão**: Dataset `geracao_termica_despacho_2_ho` (ONS) é
+**horário nativo**. Loader extrai coluna `hora` (int8, 0-23) via
+`ts.dt.hour`, separada de `data` (normalizada pra 00:00:00).
+Granularidades agregadas (Mensal/Diário/Trimestral) ignoram `hora`
+no groupby. Granularidade Horário usa `groupby(["data", "hora"])` —
+1 grupo por hora-do-dia.
+
+**Caso que motivou**: Fase E.14. Pra adicionar granularidade Horário,
+primeiro instinto seria buscar dataset diferente. Investigação revelou
+que o dataset atual já é horário (sufixo `_ho` na URL ONS).
+
+**Schema do DataFrame retornado por `carregar_termico()`**:
+
+```python
+data         datetime64[ns]   # normalizado pro dia (00:00:00)
+hora         int8             # 0-23
+id_subsistema, nom_subsistema  str
+nom_usina, usina_eneva         str
+val_verifgeracao               float (MWh por hora × usina)
+7× val_verif{motivo}           float
+```
+
+**Reconstrução de instante completo**:
+`data + pd.to_timedelta(hora, unit="h")`.
+
+**Conversão pra MWm em modo Horário**: cada linha = 1 hora →
+`sum(val) = MWh = MWm` (denominador implícito = 1h, sem divisão).
+Em modos agregados, divide por horas_periodo (24 pra Diário, etc).
+
+**Quando aplicar**: qualquer dataset com granularidade nativa fina +
+necessidade de agregar opcionalmente. Padrão: separar `data` (dia)
+de `hora` (int) no schema interno; consumidor escolhe granularidade.
+
+### 5.45 "Checagem de órfãos" ao readicionar feature removida
+
+**Decisão**: Quando uma feature/opção é removida do código,
+**deixar comentário marcador** próximo à remoção, e ANTES de
+readicionar a mesma feature em fase futura, fazer `grep` pelo nome
+da feature em todo o codebase pra detectar **código órfão defensivo**
+que pode interceptar silenciosamente.
+
+**Caso que motivou**: Fase E.14. "Horário" foi removida do selectbox
+na Fase E.1. Migração defensiva foi adicionada nas linhas 3149-3150
+pra mapear state legado:
+`if state["...granularidade"] == "Horário": state[...] = "Mensal"`.
+Na Fase E.14, "Horário" foi readicionada ao selectbox, mas a migração
+defensiva ficou. Resultado: usuário clicava "Horário", state escrevia
+"Horário", próximo render o remap forçava de volta pra "Mensal".
+Bug silencioso descoberto só com print do usuário.
+
+**Trace do bug**:
+1. User clica selectbox → state["granularidade"] = "Horário"
+2. Streamlit rerun
+3. Linha do remap: detecta "Horário" → REMAP pra "Mensal" ⚠
+4. Selectbox renderiza "Mensal" selecionado
+5. Gráfico Mensal renderiza com 12M
+
+**Implementação**: ao remover feature, marcar com comentário tipo:
+
+```python
+# REMAP DEFENSIVO — feature "Horário" removida na Fase E.1.
+# Se readicionar, REMOVER ESTE BLOCO antes ou bug silencioso.
+```
+
+**Quando aplicar**: qualquer remoção de opção de selectbox,
+granularidade, modo, ou estado legado. Especialmente importante
+quando o código defensivo é "silencioso" (não levanta exceção).
+
+### 5.46 Single-day picker em granularidades ultra-finas (1 date_input + sync)
+
+**Decisão**: Em granularidade Horário, mostrar **1 único `date_input`**
+"Data" em vez de 2 (data_inicial + data_final). Pós-render,
+sincronizar `state["data_fim"] = state["data_ini"]` pra que
+filtragem `data >= data_ini & data <= data_fim` pegue exatamente
+1 dia (24 horas).
+
+**Caso que motivou**: Fase E.15. Granularidade Horário com range
+>1 dia produzia 168+ barras (7×24), eixo X bagunçado, hover
+unificado pesado. Single-day picker simplifica UX e elimina
+necessidade de validação ">N dias".
+
+**Implementação**:
+
+```python
+if gran_atual == "Horário":
+    with col_di:
+        st.date_input(
+            "Data",
+            min_value=min_d, max_value=max_d,
+            key="termico_sistema_data_ini",
+            format="DD/MM/YYYY",
+        )
+    # Sincroniza data_fim = data_ini (single-day)
+    st.session_state["termico_sistema_data_fim"] = (
+        st.session_state["termico_sistema_data_ini"]
+    )
+else:
+    # 2 date_inputs como hoje
+    ...
+```
+
+**Por quê escrita simples (não callback `on_change`)**: o widget de
+`data_fim` NÃO é instanciado em modo Horário, portanto a key NÃO está
+bound a widget. Escrita direta em `state["data_fim"]` é OK
+(sem `StreamlitAPIException`).
+
+**Reset block** seta ambas (`data_ini = data_fim = max_d`) na
+transição pra Horário, garantindo estado coerente desde o 1º render.
+
+**Quando aplicar**: qualquer granularidade ultra-fina (horária,
+sub-horária) onde range >1 unidade explode volume de pontos.
+
+### 5.47 Gráfico de área via `Scatter(stackgroup, mode="none", fillcolor)`
+
+**Decisão**: Pra gráfico de **área stackada contínua**, usar
+`go.Scatter` com `stackgroup="grupo"`, `mode="none"`, `fillcolor=cor`.
+Não usar `go.Bar` em granularidades onde os pontos representam medição
+contínua (ex: horária). Manter `go.Bar` em granularidades discretas
+(mensal, trimestral).
+
+**Caso que motivou**: Fase E.15. Despacho Térmico SIN em modo Horário
+com 24+ pontos: `go.Bar` empilhado fica visualmente "serrado" e
+dificulta perceber tendências. Área stackada (Plotly Scatter com fill)
+suaviza visualmente e é o pattern correto pra séries temporais densas.
+
+**Implementação** (render condicional dentro do loop dos motivos):
+
+```python
+for col in MOTIVOS_COLS:
+    cor, label = PALETA[col]
+    if gran_atual == "Horário":
+        fig.add_trace(go.Scatter(
+            x=agg["label"],
+            y=agg[col],
+            name=label,
+            stackgroup="motivos",
+            mode="none",          # sem linha/marker visível
+            fillcolor=cor,
+            hovertemplate=...,
+        ))
+    else:
+        fig.add_trace(go.Bar(
+            x=agg["label"],
+            y=agg[col],
+            name=label,
+            marker_color=cor,
+            hovertemplate=...,
+        ))
+```
+
+`barmode="stack"` no `update_layout` é ignorado por Scatter (só aplica
+a Bar) — sem efeito colateral em modo Horário.
+
+**Trace Total Scatter invisível** (anchor pro hover unified): mantém
+em ambos os modos. Já é Scatter sem stackgroup → fica isolado no plot.
+
+**Quando aplicar**: granularidade horária ou minutária com 24+ pontos.
+Em granularidades discretas (mensal, trimestral), Bar é mais apropriado
+(representa "blocos" temporais distintos).
+
+### 5.48 Checkbox decorativo via `::before` (☐/☑) sobre `st.button`
+
+**Decisão**: Pra UI de "checkbox" com cor controlada Bauhaus, **NÃO
+usar `st.checkbox`** (cor primária `#FF4B4B` rosa, frágil de override
+sem `:has()`). Em vez disso, usar `st.button` com decoração CSS
+`::before` que renderiza `☐` (inativo) ou `☑` (ativo, via
+`button[kind="primary"]::before`).
+
+**Caso que motivou**: Fase E.16. Despacho Térmico Trimestral. Usuário
+pediu visual "checkbox" pros trims (1T/2T/3T/4T). `st.checkbox` tem
+rosa Streamlit difícil de overridar; `:has()` está descartado pela
+decisão 4.1 (trava o app no Streamlit 1.56). Solução: manter
+`st.button` toggle (mesmo comportamento de checkbox) + decoração via
+pseudo-elemento.
+
+**Implementação**:
+
+```css
+[class*="st-key-prefix_btn_"] button[kind]::before {
+    content: "☐";
+    margin-right: 0.3rem;
+    font-weight: 700;
+    font-size: 1rem;
+    line-height: 1;
+}
+[class*="st-key-prefix_btn_"] button[kind="primary"]::before {
+    content: "☑";
+}
+```
+
+**Variação "soltos"** (Fase E.16.1): se quiser remover framing do
+botão (sem borda/background), adicionar override:
+
+```css
+[class*="st-key-prefix_btn_"] button[kind],
+[class*="st-key-prefix_btn_"] button[kind="primary"] {
+    background: transparent !important;
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    color: #1A1A1A !important;
+    font-weight: 400 !important;
+}
+[class*="st-key-prefix_btn_"] button[kind]:hover,
+[class*="st-key-prefix_btn_"] button[kind="primary"]:hover {
+    background: rgba(0, 0, 0, 0.05) !important;
+    background-color: rgba(0, 0, 0, 0.05) !important;
+    color: #1A1A1A !important;
+}
+```
+
+**Trade-off**: tecnicamente é button, não checkbox. Acessibilidade via
+`aria-pressed` do Streamlit garante leitor de tela.
+
+**Quando aplicar**: qualquer UI multi-select com cores controladas
+(Bauhaus ou outro design system) onde `st.checkbox` rosa quebra
+estética.
+
+**Refinamento (Fase H.1 — Ajuste 2):** Pattern revertido em
+Trimestral (Despacho Térmico SIN + Eneva) — `st.button` + ::before
+substituído por `st.checkbox` nativo. Aplicado em ENEVA + SIN.
+
+Razão: a aba PLD já usava `st.checkbox` com workaround anti-rosa
+em CSS GLOBAL desde antes (`app.py:416-450`):
+```css
+[data-testid="stAppViewContainer"] .stCheckbox label > span:first-child {
+    filter: grayscale(1) brightness(0.6) contrast(5) !important;
+}
+```
+A regra é GLOBAL — aplica em TODOS os checkboxes do app, não scoped
+por aba. Quando a Fase H.1 trocou trims pra `st.checkbox`, eles
+herdaram automaticamente o quadradinho preto + tick branco (via
+`filter` que dessatura o rosa pra preto sem detectar estado).
+
+**Implicação prática:** o pattern da decisão 5.48 (st.button +
+::before) só vale agora em UIs com **3+ estados** (não só on/off)
+ou onde `st.checkbox` não cabe estruturalmente. Pra checkbox
+binário simples (case dos trims), `st.checkbox` + filter grayscale
+global é mais limpo (1 widget nativo vs button + CSS dedicado).
+
+**CSS scoped removido** em ambas sub-views: linhas Sistema (~3170-
+3232) e Eneva (~3960-4006) reduzidas a SÓ `_btn_ano_*` (botões ano
+Trimestral, que continuam usando `st.button` por causa da
+necessidade de `type="primary"` pra estado ativo).
+
+**Tipografia diferente:** `.stCheckbox label p` herda do CSS global
+(Inter 0.92rem 600), em vez do botão (0.85rem do CSS scoped antigo).
+Aceito como trade-off pela consistência com PLD.
+
+### 5.49 Helper local pra caption do gráfico (escopo restrito à aba)
+
+**Decisão**: Funções auxiliares específicas de uma aba (ex: caption
+customizado) podem ser definidas **localmente dentro do bloco da aba**,
+não no top-level. Re-criação a cada render tem custo desprezível
+(~5µs por `def`). Trade-off: escopo limpo > micro-otimização.
+
+**Caso que motivou**: Fase E.17.
+`_render_termico_chart_caption(sub_label, gran_label, data_ini,
+data_fim, unidade_label)` é usada apenas no Despacho Térmico
+(sub-views Sistema + Eneva). Definir top-level poluiria namespace
+global e não seria reutilizada por outras 5 abas (que usam pattern
+diferente — `_format_periodo_br` + tag de granularidade da decisão
+5.22).
+
+**Implementação**:
+
+```python
+elif aba == "Despacho Térmico":
+    # ... título, pills, init de state ...
+
+    _ADJETIVOS = {"Mensal": "mensal", ...}
+
+    def _render_chart_caption(sub_label, gran_label, ...):
+        # ... HTML inline com top row + sub-caption ...
+
+    if subview == "Sistema":
+        # ... usa _render_chart_caption ...
+    else:
+        # ... usa _render_chart_caption ...
+```
+
+**Quando aplicar**: helpers usados em apenas 1 aba (não compartilhados).
+Helpers compartilhados (ex: `_render_period_controls`,
+`_format_periodo_br`) ficam top-level.
+
+**Quando NÃO aplicar**: helpers chamados em loops apertados (perf
+crítica) ou usados em 2+ abas.
+
+### 5.50 `xaxis_kwargs` condicional (Plotly tickformat datetime)
+
+**Decisão**: Pra eixos contextuais em Plotly (ex: tick format diferente
+por granularidade), extrair `xaxis_kwargs = dict(...)` como variável
+e adicionar keys condicionalmente antes de passar pro `update_layout`.
+Evita duplicação de `update_layout` calls e mantém keys default
+(paletas, ticks, fontes) inalteradas.
+
+**Caso que motivou**: Fase E.14.1. Em modo Horário, eixo X precisa de
+`tickformat="%H:00"` (curto) e hover precisa de
+`hoverformat="%d/%m/%Y %H:00"` (rico). Outros modos usam `x=string`
+(categorical implícito) e não precisam de format.
+
+**Implementação**:
+
+```python
+xaxis_kwargs = dict(
+    title=None, showgrid=False, showline=True,
+    linewidth=2, linecolor=BAUHAUS_BLACK,
+    ticks="outside", tickcolor=BAUHAUS_BLACK,
+    tickfont=dict(family="Inter, sans-serif", size=12, color=BAUHAUS_BLACK),
+)
+if gran_atual == "Horário":
+    xaxis_kwargs["tickformat"] = "%H:00"
+    xaxis_kwargs["hoverformat"] = "%d/%m/%Y %H:00"
+
+fig.update_layout(
+    barmode="stack",
+    ...
+    xaxis=xaxis_kwargs,
+    yaxis=dict(...),
+)
+```
+
+**Pré-requisito**: em modo Horário, `agg["label"]` deve ser
+**datetime nativo** (não string formatada). Plotly aplica `tickformat`
+apenas em datetime; em string, ignora silenciosamente.
+
+**Quando aplicar**: qualquer gráfico Plotly onde o formato do eixo
+varia por contexto (granularidade, modo, etc.). Pattern aplicável
+também a `yaxis_kwargs`, `legend_kwargs`.
+
+### 5.51 H.8.B redefinida — escopo de "alinhamento bot ano" (não "movimentação MWM/GWH")
+
+**Decisão**: A Fase H.8.B foi redefinida durante a sessão 2026-05-06. Escopo original (mover MWM/GWH em Eneva Trimestral pra row 2) substituído por escopo realizado (alinhar botões de ano e checkboxes em Eneva e Sistema Trimestral com selectbox Granularidade via cols_anos calibrado). Movimentação de MWM/GWH em Eneva Trimestral fica em backlog futuro (sem fase numerada definida).
+
+**Caso que motivou**: Fase H.8.A. Após calibrar Eneva Mensal (MWM/GWH em row 2 alinhado com selectbox Usina), os ajustes de cols_anos no Eneva e Sistema Trimestral atingiram nível visual satisfatório sem necessidade de mover MWM/GWH em Trimestral. Decisão funcional: MWM/GWH no Eneva Trimestral permanece em col_meio porque (1) row 2 do Trimestral já é densa com 6 botões de ano + 4 checkboxes de trim, (2) MWM/GWH ao lado de Usina é UX aceitável, (3) movimento adiciona complexidade sem ganho proporcional.
+
+**Implementação**: Margin-top -3.5rem do grupo `eneva_trimestral_row2` no CSS H.7.B-bis deixa de ser "temporário" (como descrito no commit `3c5257b`) e passa a ser **solução final**. Comentário inline no CSS deve ser atualizado em sessão futura pra remover a linguagem "recalibrar na H.8.B".
+
+**Trade-off**: Ganha-se simplicidade (não há retrabalho de movimentação + recalibração margin-top) e velocidade de fechamento de fase. Perde-se uniformidade visual (Eneva Mensal tem MWM/GWH em row 2, Eneva Trimestral mantém em col_meio). Trade-off aceito porque as 2 sub-views são contextualmente diferentes (Mensal tem 2 botões de período presets, Trimestral tem 6 anos + 4 trims).
+
+**Quando aplicar**: Quando uma fase futura for revisitar o Eneva Trimestral, lembrar que MWM/GWH ali está em col_meio por decisão e não por pendência.
+
+**Quando NÃO aplica**: Não aplicável a outras sub-views — Eneva Mensal já tem MWM/GWH em row 2 (commit `3c5257b`), e SIN não tem MWM/GWH (toggle exclusivo do Eneva).
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
@@ -2608,6 +3196,64 @@ baseadas no relatório.
     **Sessão 4b futura** cobre Vizs 3 e 4 do escopo original
     (Comparação histórica + Curva de carga tipo).
 
+25. **Sessão Despacho Térmico SIN — Layout C completo (Fases E.1 a
+    E.17)** — maio/2026. Refactor completo da sub-view Sistema do
+    Despacho Térmico, elevando-a a referência de UX e arquitetura pra
+    próxima Fase D (replicação na sub-view Eneva).
+    **Sub-fases (17):**
+    - E.1: Layout C — selectbox de granularidade
+      (Mensal/Diário/Trimestral)
+    - E.2: Polimento — CSS scoped, 30 dias móveis no Diário
+    - E.3: KPIs acompanhando toggle MWm/GWh + modo Trimestral
+    - E.4: Filtro de anos (2022..2026) com 5 botões toggle
+    - E.5: LTM + modo "ano completo" via inferência (bug fix cond_a
+      state cleanup com disabled=True)
+    - E.6: Identidade visual SIN+Eneva diferenciada (sem KPIs no SIN,
+      sem toggle MWm/GWh no SIN)
+    - E.7: Polimento final — formato BR DD/MM/YYYY, presets reduzidos
+      a 12M/Máx no Mensal, validação >30 dias no Diário,
+      traceorder="normal"
+    - E.8: LTM trimestral = 4 trims (decisão 5.38)
+    - E.9: Interface temporal contextual single↔multi-select
+      (decisão 5.40)
+    - E.10: Polimento visual SIN+Eneva (J3 trims compactos, J4 layout
+      cols_p)
+    - E.11: Título dinâmico (sub-view determina h1 da aba)
+    - E.12: Fix KeyError state cleanup com .get(default) defensivo
+      (refinamento da decisão 5.16)
+    - E.13: Spacer pra cancelar margin global Bauhaus (decisão 5.43)
+    - E.14: Granularidade Horário com groupby(["data", "hora"])
+      (decisão 5.44)
+    - E.14.1: Eixo X "HH:00" + hover rico "DD/MM/YYYY HH:00"
+      (decisão 5.50)
+    - E.15: Single-day picker + área stackada em Horário
+      (decisões 5.46 + 5.47)
+    - E.16: Checkbox decorativo nos trimestres (decisão 5.48)
+    - E.16.1: Trims "soltos" (sem framing)
+    - E.17: Títulos sem unidade + caption do gráfico no novo formato
+      (top row Bebas Neue + sub-caption Inter italic, decisão 5.49)
+
+    **Resultado final:** 4 granularidades funcionais
+    (Mensal/Diário/Horário/Trimestral), identidade visual paralela
+    SIN ↔ Eneva, interface temporal contextual (modos ano_completo /
+    histórico), caption no formato Bauhaus (top row + sub-caption
+    italic), helper `_render_termico_chart_caption` reaproveitável.
+
+    **Bugs descobertos e corrigidos:** cond_a state cleanup (E.5),
+    traceorder reverso em stacked bar (E.7), KeyError em transição
+    entre sub-views (E.12), remap órfão de "Horário" interceptando
+    seleção (E.14, decisão 5.45), overlap visual pills ×
+    period_controls (E.13, decisão 5.43).
+
+    **Arquivos principais:** `app.py` (bloco
+    `elif aba == "Despacho Térmico":`, linhas ~2950-4170),
+    `data_loaders/data_loader_termico.py` (intacto, dataset já
+    horário), `docs/termico_research.md` (research da Fase A).
+
+    **Próxima fase:** Fase D (Eneva replica Layout C com 4
+    granularidades + checkbox + caption + lógica E.9, mantendo
+    selectbox de Usina e toggle MWm/GWh).
+
 ---
 
 ## 8. Referências Cruzadas
@@ -2641,3 +3287,8 @@ baseadas no relatório.
 - **`config.yaml.example`** — template de configuração de auth.
 - **`.streamlit/config.toml`** — tema Streamlit.
 - **`README.md`** — setup local + deploy.
+- **`data_loaders/data_loader_termico.py`** — loader dataset
+  `geracao_termica_despacho_2_ho` (ONS), schema horário nativo com
+  coluna `hora` int8 (decisão 5.44).
+- **`docs/termico_research.md`** — pesquisa Fase A (schema, URL pattern,
+  smoke tests, USINAS_COBERTURA).
