@@ -451,18 +451,35 @@ st.markdown(
         top: 3px;
     }}
 
-    /* ===== Fase H.7.B-bis — Gap reduzido row Granularidade → row 2 ===== */
+    /* ===== Fase H.7.B-bis (calibrado H.8.A) — Gap reduzido row
+       Granularidade → row 2 ===== */
     /* Estratégia idiomática Streamlit 1.36+: row 2 envolvida em
        st.container(key="...row2") que gera classe st-key-* no DOM.
        Margin-top negativo aplicado direto na classe, sem :has() (decisão 4.1)
        e sem sibling-selector (não funciona pq st.markdown fica enterrado
        em stElementContainer — ver diagnóstico DOM da Fase H.7.B).
-       Valor -2.5rem calibrado empiricamente — ajustar se ficar agressivo. */
+
+       Calibração H.8.A: separação em 3 grupos por necessidade visual:
+       - Mensal (Eneva + Sistema): 0rem (col_meio sem MWM/GWH ficou
+         mais baixo, gap natural OK)
+       - Eneva Trimestral: -3.5rem (subir bot ano pra alinhar com MWM/GWH
+         ainda em col_meio — recalibrar na H.8.B)
+       - Sistema Trimestral: 0rem (SIN não tem MWM/GWH em col_meio,
+         -3.5rem sobrepunha no selectbox Granularidade) */
+    /* Mensal: gap natural (col_meio agora só tem Usina, ficou mais baixo) */
     [class*="st-key-termico_eneva_mensal_row2"],
-    [class*="st-key-termico_eneva_trimestral_row2"],
-    [class*="st-key-termico_sistema_mensal_row2"],
+    [class*="st-key-termico_sistema_mensal_row2"] {{
+        margin-top: 0rem !important;
+    }}
+    /* Eneva Trimestral: subir bot ano pra alinhar com MWM/GWH em col_meio
+       (recalibrar na H.8.B quando MWM/GWH descer pra row 2) */
+    [class*="st-key-termico_eneva_trimestral_row2"] {{
+        margin-top: -3.5rem !important;
+    }}
+    /* Sistema Trimestral: gap natural — SIN não tem MWM/GWH em col_meio,
+       row 1 mais baixa, então -3.5rem sobrepõe */
     [class*="st-key-termico_sistema_trimestral_row2"] {{
-        margin-top: -2.5rem !important;
+        margin-top: 0rem !important;
     }}
 
     /* Botões "primary" do Streamlit (atalhos de período ativos em PLD e
@@ -3189,65 +3206,19 @@ elif aba == "Despacho Térmico":
             [class*="st-key-termico_sistema_data_"] [data-testid="stDateInput"] {
                 margin-top: 0 !important;
             }
-            /* Botões de ano + trim em Trimestral (Fase E.4.2 / restaurado
-               na Fase H.4 — C1 ao reverter st.checkbox → st.button +
-               ::before): compactos sem quebra de linha. [kind] empata
-               especificidade com .stButton button[kind] do CSS global pra
-               que !important desta regra (mais nova no DOM) sobrescreva. */
-            [class*="st-key-termico_sistema_btn_ano_"] button[kind],
-            [class*="st-key-termico_sistema_btn_t_"] button[kind] {
+            /* Botões de ano em Trimestral: compactos sem quebra de linha.
+               [kind] empata especificidade com .stButton button[kind] do
+               CSS global. Regras `_btn_t_` removidas na Fase H.7.D ao
+               migrar trims pra st.checkbox nativo (decisão 5.48 reaplicada
+               após identificar interferência do CSS scoped residual no
+               bug do tick branco da H.4 — C1). Espelho da H.7.C aplicada
+               no Eneva. */
+            [class*="st-key-termico_sistema_btn_ano_"] button[kind] {
                 white-space: nowrap !important;
                 padding-left: 0.25rem !important;
                 padding-right: 0.25rem !important;
                 font-size: 0.85rem !important;
                 min-width: 0 !important;
-            }
-            /* Decoração checkbox ☐/☑ ANTES do label (Fase E.16 / decisão
-               5.48 restaurada pela Fase H.4 — C1). Glyph branco quando
-               kind="primary" via herança de color do parent. */
-            [class*="st-key-termico_sistema_btn_t_"] button[kind]::before {
-                content: "☐";
-                margin-right: 0.3rem;
-                font-weight: 700;
-                font-size: 1rem;
-                line-height: 1;
-            }
-            [class*="st-key-termico_sistema_btn_t_"] button[kind="primary"]::before {
-                content: "☑";
-            }
-            /* Trim INATIVO (kind="") — soltos transparent. */
-            [class*="st-key-termico_sistema_btn_t_"] button[kind] {
-                background: transparent !important;
-                background-color: transparent !important;
-                border: none !important;
-                box-shadow: none !important;
-                color: #1A1A1A !important;
-                font-weight: 400 !important;
-            }
-            /* Trim ATIVO (kind="primary") — fundo preto + texto branco
-               (Fase H.6 — A: revertida H5.C que invertia cores). Visual
-               desejado conforme print do PLD = caixa preenchimento preto
-               + tick branco. Glyph ☑ herda color do parent → vira branco
-               automaticamente. */
-            [class*="st-key-termico_sistema_btn_t_"] button[kind="primary"] {
-                background: #1A1A1A !important;
-                background-color: #1A1A1A !important;
-                border: none !important;
-                box-shadow: none !important;
-                color: #FFFFFF !important;
-                font-weight: 400 !important;
-            }
-            /* Hover INATIVO — escurece levemente o transparent. */
-            [class*="st-key-termico_sistema_btn_t_"] button[kind]:hover {
-                background: rgba(0, 0, 0, 0.05) !important;
-                background-color: rgba(0, 0, 0, 0.05) !important;
-                color: #1A1A1A !important;
-            }
-            /* Hover ATIVO — clareia levemente o preto, mantém texto branco. */
-            [class*="st-key-termico_sistema_btn_t_"] button[kind="primary"]:hover {
-                background: #2A2A2A !important;
-                background-color: #2A2A2A !important;
-                color: #FFFFFF !important;
             }
             /* Botões de ano "colados" — sobreposição sutil de 1px cria
                aparência de segmento contínuo (Fase H — Item 4).
@@ -3402,13 +3373,22 @@ elif aba == "Despacho Térmico":
             # Row 2 envolvida em st.container(key=) pra CSS targeting
             # do gap (Fase H.7.B-bis). Classe `st-key-...row2` no DOM.
             with st.container(key="termico_sistema_trimestral_row2"):
-                # Layout 6 botões iguais + spacer (Fase E.5).
-                cols_anos = st.columns([0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 6.4])
+                # Layout 8 cols: [0.1 spacer inicial] + 6 botões (5 anos +
+                # LTM, proporção 0.55 cada = 3.3 total) + spacer 6.6.
+                # Spacer inicial empurra botões pra direita pra alinhar
+                # com selectbox Granularidade acima. Proporção 0.55 (vs
+                # 0.5 anterior) compensa gaps internos do st.columns
+                # pra LTM terminar visualmente no fim do selectbox
+                # Granularidade (calibrado H.8.A).
+                # Índices: cols_anos[0]=spacer, [1]=2022 ... [5]=2026,
+                # [6]=LTM, [7]=spacer final.
+                # Fase E.5 original.
+                cols_anos = st.columns([0.1, 0.55, 0.55, 0.55, 0.55, 0.55, 0.55, 6.6])
                 for i, ano in enumerate(anos_disponiveis):
                     if i >= 5:
                         break  # defesa: layout suporta até 5 anos
                     ativo_ano = ano in anos_marcados
-                    with cols_anos[i]:
+                    with cols_anos[i + 1]:
                         if st.button(
                             str(ano),
                             use_container_width=True,
@@ -3442,7 +3422,7 @@ elif aba == "Despacho Térmico":
                 #   - ano_completo: single-select; LTM ativo é no-op (força mantém);
                 #     LTM inativo substitui ano selecionado.
                 #   - historico: toggle independente.
-                with cols_anos[5]:
+                with cols_anos[6]:
                     if st.button(
                         "LTM",
                         use_container_width=True,
@@ -3462,61 +3442,91 @@ elif aba == "Despacho Térmico":
                             st.session_state["termico_sistema_ltm_marcado"] = not ltm_marcado
                             st.rerun()
 
-                # Botões trimestrais 1T/2T/3T/4T — renderizados ABAIXO dos botões
-                # de ano (Fase E.5 / passo P2). Multi-select com transições
-                # ano_completo ↔ historico (Fase E.9).
-                presets_t = [
-                    (1, "1T"),
-                    (2, "2T"),
-                    (3, "3T"),
-                    (4, "4T"),
-                ]
+                # H.7.D: trims migrados pra st.checkbox nativo (key prefix
+                # `_chk_t_`). Visual herdado do filter grayscale global
+                # (preto + tick branco). Lógica idêntica à H.7.C do Eneva
+                # (arquitetura render-todos → coleta → decide), com
+                # substituição eneva → sistema. Variável de state:
+                # `termico_sistema_trimestres_marcados` (note: "trimestres",
+                # não "trims" — herança histórica do nome no SIN).
+                #
+                # UX preservada (decisão 5.40 + ativo_visual):
+                # - LTM puro (trims=[]): 4 checkboxes aparecem MARCADOS
+                #   visualmente, mas filter ignora e usa só anos+LTM.
+                # - Click pra desmarcar 1 trim em LTM puro → entra em
+                #   modo histórico com os 3 restantes + todos anos.
+                # - Click em modo histórico → toggle multi-select normal.
+                # - Desmarcar último trim → força LTM puro.
+                #
+                # Reset session_state em transições: Streamlit "prende"
+                # estado interno do checkbox após primeiro click, ignorando
+                # `value=`. `del` antes de `st.rerun()` força re-render
+                # respeitar value novo.
+                presets_t = [(1, "1T"), (2, "2T"), (3, "3T"), (4, "4T")]
                 cols_p = st.columns([1, 1, 1, 1, 6])
+
+                # Snapshot pré-render
+                trims_anteriores_real = list(trims_marcados)
+                em_ltm_puro_antes = not trims_anteriores_real
+
+                # Render checkboxes + coleta estado pós-render
+                estado_visual_pos = []
                 for i, (num, label) in enumerate(presets_t):
-                    ativo = num in trims_marcados
-                    # Fase H.4 — C2: em LTM puro (trims_marcados vazio), todos os
-                    # 4 trims renderizam visualmente marcados (type="primary").
-                    # Filter ignora trims_marcados=[] (continua usando só anos+LTM).
-                    # Lógica de toggle abaixo continua baseada em `ativo` real.
-                    ativo_visual = ativo or (not trims_marcados)
-
-                    if modo_trim == "ano_completo":
-                        help_txt = f"Comparar {label} cross-anos"
-                    elif ativo:
-                        help_txt = f"Click pra desmarcar {label}"
-                    else:
-                        help_txt = f"Adicionar {label} à comparação"
-
-                    # Fase H.4 — C1: revertido st.checkbox → st.button + ::before
-                    # (decisão 5.48 restaurada). Tick branco do checkbox global
-                    # PLD não estava aparecendo nos trims aninhados em Trimestral.
+                    ativo_real = num in trims_marcados
+                    ativo_visual = ativo_real or em_ltm_puro_antes
                     with cols_p[i]:
-                        if st.button(
+                        marcado = st.checkbox(
                             label,
-                            use_container_width=True,
-                            key=f"termico_sistema_btn_t_{label}",
-                            type="primary" if ativo_visual else "secondary",
-                            help=help_txt,
-                        ):
-                            if modo_trim == "ano_completo":
-                                # Transição → historico: marca TODOS anos disponíveis
-                                st.session_state["termico_sistema_trimestres_marcados"] = [num]
-                                st.session_state["termico_sistema_anos_comparacao"] = sorted(anos_disponiveis)
-                                # LTM mantém estado anterior
-                            else:  # historico — multi-select
-                                if ativo:
-                                    novos_trims = [t for t in trims_marcados if t != num]
-                                    st.session_state["termico_sistema_trimestres_marcados"] = novos_trims
-                                    if not novos_trims:
-                                        # Transição reverso historico → ano_completo:
-                                        # força default LTM puro
-                                        st.session_state["termico_sistema_anos_comparacao"] = []
-                                        st.session_state["termico_sistema_ltm_marcado"] = True
-                                else:
-                                    st.session_state["termico_sistema_trimestres_marcados"] = sorted(
-                                        trims_marcados + [num]
-                                    )
-                            st.rerun()
+                            value=ativo_visual,
+                            key=f"termico_sistema_chk_t_{label}",
+                        )
+                        estado_visual_pos.append(marcado)
+
+                # Calcula trims_real_pos baseado no contexto
+                if em_ltm_puro_antes:
+                    if all(estado_visual_pos):
+                        # Permanece LTM puro
+                        trims_real_pos = []
+                    else:
+                        # Transição LTM puro → histórico
+                        trims_real_pos = [
+                            num for (num, _), m in zip(presets_t, estado_visual_pos) if m
+                        ]
+                else:
+                    # Em histórico: estado visual = estado real
+                    trims_real_pos = [
+                        num for (num, _), m in zip(presets_t, estado_visual_pos) if m
+                    ]
+
+                # Detecta mudança e aplica transições da decisão 5.40
+                if trims_real_pos != trims_anteriores_real:
+                    if em_ltm_puro_antes and trims_real_pos:
+                        # LTM puro → histórico: marca TODOS anos
+                        st.session_state["termico_sistema_trimestres_marcados"] = trims_real_pos
+                        st.session_state["termico_sistema_anos_comparacao"] = sorted(anos_disponiveis)
+                        # Reset state dos checkboxes pra próxima render
+                        # respeitar value= novo (não preserva ativo_visual)
+                        for _, lbl in presets_t:
+                            key_chk = f"termico_sistema_chk_t_{lbl}"
+                            if key_chk in st.session_state:
+                                del st.session_state[key_chk]
+                        st.rerun()
+                    elif trims_anteriores_real and not trims_real_pos:
+                        # Histórico → ano_completo: limpa anos, força LTM puro
+                        st.session_state["termico_sistema_trimestres_marcados"] = []
+                        st.session_state["termico_sistema_anos_comparacao"] = []
+                        st.session_state["termico_sistema_ltm_marcado"] = True
+                        # Reset state dos checkboxes pra próxima render
+                        # mostrar todos marcados (LTM puro = ativo_visual=True)
+                        for _, lbl in presets_t:
+                            key_chk = f"termico_sistema_chk_t_{lbl}"
+                            if key_chk in st.session_state:
+                                del st.session_state[key_chk]
+                        st.rerun()
+                    else:
+                        # Multi-select dentro de histórico (sem transição de modo)
+                        st.session_state["termico_sistema_trimestres_marcados"] = sorted(trims_real_pos)
+                        st.rerun()
 
                 # Edge case "tudo desmarcado" (Fase E.5): nem anos individuais
                 # nem LTM — reset automático pro default LTM. Garante que sempre
@@ -4146,26 +4156,35 @@ elif aba == "Despacho Térmico":
                     USINAS_TODAS,
                     key="termico_eneva_usina",
                 )
-                _unid = st.session_state["termico_eneva_unidade"]
-                col_mwm, col_gwh = st.columns([1, 1])
-                with col_mwm:
-                    if st.button(
-                        "MWM",
-                        key="termico_eneva_btn_mwm",
-                        type="primary" if _unid == "MWm" else "secondary",
-                        use_container_width=True,
-                    ):
-                        st.session_state["termico_eneva_unidade"] = "MWm"
-                        st.rerun()
-                with col_gwh:
-                    if st.button(
-                        "GWH",
-                        key="termico_eneva_btn_gwh",
-                        type="primary" if _unid == "GWh" else "secondary",
-                        use_container_width=True,
-                    ):
-                        st.session_state["termico_eneva_unidade"] = "GWh"
-                        st.rerun()
+                # Toggle MWM/GWH na row 1 — renderizado APENAS em
+                # Diário/Horário/Trimestral (Fase H.8.A). Em Mensal,
+                # toggle vai pra row 2 ao lado de 12M/Máx (alinha
+                # melhor visualmente). Em Trimestral, fica aqui
+                # temporariamente até H.8.B mover pra sub-linha dos
+                # anos. Keys idênticas às do Edit 2 — branches mutuamente
+                # exclusivos via `if gran_atual` garantem que só uma
+                # render acontece por vez.
+                if gran_atual in ["Diário", "Horário", "Trimestral"]:
+                    _unid = st.session_state["termico_eneva_unidade"]
+                    col_mwm, col_gwh = st.columns([1, 1])
+                    with col_mwm:
+                        if st.button(
+                            "MWM",
+                            key="termico_eneva_btn_mwm",
+                            type="primary" if _unid == "MWm" else "secondary",
+                            use_container_width=True,
+                        ):
+                            st.session_state["termico_eneva_unidade"] = "MWm"
+                            st.rerun()
+                    with col_gwh:
+                        if st.button(
+                            "GWH",
+                            key="termico_eneva_btn_gwh",
+                            type="primary" if _unid == "GWh" else "secondary",
+                            use_container_width=True,
+                        ):
+                            st.session_state["termico_eneva_unidade"] = "GWh"
+                            st.rerun()
         unidade = st.session_state["termico_eneva_unidade"]
 
         # Reset block (decisão 5.16/5.20 — Layout C, Fase D.1).
@@ -4241,7 +4260,19 @@ elif aba == "Despacho Térmico":
             # Row 2 envolvida em st.container(key=) pra CSS targeting
             # do gap (Fase H.7.B-bis). Classe `st-key-...row2` no DOM.
             with st.container(key="termico_eneva_mensal_row2"):
-                cols_p = st.columns([1, 1, 8])
+                # Proporções [0.6, 0.6, 2.9, 1.155, 1.155, 3.59] alinham
+                # com row 1 do Eneva [3.6, 3.4, 1.5, 1.5] (total 10):
+                # - cols_p[0:2] (0.6+0.6=1.2): 12M/Máx ocupam 0-12%
+                #   (compactos no início do col_g)
+                # - cols_p[2] (2.9): spacer1 cobre 12-41%
+                # - cols_p[3:5] (1.155+1.155=2.31): MWM/GWH ocupam 41-64.1%
+                #   (calibrado iterativamente via medição JS:
+                #    1.2 → diff dir -10px (transbordo)
+                #    1.18 → diff dir -5px
+                #    1.155 → diff dir ≈ 0px (alinhamento exato com
+                #    selectbox Usina acima))
+                # - cols_p[5] (3.59): spacer2 cobre 64.1-100%
+                cols_p = st.columns([0.6, 0.6, 2.9, 1.155, 1.155, 3.59])
                 presets_mensal = [
                     ("12M", 365, False),
                     ("Máx", None, True),
@@ -4263,6 +4294,31 @@ elif aba == "Despacho Térmico":
                                 )
                             st.session_state["termico_eneva_data_fim"] = max_d
                             st.rerun()
+
+                # Toggle MWM/GWH na row 2 (Fase H.8.A) — embaixo do
+                # selectbox Usina, alinhado com 12M/Máx. Mesmos handlers
+                # do toggle original (col_meio). Keys idênticas — branches
+                # mutuamente exclusivos via `if gran_atual` no col_meio
+                # garantem que só uma render acontece por vez.
+                _unid = st.session_state["termico_eneva_unidade"]
+                with cols_p[3]:
+                    if st.button(
+                        "MWM",
+                        key="termico_eneva_btn_mwm",
+                        type="primary" if _unid == "MWm" else "secondary",
+                        use_container_width=True,
+                    ):
+                        st.session_state["termico_eneva_unidade"] = "MWm"
+                        st.rerun()
+                with cols_p[4]:
+                    if st.button(
+                        "GWH",
+                        key="termico_eneva_btn_gwh",
+                        type="primary" if _unid == "GWh" else "secondary",
+                        use_container_width=True,
+                    ):
+                        st.session_state["termico_eneva_unidade"] = "GWh"
+                        st.rerun()
         elif gran_atual == "Trimestral":
             # Botões ano + LTM + trims (decisão 5.40 — interface temporal
             # contextual single↔multi-select). Replica do Sistema linhas
@@ -4276,13 +4332,21 @@ elif aba == "Despacho Térmico":
             # Row 2 envolvida em st.container(key=) pra CSS targeting
             # do gap (Fase H.7.B-bis). Classe `st-key-...row2` no DOM.
             with st.container(key="termico_eneva_trimestral_row2"):
-                # Layout 6 botões iguais + spacer (5 anos + LTM)
-                cols_anos = st.columns([0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 6.4])
+                # Layout 8 cols: [0.1 spacer inicial] + 6 botões (5 anos +
+                # LTM, proporção 0.55 cada = 3.3 total) + spacer 6.6.
+                # Spacer inicial empurra botões pra direita pra alinhar
+                # com selectbox Granularidade acima. Proporção 0.55 (vs
+                # 0.5 anterior) compensa gaps internos do st.columns
+                # pra LTM terminar visualmente no fim do selectbox
+                # Granularidade (calibrado H.8.A).
+                # Índices: cols_anos[0]=spacer, [1]=2022 ... [5]=2026,
+                # [6]=LTM, [7]=spacer final.
+                cols_anos = st.columns([0.1, 0.55, 0.55, 0.55, 0.55, 0.55, 0.55, 6.6])
                 for i, ano in enumerate(anos_disponiveis):
                     if i >= 5:
                         break  # defesa: layout suporta até 5 anos
                     ativo_ano = ano in anos_marcados
-                    with cols_anos[i]:
+                    with cols_anos[i + 1]:
                         if st.button(
                             str(ano),
                             use_container_width=True,
@@ -4316,7 +4380,7 @@ elif aba == "Despacho Térmico":
                 #   - ano_completo: single-select; LTM ativo é no-op (força mantém);
                 #     LTM inativo substitui ano selecionado.
                 #   - historico: toggle independente.
-                with cols_anos[5]:
+                with cols_anos[6]:
                     if st.button(
                         "LTM",
                         use_container_width=True,
