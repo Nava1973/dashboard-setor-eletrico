@@ -4256,6 +4256,109 @@ elif aba == "Despacho Térmico":
 
             st.plotly_chart(fig_sis, use_container_width=True, config={"displaylogo": False})
 
+            # === Drill-down (Fase Drill.2.B) ===
+            # Aparece apenas em modo Mensal: 2 graficos lado-a-lado
+            # mostrando Diario do mes selecionado e Horario do dia
+            # selecionado. Sem clique ainda — defaults via state
+            # (termico_sistema_drill_mes/dia) inicializados em
+            # Drill.2.A.
+            if gran_atual == "Mensal":
+                _drill_mes = st.session_state["termico_sistema_drill_mes"]
+                _drill_dia = st.session_state["termico_sistema_drill_dia"]
+
+                # Filtros isolados (nao usam mask_periodo_sis):
+                _df_drill_diario = _filtrar_termico_por_mes(df_term, _drill_mes)
+                _df_drill_horario = _filtrar_termico_por_dia(df_term, _drill_dia)
+
+                _col_drill_dia, _col_drill_hora = st.columns(2)
+
+                # === Drill DIARIO (esquerda) ===
+                with _col_drill_dia:
+                    if _df_drill_diario.empty:
+                        st.info(
+                            f"Sem dados para {_drill_mes.strftime('%m/%Y')}."
+                        )
+                    else:
+                        _agg_dia, _suf_dia, _fmt_dia = _agregar_termico_sistema(
+                            df_filt=_df_drill_diario,
+                            modo="Diário",
+                            unidade=unidade_sis,
+                        )
+                        _mes_label = (
+                            f"{_MESES_BR[_drill_mes.month]}/"
+                            f"{str(_drill_mes.year)[2:]}"
+                        ).upper()
+                        # primeiro e ultimo dia do mes pra range no caption
+                        _ultimo_dia_mes = _drill_dia  # placeholder ate Drill.2.C
+                        # Recalcular ultimo_dia do mes selecionado:
+                        import calendar as _cal
+                        _last_day = _cal.monthrange(
+                            _drill_mes.year, _drill_mes.month
+                        )[1]
+                        from datetime import date as _date
+                        _data_ini_dia = _date(
+                            _drill_mes.year, _drill_mes.month, 1
+                        )
+                        _data_fim_dia = _date(
+                            _drill_mes.year, _drill_mes.month, _last_day
+                        )
+                        _render_termico_chart_caption(
+                            sub_label=f"DRILL DIÁRIO · {_mes_label}",
+                            gran_label="Diário",
+                            data_ini=_data_ini_dia,
+                            data_fim=_data_fim_dia,
+                            unidade_label="MWmed",
+                            estilo_curtailment=True,
+                        )
+                        _fig_dia = _construir_figura_termico_sin(
+                            agg=_agg_dia,
+                            gran_label="Diário",
+                            sufixo_unidade=_suf_dia,
+                            fmt_hover=_fmt_dia,
+                            paleta=PALETA_MOTIVOS_SIS,
+                            height=450,
+                        )
+                        st.plotly_chart(
+                            _fig_dia,
+                            use_container_width=True,
+                            config={"displaylogo": False},
+                        )
+
+                # === Drill HORARIO (direita) ===
+                with _col_drill_hora:
+                    if _df_drill_horario.empty:
+                        st.info(
+                            f"Sem dados para {_drill_dia.strftime('%d/%m/%Y')}."
+                        )
+                    else:
+                        _agg_hora, _suf_hora, _fmt_hora = _agregar_termico_sistema(
+                            df_filt=_df_drill_horario,
+                            modo="Horário",
+                            unidade=unidade_sis,
+                        )
+                        _dia_label = _drill_dia.strftime("%d/%m/%Y")
+                        _render_termico_chart_caption(
+                            sub_label=f"DRILL HORÁRIO · {_dia_label}",
+                            gran_label="Horário",
+                            data_ini=_drill_dia,
+                            data_fim=_drill_dia,
+                            unidade_label="MWmed",
+                            estilo_curtailment=True,
+                        )
+                        _fig_hora = _construir_figura_termico_sin(
+                            agg=_agg_hora,
+                            gran_label="Horário",
+                            sufixo_unidade=_suf_hora,
+                            fmt_hover=_fmt_hora,
+                            paleta=PALETA_MOTIVOS_SIS,
+                            height=450,
+                        )
+                        st.plotly_chart(
+                            _fig_hora,
+                            use_container_width=True,
+                            config={"displaylogo": False},
+                        )
+
         # Caption "Histórico em cache" — footnote pós-gráfico (Fase H.2 —
         # Ajuste 4). Indentado 8 espaços (nível subview Sistema), FORA
         # do else do empty pra sempre renderizar (mesmo quando gráfico
