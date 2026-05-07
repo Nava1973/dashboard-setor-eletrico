@@ -16,6 +16,7 @@ from pathlib import Path
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+from streamlit_plotly_events import plotly_events
 from datetime import timedelta
 
 from auth import require_login, logout_button
@@ -579,6 +580,46 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# Workaround: tema dark do Streamlit injeta --background-color: #0a0d10
+# DENTRO do iframe da streamlit-plotly-events, pintando o body interno
+# de preto. CSS injection externo nao atravessa iframe (cross-document).
+# JS injection via components.html acessa window.parent.document, encontra
+# iframes da lib (allow-same-origin), e injeta <style> dentro de cada um
+# overrideando --background-color pra cream Bauhaus.
+import streamlit.components.v1 as components
+
+components.html("""
+<script>
+function fixPlotlyEventsBg() {
+    try {
+        const iframes = window.parent.document.querySelectorAll(
+            'iframe[title*="streamlit_plotly_events"]'
+        );
+        iframes.forEach(iframe => {
+            const innerDoc = iframe.contentDocument || iframe.contentWindow.document;
+            if (!innerDoc) return;
+            // Skip se ja injetamos
+            if (innerDoc.getElementById('bauhaus-bg-override')) return;
+            // Injeta style override
+            const style = innerDoc.createElement('style');
+            style.id = 'bauhaus-bg-override';
+            style.textContent = `
+                :root { --background-color: #F5F1E8 !important; }
+                body { background-color: #F5F1E8 !important; }
+                html { background-color: #F5F1E8 !important; }
+            `;
+            innerDoc.head.appendChild(style);
+        });
+    } catch(e) {
+        console.warn('Plotly events bg fix blocked:', e);
+    }
+}
+// Roda imediatamente + polling pra capturar reruns do plotly_events
+fixPlotlyEventsBg();
+setInterval(fixPlotlyEventsBg, 500);
+</script>
+""", height=0)
 
 # =============================================================================
 # AUTENTICAÇÃO
@@ -3558,7 +3599,7 @@ elif aba == "Despacho Térmico":
         fig.update_layout(
             barmode="stack",
             height=height,
-            margin=dict(l=20, r=20, t=10, b=20),
+            margin=dict(l=40, r=40, t=30, b=60),
             paper_bgcolor=BAUHAUS_CREAM,
             plot_bgcolor=BAUHAUS_CREAM,
             separators=",.",
@@ -4251,10 +4292,43 @@ elif aba == "Despacho Térmico":
                 sufixo_unidade=sufixo_unidade_sis,
                 fmt_hover=fmt_hover_sis,
                 paleta=PALETA_MOTIVOS_SIS,
-                height=450,
+                height=550,
             )
 
-            st.plotly_chart(fig_sis, use_container_width=True, config={"displaylogo": False})
+            _event_mensal = plotly_events(
+                fig_sis,
+                click_event=True,
+                select_event=False,
+                hover_event=False,
+                key="termico_sistema_chart_mensal",
+                override_height=550,
+            )
+
+            # Handler do click (Fase Drill.2.C.1, via streamlit-plotly-events)
+            # _event_mensal eh list[dict]; cada dict tem keys CamelCase
+            # (curveNumber, pointNumber, x, y).
+            if _event_mensal and gran_atual == "Mensal":
+                _point = _event_mensal[0]
+                _idx = _point.get("pointNumber")
+                if _idx is not None and 0 <= _idx < len(agg_sis):
+                    _novo_mes = agg_sis.iloc[_idx]["ano_mes"]
+                    if hasattr(_novo_mes, "normalize"):
+                        _novo_mes = _novo_mes.normalize()
+                    _atual_mes = st.session_state.get(
+                        "termico_sistema_drill_mes"
+                    )
+                    if _novo_mes != _atual_mes:
+                        import calendar as _cal
+                        from datetime import date as _date
+                        _last_day = _cal.monthrange(
+                            _novo_mes.year, _novo_mes.month
+                        )[1]
+                        _novo_dia = _date(
+                            _novo_mes.year, _novo_mes.month, _last_day
+                        )
+                        st.session_state["termico_sistema_drill_mes"] = _novo_mes
+                        st.session_state["termico_sistema_drill_dia"] = _novo_dia
+                        st.rerun()
 
             # === Drill-down (Fase Drill.2.B) ===
             # Aparece apenas em modo Mensal: 2 graficos lado-a-lado
@@ -4289,8 +4363,6 @@ elif aba == "Despacho Térmico":
                             f"{str(_drill_mes.year)[2:]}"
                         ).upper()
                         # primeiro e ultimo dia do mes pra range no caption
-                        _ultimo_dia_mes = _drill_dia  # placeholder ate Drill.2.C
-                        # Recalcular ultimo_dia do mes selecionado:
                         import calendar as _cal
                         _last_day = _cal.monthrange(
                             _drill_mes.year, _drill_mes.month
@@ -4302,13 +4374,29 @@ elif aba == "Despacho Térmico":
                         _data_fim_dia = _date(
                             _drill_mes.year, _drill_mes.month, _last_day
                         )
-                        _render_termico_chart_caption(
-                            sub_label=f"DRILL DIÁRIO · {_mes_label}",
-                            gran_label="Diário",
-                            data_ini=_data_ini_dia,
-                            data_fim=_data_fim_dia,
-                            unidade_label="MWmed",
-                            estilo_curtailment=True,
+                        # Caption customizado: tudo centralizado,
+                        # sem sub-caption (Drill.2.D polish).
+                        _data_ini_str = _data_ini_dia.strftime("%d/%m/%Y")
+                        _data_fim_str = _data_fim_dia.strftime("%d/%m/%Y")
+                        _caption_dia = (
+                            f"DIÁRIO · {_mes_label} · "
+                            f"{_data_ini_str} a {_data_fim_str}"
+                        )
+                        st.markdown(
+                            f'''
+                            <div style="
+                                text-align: center;
+                                font-family: 'Bebas Neue', sans-serif;
+                                font-size: 1.1rem;
+                                font-weight: 600;
+                                letter-spacing: 0.04em;
+                                color: #1A1A1A;
+                                padding: 0.5rem 0;
+                                border-bottom: 2px solid #1A1A1A;
+                                margin-bottom: 0.5rem;
+                            ">{_caption_dia}</div>
+                            ''',
+                            unsafe_allow_html=True,
                         )
                         _fig_dia = _construir_figura_termico_sin(
                             agg=_agg_dia,
@@ -4318,11 +4406,30 @@ elif aba == "Despacho Térmico":
                             paleta=PALETA_MOTIVOS_SIS,
                             height=450,
                         )
-                        st.plotly_chart(
+                        _event_diario = plotly_events(
                             _fig_dia,
-                            use_container_width=True,
-                            config={"displaylogo": False},
+                            click_event=True,
+                            select_event=False,
+                            hover_event=False,
+                            key="termico_sistema_chart_drill_diario",
+                            override_height=450,
                         )
+
+                        # Handler do click no drill diario (Fase Drill.2.C.2):
+                        # captura point_number, identifica dia em _agg_dia,
+                        # atualiza state. Sem cascata (drill_mes nao muda).
+                        # Loop infinito protegido: so re-set state se valor mudou.
+                        if _event_diario and gran_atual == "Mensal":
+                            _point_d = _event_diario[0]
+                            _idx_d = _point_d.get("pointNumber")
+                            if _idx_d is not None and 0 <= _idx_d < len(_agg_dia):
+                                _novo_dia = _agg_dia.iloc[_idx_d]["dia"]
+                                _atual_dia = st.session_state.get(
+                                    "termico_sistema_drill_dia"
+                                )
+                                if _novo_dia != _atual_dia:
+                                    st.session_state["termico_sistema_drill_dia"] = _novo_dia
+                                    st.rerun()
 
                 # === Drill HORARIO (direita) ===
                 with _col_drill_hora:
@@ -4337,13 +4444,24 @@ elif aba == "Despacho Térmico":
                             unidade=unidade_sis,
                         )
                         _dia_label = _drill_dia.strftime("%d/%m/%Y")
-                        _render_termico_chart_caption(
-                            sub_label=f"DRILL HORÁRIO · {_dia_label}",
-                            gran_label="Horário",
-                            data_ini=_drill_dia,
-                            data_fim=_drill_dia,
-                            unidade_label="MWmed",
-                            estilo_curtailment=True,
+                        # Caption customizado: tudo centralizado,
+                        # single-day (sem range duplicado).
+                        _caption_hora = f"HORÁRIO · {_dia_label}"
+                        st.markdown(
+                            f'''
+                            <div style="
+                                text-align: center;
+                                font-family: 'Bebas Neue', sans-serif;
+                                font-size: 1.1rem;
+                                font-weight: 600;
+                                letter-spacing: 0.04em;
+                                color: #1A1A1A;
+                                padding: 0.5rem 0;
+                                border-bottom: 2px solid #1A1A1A;
+                                margin-bottom: 0.5rem;
+                            ">{_caption_hora}</div>
+                            ''',
+                            unsafe_allow_html=True,
                         )
                         _fig_hora = _construir_figura_termico_sin(
                             agg=_agg_hora,
