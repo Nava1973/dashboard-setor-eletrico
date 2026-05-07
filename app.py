@@ -3312,6 +3312,24 @@ elif aba == "Despacho Térmico":
             st.session_state.get("_termico_sistema_dataset_max") != max_d_sis
             or st.session_state.get("_termico_sistema_dataset_min") != min_d_sis
             or em_transicao
+            # Gatilho cleanup + range degenerado (decisão 5.16, Fase E.12
+            # adaptada de Geração — corrigida para Despacho Térmico):
+            # widget cleanup do Streamlit ao trocar sub-view DELETA keys
+            # data_ini/data_fim. Sem fix, st.date_input sem value= recria
+            # keys clamped pra max_value (range zero). Detecta ausência
+            # da key OR range degenerado, não só comparação >= (que falha
+            # quando keys foram cleaned). Excluir Trimestral (dates
+            # informativas, filter ignora) e Horário (data_ini == data_fim
+            # é design legítimo single-day).
+            or (
+                gran_atual not in ("Trimestral", "Horário")
+                and (
+                    "termico_sistema_data_ini" not in st.session_state
+                    or "termico_sistema_data_fim" not in st.session_state
+                    or st.session_state["termico_sistema_data_ini"]
+                        >= st.session_state["termico_sistema_data_fim"]
+                )
+            )
         )
 
         if precisa_reset:
@@ -4199,6 +4217,24 @@ elif aba == "Despacho Térmico":
             st.session_state.get("_termico_eneva_dataset_max") != max_d
             or st.session_state.get("_termico_eneva_dataset_min") != min_d
             or em_transicao
+            # Gatilho cleanup + range degenerado (decisão 5.16, Fase E.12
+            # adaptada de Geração — corrigida para Despacho Térmico):
+            # widget cleanup do Streamlit ao trocar sub-view DELETA keys
+            # data_ini/data_fim. Sem fix, st.date_input sem value= recria
+            # keys clamped pra max_value (range zero). Detecta ausência
+            # da key OR range degenerado, não só comparação >= (que falha
+            # quando keys foram cleaned). Excluir Trimestral (dates
+            # informativas, filter ignora) e Horário (data_ini == data_fim
+            # é design legítimo single-day).
+            or (
+                gran_atual not in ("Trimestral", "Horário")
+                and (
+                    "termico_eneva_data_ini" not in st.session_state
+                    or "termico_eneva_data_fim" not in st.session_state
+                    or st.session_state["termico_eneva_data_ini"]
+                        >= st.session_state["termico_eneva_data_fim"]
+                )
+            )
         )
 
         if precisa_reset:
