@@ -1502,6 +1502,69 @@ with st.sidebar:
             padding-top: 0.3rem !important;
             padding-bottom: 0.3rem !important;
         }
+
+        /* Fase Nav.2 — Sub-itens (Eneva/SIN) embaixo de Despacho Termico */
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button {
+            text-align: left !important;
+            justify-content: flex-start !important;
+            padding-left: 3rem !important;
+            font-family: 'Inter', sans-serif !important;
+            font-size: 0.85rem !important;
+            font-weight: 400 !important;
+            border: none !important;
+            border-radius: 0 !important;
+            margin: 0 !important;
+            transition: opacity 0.15s ease !important;
+        }
+        /* Forca alinhamento esquerdo nos filhos */
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button > div,
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button > div > p,
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button p {
+            text-align: left !important;
+            width: 100% !important;
+            justify-content: flex-start !important;
+        }
+        /* Sub-item inativo (secondary): cinza discreto */
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button[kind="secondary"],
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button[kind="secondary"] * {
+            background: transparent !important;
+            color: #999999 !important;
+        }
+        /* Sub-item ativo (primary): cream + caractere │ em amarelo */
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button[kind="primary"],
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button[kind="primary"] * {
+            background: transparent !important;
+            color: #F5F1E8 !important;
+            font-weight: 400 !important;
+        }
+        /* Primeira letra (caractere │) em amarelo Bauhaus */
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button[kind="primary"] p::first-letter {
+            color: #F6BD16 !important;
+            font-weight: 700 !important;
+        }
+        /* Hover em sub-item: amarelo discreto */
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button:hover,
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button:hover * {
+            color: #F6BD16 !important;
+            opacity: 1 !important;
+        }
+        /* Forca alinhamento esquerdo (later rule wins) */
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button[kind="secondary"] *,
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button[kind="primary"] * {
+            text-align: left !important;
+            justify-content: flex-start !important;
+        }
+        /* Compactacao vertical + indentacao do wrapper sub-itens */
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_"],
+        [data-testid="stSidebar"] [data-testid="stElementContainer"][class*="st-key-nav_sub_"] {
+            margin-bottom: -1rem !important;
+            margin-top: 0 !important;
+            padding-left: 0.8rem !important;
+        }
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button {
+            padding-top: 0.2rem !important;
+            padding-bottom: 0.2rem !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1533,6 +1596,25 @@ with st.sidebar:
         ):
             st.session_state["aba_selecionada"] = _aba_opcao
             st.rerun()
+
+        # Sub-itens condicionais embaixo de "Despacho Térmico" (Fase Nav.2)
+        if _aba_opcao == "Despacho Térmico" and _is_active:
+            # Init termico_subview se ainda nao existir
+            if "termico_subview" not in st.session_state:
+                st.session_state["termico_subview"] = "Eneva"
+            _subviews = [("Eneva", "Eneva"), ("SIN", "Sistema")]
+            for _label, _valor in _subviews:
+                _is_sub_active = (st.session_state["termico_subview"] == _valor)
+                # Indicador ativo: caractere │ amarelo antes do texto (Fase Nav.2)
+                _label_display = f"│ {_label}" if _is_sub_active else _label
+                if st.button(
+                    _label_display,
+                    key=f"nav_sub_{_valor}",
+                    type="primary" if _is_sub_active else "secondary",
+                    use_container_width=True,
+                ):
+                    st.session_state["termico_subview"] = _valor
+                    st.rerun()
 
     aba = st.session_state["aba_selecionada"]
 
@@ -3090,67 +3172,6 @@ elif aba == "Despacho Térmico":
         'margin: 0 0 -1.5rem 0;"></div>',
         unsafe_allow_html=True,
     )
-
-    # Controle binário Sistema/Eneva — pills full-width estilo Curtailment.
-    # CSS scoped via [class*="st-key-termico_btn_subview_"]: ativo amarelo
-    # Bauhaus, inativo preto com texto creme, ambos Inter bold mixed-case.
-    # Escopo restrito por nome de key — não vaza pra outros botões (toggle
-    # MWm/GWh, presets de período etc).
-    st.markdown(
-        """
-        <style>
-        [class*="st-key-termico_btn_subview_"] button[kind="primary"] {
-            background-color: #F6BD16 !important;
-            color: #1A1A1A !important;
-            border: 2px solid #1A1A1A !important;
-            border-radius: 0 !important;
-            box-shadow: none !important;
-            font-family: 'Inter', sans-serif !important;
-            font-weight: 700 !important;
-            white-space: nowrap !important;
-        }
-        [class*="st-key-termico_btn_subview_"] button[kind="secondary"] {
-            background-color: #1A1A1A !important;
-            color: #F5F1E8 !important;
-            border: 2px solid #1A1A1A !important;
-            border-radius: 0 !important;
-            box-shadow: none !important;
-            font-family: 'Inter', sans-serif !important;
-            font-weight: 600 !important;
-            white-space: nowrap !important;
-        }
-        [class*="st-key-termico_btn_subview_"] button:hover { opacity: 0.9; }
-        /* Reduzir gap pills↔linha 1 (Fase H.4 — Problema A): margin-
-           bottom negativo no wrapper dos pills puxa o conteúdo seguinte
-           pra cima sem afetar h1 dinâmico nem outras abas. */
-        [class*="st-key-termico_btn_subview_"] {
-            margin-bottom: -1rem !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    _sub = st.session_state["termico_subview"]
-    col_eneva, col_sys = st.columns(2)
-    with col_eneva:
-        if st.button(
-            "Eneva",
-            key="termico_btn_subview_eneva",
-            type="primary" if _sub == "Eneva" else "secondary",
-            use_container_width=True,
-        ):
-            st.session_state["termico_subview"] = "Eneva"
-            st.rerun()
-    with col_sys:
-        if st.button(
-            "SIN - Despacho Termelétrico Total",
-            key="termico_btn_subview_sistema",
-            type="primary" if _sub == "Sistema" else "secondary",
-            use_container_width=True,
-        ):
-            st.session_state["termico_subview"] = "Sistema"
-            st.rerun()
 
     # === HOISTED (Fase E) — comum às 2 sub-views ===
     # Loader, imports comuns e helper KPI compartilhados pelas sub-views
