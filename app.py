@@ -1440,6 +1440,68 @@ with st.sidebar:
         [data-testid="stSidebar"] .stButton > button[data-sair="true"] {
             margin-top: -0.5rem !important;
         }
+
+        /* Fase Nav.1 — Botões de navegação principal (sidebar) */
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button {
+            text-align: left !important;
+            justify-content: flex-start !important;
+            padding-left: 1rem !important;
+            font-family: 'Inter', sans-serif !important;
+            font-size: 0.95rem !important;
+            font-weight: 500 !important;
+            border: none !important;
+            border-radius: 0 !important;
+            margin: 0 !important;
+            transition: opacity 0.15s ease !important;
+        }
+        /* Forçar alinhamento esquerdo no <p>/<div> filho do botão */
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button > div,
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button > div > p,
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button p {
+            text-align: left !important;
+            width: 100% !important;
+            justify-content: flex-start !important;
+        }
+        /* Inativo: texto cream sobre fundo preto (legível) */
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button[kind="secondary"],
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button[kind="secondary"] * {
+            background: transparent !important;
+            color: #F5F1E8 !important;
+        }
+        /* Hover em inativo: vira amarelo Bauhaus pra indicar selecionável */
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button[kind="secondary"]:hover,
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button[kind="secondary"]:hover * {
+            background: #F6BD16 !important;
+            color: #1A1A1A !important;
+            opacity: 1 !important;
+        }
+        /* Forçar alinhamento esquerdo em todos os botões nav (sobrescreve regras do secondary *) */
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button[kind="secondary"] *,
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button[kind="primary"] * {
+            text-align: left !important;
+            justify-content: flex-start !important;
+        }
+        /* Ativo: já tinha primary amarelo - manter */
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button[kind="primary"],
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button[kind="primary"] * {
+            background: #F6BD16 !important;
+            color: #1A1A1A !important;
+        }
+        /* Hover em ativo: levemente mais escuro pra feedback */
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button[kind="primary"]:hover {
+            opacity: 0.9 !important;
+        }
+        /* Compacta gap vertical entre botões da navegação */
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_"],
+        [data-testid="stSidebar"] [data-testid="stElementContainer"][class*="st-key-nav_aba_"] {
+            margin-bottom: -1rem !important;
+            margin-top: 0 !important;
+        }
+        /* Padding interno menor pra botões mais compactos */
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button {
+            padding-top: 0.3rem !important;
+            padding-bottom: 0.3rem !important;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1449,11 +1511,30 @@ with st.sidebar:
 
     st.divider()
 
-    aba = st.radio(
-        "NAVEGAÇÃO",
-        ["PLD", "Reservatórios", "ENA/Chuva", "Despacho Térmico", "Geração", "Carga", "Curtailment"],
-        label_visibility="collapsed",
-    )
+    # Navegação custom — Fase Nav.1.
+    # Substituiu st.radio por loop de st.button pra permitir sub-itens
+    # condicionais embaixo de "Despacho Térmico" (Fase Nav.2). Layout
+    # vertical, full-width, highlight Bauhaus amarelo no item ativo.
+    if "aba_selecionada" not in st.session_state:
+        st.session_state["aba_selecionada"] = "PLD"
+
+    abas_principais = [
+        "PLD", "Reservatórios", "ENA/Chuva", "Despacho Térmico",
+        "Geração", "Carga", "Curtailment",
+    ]
+
+    for _aba_opcao in abas_principais:
+        _is_active = (st.session_state["aba_selecionada"] == _aba_opcao)
+        if st.button(
+            _aba_opcao,
+            key=f"nav_aba_{_aba_opcao}",
+            type="primary" if _is_active else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state["aba_selecionada"] = _aba_opcao
+            st.rerun()
+
+    aba = st.session_state["aba_selecionada"]
 
     st.divider()
     if st.button("Atualizar", use_container_width=True):
