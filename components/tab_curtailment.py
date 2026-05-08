@@ -421,11 +421,13 @@ def _render_period_controls_curt(
         st.date_input(
             "Data inicial", min_value=min_d, max_value=max_d,
             key=session_key_ini,
+            format="DD/MM/YYYY",
         )
     with cols[n + 2]:
         st.date_input(
             "Data final", min_value=min_d, max_value=max_d,
             key=session_key_fim,
+            format="DD/MM/YYYY",
         )
 
 
