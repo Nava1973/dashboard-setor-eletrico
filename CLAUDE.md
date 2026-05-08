@@ -375,6 +375,62 @@ grafico SIN. Fase Drill.2.C.1 — `streamlit-plotly-events` instalado
 no venv, mas Streamlit rodando do global gerava sintomas que pareciam
 bug da lib quando na verdade era ambiente errado.
 
+### 4.8 OOM silencioso no Streamlit Cloud free tier
+
+SINTOMA: aba quebra com "Oh no" no Cloud, mas funciona perfeitamente
+local. Browser DevTools mostra:
+- WebSocket onclose
+- Cannot send rerun backMessage when disconnected from server
+- GET /_stcore/health -> 503 Service Unavailable
+- GET /_stcore/host-config -> 503 Service Unavailable
+
+Logs do servidor (Manage app > Logs) mostram ZERO traceback Python -
+apenas warnings de deprecation. App parece carregar normalmente,
+depois conexao morre.
+
+CAUSA: SIGKILL externo do Cloud por OOM (limite 1GB free tier).
+Container morre instantaneamente sem propagar excecao Python - wrapper
+nao captura SIGKILL. Browser ve apenas a conexao caindo.
+
+DIAGNOSTICO PROGRESSIVO:
+1. Local funciona, Cloud nao -> diferenca de ambiente.
+2. Logs servidor sem traceback -> nao eh erro Python.
+3. DevTools com 503 nos endpoints -> servidor crashou.
+4. Hipotese OOM -> instrumentar com print de RAM.
+
+INSTRUMENTACAO MINIMA:
+```python
+import sys
+print(
+    f"[DEBUG-RAM] df final: "
+    f"{df.memory_usage(deep=True).sum()/1e6:.1f}MB, "
+    f"{len(df):,} rows",
+    file=sys.stderr, flush=True,
+)
+```
+
+Rodar local pra ver tamanho REAL do dataset (idem entre ambientes -
+RAM nao depende da maquina, depende dos dados).
+
+GATE DE DECISAO:
+- <150MB: H1 OOM descartado, problema eh outro vetor.
+- 150-300MB: marginal, gc.collect() + del df pode bastar.
+- >300MB: OOM confirmado fortissimo. Refactor estrutural obrigatorio
+  (agregacao no worker pra reduzir cardinalidade).
+
+PADROES DE FIX (ordem de complexidade):
+1. gc.collect() + del df apos cada chamada (mirror Curtailment 35e4b97).
+2. Agregacao DIARIA no worker antes do concat (mirror Curtailment 075a8d0).
+3. Dual-loader: default agregado + lazy hourly pra modo single-day
+   (decisao 5.57 desta sessao).
+
+DETECTADO EM:
+- Curtailment (sessao 30/04/2026, commits 35e4b97 + 075a8d0).
+- Despacho Termico (sessao 08/05/2026, commit 0ec63e9 - decisao 5.57).
+
+Padrao identico nos dois casos. Mantenedor: SEMPRE estimar RAM final
+do dataset antes de assumir que loader generico vai funcionar no Cloud.
+
 ---
 
 ## 5. Decisões Arquiteturais
@@ -3408,6 +3464,73 @@ decisao 5.54 + lib `streamlit-plotly-events` da decisao 5.55.
 - Custom components com `theme.backgroundColor` controlavel via API
   da propria lib (raro).
 
+### 5.57 Dual-loader pattern pra preservar granularidade fina sem OOM (08/05/2026)
+
+PROBLEMA: aba precisa expor multiplos modos de granularidade
+(ex: Mensal/Diario/Trimestral/Horario), mas o dataset HORARIO
+completo eh muito grande pro Cloud free tier (~1GB+).
+
+ABORDAGENS REJEITADAS:
+1. **Loader unico horario sempre**: estourava OOM no Cloud (df_termico
+   1.19GB / 4.2M rows).
+2. **Loader unico agregado diario sempre**: perdia modo Horario (que
+   precisa granularidade nativa).
+3. **Reduzir ano_ini pra 2024**: quick fix mas perdia historico.
+
+SOLUCAO ESCOLHIDA: 2 loaders dedicados.
+
+```python
+# Loader principal: dataset agregado DIARIO, range completo.
+@st.cache_data(ttl=21600)
+def carregar_termico(ano_ini=2022) -> pd.DataFrame:
+    """Schema 13 cols sem hora. ~175k rows, ~50MB."""
+    # Loop: download mes -> agregacao diaria por mes -> concat
+    # _normalizar_motivos + _mapear_eneva APOS concat (decisao global)
+
+# Loader lazy: HORARIO de 1 unico dia.
+@st.cache_data(ttl=21600)
+def carregar_termico_horario_dia(dia: date) -> pd.DataFrame:
+    """Schema 14 cols com hora. ~1900 rows, ~250KB."""
+    # Carrega APENAS o parquet do mes do dia, filtra mask data == dia
+```
+
+USAGE PATTERN no app.py: override pos-filter pra Horario:
+```python
+# Filtro normal (Mensal/Diario/Trimestral):
+df_filt = df_term[mask_periodo].copy()
+
+# OVERRIDE pra Horario (modo single-day, decisao 5.46):
+if gran_atual == "Horário":
+    df_filt = carregar_termico_horario_dia(data_ini_normalizada)
+```
+
+VANTAGENS DA ESTRATEGIA HIBRIDA (vs agregar no loop com normalize
+local):
+- Preserva decisoes globais (ex: substituicao val_verifinflexpura
+  baseada em sum() do dataset inteiro - Fase A.1).
+- Zero risco semantico em comportamentos all-or-nothing.
+- Pico transitorio de RAM no concat eh trivial (~30MB com cada mes
+  ja agregado).
+
+CACHE INVALIDATION:
+clear_termico_cache deve limpar AMBOS:
+```python
+carregar_termico.clear()
+carregar_termico_horario_dia.clear()
+```
+
+QUANDO APLICAR ESTE PATTERN:
+- Dataset agregado_modo_default >>> dataset_modo_excecao em
+  cardinalidade.
+- Modo excecao opera em janela pequena (single-day, single-week).
+- Cache hit ratio do modo excecao baixo o suficiente pra justificar
+  N entradas no cache (cada dia eh uma chamada).
+
+QUANDO NAO APLICA:
+- Todos os modos precisam de granularidade fina.
+- Janela do "modo excecao" eh tao grande quanto o default.
+- Custo de duplicar pipeline (normalize/mapear/etc) supera ganho de RAM.
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
@@ -3968,6 +4091,51 @@ baseadas no relatório.
     **Push final**: `b1f5c72` em `origin/main`. 14 commits
     acumulados na branch (alguns desta sessao + alguns da sessao
     anterior do mesmo dia 07/05/2026 entry 26).
+
+28. **Refactor dual-loader Despacho Termico - resolve OOM Cloud (08/05/2026)**.
+    Continuacao do "Oh no" da sessao 07/05/2026 entry 27. Drill.2.C tinha
+    ido a producao mas aba inteira quebrava no Cloud.
+
+    **Diagnostico**:
+    - Browser DevTools mostrou WebSocket onclose + 503 nos endpoints.
+    - Logs servidor sem traceback (sintoma de SIGKILL externo).
+    - TEMP-DEBUG print confirmou OOM: 1190.1MB / 4,202,448 rows.
+
+    **Solucao** (ver decisao 5.57): dual-loader.
+    - carregar_termico passou a agregar DIARIO no worker (13 cols /
+      ~175k rows / 49.4MB).
+    - carregar_termico_horario_dia(dia) novo, lazy, single-day (14 cols /
+      ~1900 rows / 250KB).
+
+    **Implementacao em 5 fases**:
+    - Fase 1: helper _agregar_diario_no_worker.
+    - Fase 2: integrar agregador no carregar_termico (estrategia hibrida -
+      agregar no loop, normalize/mapear pos-concat pra preservar decisao
+      GLOBAL Fase A.1).
+    - Fase 3: novo loader carregar_termico_horario_dia.
+    - Fase 4: 4 edits em app.py (import + drill Horario + Sistema
+      top-level + Eneva top-level), pattern OVERRIDE pos-filter.
+    - Fase 5: cleanup (clear cache do novo loader, remove TEMP-DEBUG,
+      RESTAURA setInterval do JS injection que tinha sido removido em
+      02c65f1 supondo erradamente que era polling - agora seguro com
+      RAM resolvida).
+
+    **Hotfixes previos da mesma sessao** (todos parciais ou
+    ortogonais):
+    - 4e9cd95: data_loader_termico.py faltante (untracked).
+    - 02c65f1: remove setInterval supondo polling.
+    - d62215a: gc + del.
+    - **0ec63e9: dual-loader (CAUSA RAIZ resolvida)**.
+
+    **Decisoes documentadas**: 5.57 (dual-loader pattern).
+    **Armadilhas documentadas**: 4.8 (OOM silencioso no Cloud).
+
+    **Validacao**:
+    - Local: TEMP-DEBUG mostrou 49.4MB / 175k rows (24x reducao).
+    - Cloud: todos os modos OK (Sistema + Eneva, todas granularidades,
+      drill-down clicavel).
+    - Bordas pretas dos iframes plotly_events sumiram (setInterval
+      restaurado).
 
 ---
 
