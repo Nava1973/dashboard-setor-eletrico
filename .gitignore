@@ -10,6 +10,9 @@ __pycache__/
 # Cache de parquets ONS (versionado via path — ver decisão 5.34)
 .cache/
 
+# Smoke test parquets do térmico (Fases A/A.1/A.2 — desenvolvimento, ~30 MB)
+_eneva_legado/_smoke/
+
 # Pytest
 .pytest_cache/
 
