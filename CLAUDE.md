@@ -431,6 +431,45 @@ DETECTADO EM:
 Padrao identico nos dois casos. Mantenedor: SEMPRE estimar RAM final
 do dataset antes de assumir que loader generico vai funcionar no Cloud.
 
+### 4.9 Parquets ONS publicam colunas numericas como object/string
+
+SINTOMA: .sum() ou .mean() em coluna numerica do parquet ONS retorna
+string concatenada gigante em vez de numero. Exemplo:
+
+```python
+df['val_geracao'].sum()
+# Esperado: 12345.67
+# Real:     '380.4374.87357.699345.133356.427...' (centenas de chars)
+```
+
+CAUSA: parquets ONS preservam dtypes do CSV original (todos string/
+object). pandas `.sum()` em object dtype usa `__add__` que pra strings
+significa concatenacao.
+
+FIX OBRIGATORIO: coercao numerica explicita antes de agregar:
+
+```python
+pd.to_numeric(df[col], errors='coerce').fillna(0).sum()
+```
+
+- `errors='coerce'`: NaN se nao parsavel (defensivo)
+- `.fillna(0)`: zera NaN antes de sum
+
+CASOS CONHECIDOS:
+- Termico: Fase 2 do refactor dual-loader em commit `0ec63e9` (sessao
+  08/05/2026, manha) causou Mensal/Diario/Trimestral renderizarem
+  zerados ate fix Opcao B (coerce defensivo no helper
+  `_agregar_diario_no_worker` antes do groupby).
+- Curtailment: descoberto durante investigacao Equatorial (sessao
+  08/05/2026, tarde) ao rodar `.sum()` direto em script de inspecao
+  manual; loader ja faz `_to_float_br()` em `_padronizar` corretamente,
+  mas scripts de investigacao precisam aplicar o mesmo padrao.
+
+REGRA: scripts de inspecao manual (`scripts/investigar_*.py` ou inline)
+**sempre** aplicam `pd.to_numeric` antes de qualquer agregacao em
+colunas de parquet bruto ONS. NUNCA assumir que `df[col].sum()` retorna
+numero.
+
 ---
 
 ## 5. Decisões Arquiteturais
@@ -3530,6 +3569,53 @@ QUANDO NAO APLICA:
 - Todos os modos precisam de granularidade fina.
 - Janela do "modo excecao" eh tao grande quanto o default.
 - Custo de duplicar pipeline (normalize/mapear/etc) supera ganho de RAM.
+
+### 5.58 Padrao `scripts/investigar_*.py` (one-off untracked) (08/05/2026)
+
+PADRAO: scripts de investigacao/diagnostico one-off ficam em
+`scripts/investigar_*.py` ou `scripts/inspect_*.py`, **untracked**
+(gitignored implicitamente - nunca committados).
+
+POR QUE:
+- Investigacoes sao especificas a sessao/contexto, raramente reusadas.
+- Versionar polui historico git com codigo descartavel.
+- Permanecer no disco preserva historico de raciocinio pra revisitar.
+- Padrao consistente: prefixos `investigar_*` ou `inspect_*` distinguem
+  one-off de utilitarios versionados (ex: `scripts/discover_ccee_ids.py`).
+
+ONDE APLICAR:
+- Reproducao de bugs em ambiente isolado (sem rodar Streamlit).
+- Comparacoes RAW vs cached (armadilha 4.9 - coerce numerico).
+- Pipeline end-to-end fora do app.py (debug de logica de loader).
+- Validacao empirica de hipoteses arquiteturais.
+
+EXEMPLOS:
+- Sessao Despacho Termico (08/05/2026, commit `0ec63e9`):
+  `comparar_cache_vs_bruto.py`, `investigar_razoes_extras.py` -
+  confirmaram que loader produz numeros consistentes com formula manual.
+- Sessao Equatorial (08/05/2026): `investigar_equatorial_sheets.py`,
+  `investigar_pipeline_solar_equatorial.py`,
+  `investigar_serie_temporal_equatorial.py` - validaram backend 100%
+  funcional, isolando bug em UI runtime.
+- Sessao termico (07/05/2026): `inspect_termico_multimes.py` -
+  descoberta empirica de inflexpura retroativa.
+
+TRADE-OFFS:
+- Vantagem: nao polui git, preserva contexto de investigacao.
+- Desvantagem: nao versionado, pode haver redundancia entre scripts
+  similares de sessoes diferentes.
+- Mitigacao: nomes descritivos + comentario inicial com data + objetivo.
+
+QUANDO ELEVAR PRA UTILITARIO VERSIONADO (`scripts/<nome>.py` sem prefixo
+investigar/inspect):
+- Script vira reusable (ex: `discover_ccee_ids.py` rodado anualmente).
+- Logica eh referenciada em decisao do CLAUDE.md.
+- Outras sessoes precisam reproduzir o teste (validacao recurrente).
+
+REGRA pratica de prefixo:
+- `investigar_*`: hipotese-driven, especifica de sessao
+- `inspect_*`: descoberta inicial de schema/dataset
+- (sem prefixo): utilitario reutilizavel, versionado
 
 ---
 
