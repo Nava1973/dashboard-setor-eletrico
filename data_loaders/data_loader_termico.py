@@ -38,6 +38,7 @@ Premissas (validadas nas Fases A, A.1, A.2):
 from __future__ import annotations
 
 import functools
+import gc
 import io
 import tempfile
 from datetime import datetime, date
@@ -303,14 +304,14 @@ def _carregar_mes_com_cache(ano: int, mes: int) -> pd.DataFrame:
     return df
 
 
-def _normalizar_motivos(df: pd.DataFrame) -> pd.DataFrame:
+def _normalizar_motivos(df_in: pd.DataFrame) -> pd.DataFrame:
     """Converte 7 motivos + val_verifgeracao pra numérico e aplica substituição
     val_verifinflexibilidade ← val_verifinflexpura quando soma > 0.
 
     Substituição é a chave do balanço fechar (decisão Fase A.1). val_verifinflexpura
     fica preservada no DataFrame (pode ser útil pra debug).
     """
-    df = df.copy()
+    df = df_in.copy()
     for col in MOTIVOS_COLS + ["val_verifgeracao"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
@@ -322,18 +323,22 @@ def _normalizar_motivos(df: pd.DataFrame) -> pd.DataFrame:
         if s_pura.sum() > 0:
             df["val_verifinflexibilidade"] = s_pura
 
+    del df_in
+    gc.collect()
     return df
 
 
-def _mapear_eneva(df: pd.DataFrame) -> pd.DataFrame:
+def _mapear_eneva(df_in: pd.DataFrame) -> pd.DataFrame:
     """Adiciona coluna 'usina_eneva' (string canônica ou None).
 
     Aplica filtro substring case-insensitive em nom_usina pra cada conjunto de
     aliases em ENEVA_USINAS. Usinas não-Eneva ficam com None.
     """
-    df = df.copy()
+    df = df_in.copy()
     df["usina_eneva"] = pd.Series([None] * len(df), index=df.index, dtype="object")
     if "nom_usina" not in df.columns:
+        del df_in
+        gc.collect()
         return df
     nom = df["nom_usina"]
     for canonica, aliases in ENEVA_USINAS.items():
@@ -341,6 +346,8 @@ def _mapear_eneva(df: pd.DataFrame) -> pd.DataFrame:
         for alias in aliases:
             mask |= nom.str.contains(alias, case=False, na=False)
         df.loc[mask, "usina_eneva"] = canonica
+    del df_in
+    gc.collect()
     return df
 
 
@@ -406,6 +413,8 @@ def carregar_termico(
             df_mes = _carregar_mes_com_cache(ano, mes)
             if len(df_mes) > 0:
                 dfs.append(df_mes)
+            del df_mes
+            gc.collect()
         except Exception as e:
             _registrar_erro(
                 f"Erro carregando {ano}-{mes:02d}: {type(e).__name__}: {e}"
@@ -417,6 +426,8 @@ def carregar_termico(
 
     try:
         df = pd.concat(dfs, ignore_index=True)
+        del dfs
+        gc.collect()
     except Exception as e:
         _registrar_erro(f"Erro consolidando termico: {type(e).__name__}: {e}")
         return pd.DataFrame()
