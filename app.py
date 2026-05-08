@@ -615,11 +615,13 @@ function fixPlotlyEventsBg() {
         console.warn('Plotly events bg fix blocked:', e);
     }
 }
-// Roda apenas no load inicial - polling removido pra evitar
-// rate limit do Streamlit Cloud (causa "Oh no" derrubando WebSocket).
-// Trade-off: iframes re-renderizados pos-click podem voltar a ter
-// fundo preto ate proximo full reload.
+// Roda imediatamente + polling pra capturar reruns do plotly_events.
+// Polling foi removido em 02c65f1 supondo que derrubava Cloud, mas
+// causa raiz era OOM (df_termico 1.19GB → ~50MB apos refactor
+// dual-loader em Fase 4). Com RAM resolvida, polling pode voltar —
+// elimina bordas pretas em iframes re-renderizados pos-click.
 fixPlotlyEventsBg();
+setInterval(fixPlotlyEventsBg, 500);
 </script>
 """, height=0)
 
@@ -3220,7 +3222,11 @@ elif aba == "Despacho Térmico":
     # Loader, imports comuns e helper KPI compartilhados pelas sub-views
     # Sistema e Eneva. Imports específicos da Eneva (USINAS_COBERTURA,
     # usina_em_operacao) ficam dentro do branch dela.
-    from data_loaders.data_loader_termico import carregar_termico, MOTIVOS_COLS
+    from data_loaders.data_loader_termico import (
+        carregar_termico,
+        carregar_termico_horario_dia,
+        MOTIVOS_COLS,
+    )
 
     with st.spinner("Carregando dados de despacho térmico…"):
         try:
@@ -4212,6 +4218,19 @@ elif aba == "Despacho Térmico":
             )
         df_filt_sis = df_sis[mask_periodo_sis].copy()
 
+        # Modo Horario top-level (decisao 5.46): single-day picker.
+        # OVERRIDE df_filt_sis com dados HORARIOS via lazy loader (Fase 4
+        # dual-loader). df_sis (daily-aggregated post-Fase 2) nao tem mais
+        # coluna 'hora', entao o filter acima entrega DataFrame sem ela —
+        # carregar_termico_horario_dia retorna schema 14 cols incluindo 'hora'.
+        if gran_atual == "Horário":
+            _dia_normalizado_sis = (
+                data_ini_sis
+                if isinstance(data_ini_sis, _date_sis)
+                else data_ini_sis.date()
+            )
+            df_filt_sis = carregar_termico_horario_dia(_dia_normalizado_sis)
+
         # Paleta de motivos (cor + label PT-BR)
         PALETA_MOTIVOS_SIS = {
             "val_verifinflexibilidade":    ("#D62828", "Inflexibilidade"),
@@ -4344,7 +4363,16 @@ elif aba == "Despacho Térmico":
 
                 # Filtros isolados (nao usam mask_periodo_sis):
                 _df_drill_diario = _filtrar_termico_por_mes(df_term, _drill_mes)
-                _df_drill_horario = _filtrar_termico_por_dia(df_term, _drill_dia)
+                # Drill Horario usa loader hourly lazy (carrega APENAS 1 dia,
+                # ~250KB). Decisao: trocar fonte em vez de filtrar do df_term
+                # agregado (que nao tem mais granularidade horaria post-Fase 2).
+                from datetime import date as _date_drill
+                _dia_normalizado = (
+                    _drill_dia
+                    if isinstance(_drill_dia, _date_drill)
+                    else _drill_dia.date()
+                )
+                _df_drill_horario = carregar_termico_horario_dia(_dia_normalizado)
 
                 _col_drill_dia, _col_drill_hora = st.columns(2)
 
@@ -5131,6 +5159,31 @@ elif aba == "Despacho Térmico":
             df_filt = df_eneva[mask_periodo].copy()
         else:
             df_filt = df_eneva[mask_periodo & (df_eneva["usina_eneva"] == usina_sel)].copy()
+
+        # Modo Horario top-level Eneva (decisao 5.46): single-day picker.
+        # OVERRIDE df_filt com dados HORARIOS via lazy loader (Fase 4 dual-loader).
+        # Diferenca vs Sistema (Edit C): carrega dataset horario completo do
+        # dia, depois aplica filtro de usina_eneva (notna pra Consolidado,
+        # == usina_sel pra single-plant). 'date' ja importado linha 5101.
+        if gran_atual == "Horário":
+            _dia_normalizado_eneva = (
+                data_ini
+                if isinstance(data_ini, date)
+                else data_ini.date()
+            )
+            df_horario_full = carregar_termico_horario_dia(_dia_normalizado_eneva)
+            if not df_horario_full.empty:
+                df_horario_eneva = df_horario_full[
+                    df_horario_full["usina_eneva"].notna()
+                ].copy()
+                if usina_sel == "Consolidado":
+                    df_filt = df_horario_eneva
+                else:
+                    df_filt = df_horario_eneva[
+                        df_horario_eneva["usina_eneva"] == usina_sel
+                    ].copy()
+            else:
+                df_filt = df_horario_full  # vazio, guard downstream pega
 
         # Paleta de motivos (cor + label PT-BR) — usada nos KPIs e no gráfico.
         PALETA_MOTIVOS_KPI = {

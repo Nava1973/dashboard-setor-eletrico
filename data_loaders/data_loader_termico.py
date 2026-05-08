@@ -13,11 +13,14 @@ URL pattern S3 público:
     https://ons-aws-prod-opendata.s3.amazonaws.com/dataset/
         geracao_termica_despacho_2_ho/GERACAO_TERMICA_DESPACHO-2_{ano}_{mes:02d}.parquet
 
-Schema final (wide-form, 14 colunas):
-    data, hora, id_subsistema, nom_subsistema, nom_usina, usina_eneva,
+Schema final de carregar_termico (wide-form, 13 colunas, granularidade DIÁRIA):
+    data, id_subsistema, nom_subsistema, nom_usina, usina_eneva,
     val_verifgeracao, val_verifinflexibilidade, val_verifordemmerito,
     val_verifunitcommitment, val_verifexportacao, val_verifgsub,
     val_verifrazaoeletrica, val_verifgarantiaenergetica.
+
+Para granularidade HORÁRIA (modo Horario single-day + drill-down Horario),
+ver carregar_termico_horario_dia(dia) — schema 14 colunas com 'hora'.
 
 Cache em 2 camadas (espelha decisão 5.15 do CLAUDE.md):
     1. Disco: ~/.cache/dashboard-setor-eletrico/termico_v1/{ano}_{mes:02d}.parquet
@@ -351,6 +354,61 @@ def _mapear_eneva(df_in: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _agregar_diario_no_worker(df_in: pd.DataFrame) -> pd.DataFrame:
+    """Agrega DataFrame horario pra granularidade DIARIA.
+
+    Reduz cardinalidade ~24x mantendo informacao pra modos
+    Mensal/Diario/Trimestral. Modo Horario usa loader separado
+    (carregar_termico_horario_dia) — pra preservar granularidade
+    nativa apenas pra single-day.
+
+    Antes do groupby, coerce os 7 motivos + val_verifgeracao +
+    val_verifinflexpura pra numeric (defesa contra parquets ONS com
+    tipos object/string que produziriam string-concat em vez de sum).
+
+    Cols groupby: data (normalizada 00:00:00), id_subsistema,
+    nom_subsistema, nom_usina.
+    (usina_eneva eh adicionada apos o concat, no DataFrame agregado.)
+    Cols agregadas: 7 motivos + val_verifgeracao + val_verifinflexpura.
+    val_verifinflexpura eh preservada pra que _normalizar_motivos
+    post-concat possa decidir substituicao GLOBAL (decisao Fase A.1).
+    """
+    df = df_in.copy()
+
+    # Coerce defensivo pra numeric (parquets ONS antigos podem ter
+    # motivos como object/string — sem coerce, groupby.sum() gera
+    # string-concat em vez de aritmetica):
+    cols_pra_coercar = MOTIVOS_COLS + ["val_verifgeracao", "val_verifinflexpura"]
+    for col in cols_pra_coercar:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+    # Normalizar data pra 00:00:00 (remove componente hora):
+    if "data" not in df.columns and "din_instante" in df.columns:
+        df["data"] = pd.to_datetime(df["din_instante"], errors="coerce").dt.normalize()
+    elif "data" in df.columns:
+        df["data"] = pd.to_datetime(df["data"], errors="coerce").dt.normalize()
+
+    cols_grupo = ["data", "id_subsistema", "nom_subsistema", "nom_usina"]
+    cols_existentes_grupo = [c for c in cols_grupo if c in df.columns]
+
+    cols_soma = MOTIVOS_COLS + ["val_verifgeracao", "val_verifinflexpura"]
+    cols_existentes_soma = [c for c in cols_soma if c in df.columns]
+
+    if not cols_existentes_grupo or not cols_existentes_soma:
+        del df_in
+        gc.collect()
+        return df  # fallback: retorna sem agregar se cols criticas ausentes
+
+    df_agg = df.groupby(cols_existentes_grupo, dropna=False, as_index=False)[
+        cols_existentes_soma
+    ].sum()
+
+    del df, df_in
+    gc.collect()
+    return df_agg
+
+
 def _gerar_meses(ano_ini: int, ano_fim: int) -> list[Tuple[int, int]]:
     """Lista (ano, mes) de (ano_ini, 1) até o mês corrente (se ano_fim == ano corrente)
     ou até dezembro do ano_fim caso contrário."""
@@ -373,21 +431,20 @@ def carregar_termico(
     ano_ini: int = 2022,
     ano_fim: Optional[int] = None,
 ) -> pd.DataFrame:
-    """Carrega dataset ONS de despacho térmico verificado horário, normalizado.
+    """Carrega dataset ONS de despacho térmico verificado, agregado pra DIÁRIO.
 
     Args:
         ano_ini: ano inicial (default 2022, limite do legado).
         ano_fim: ano final inclusive (default = ano corrente).
 
     Returns:
-        DataFrame wide-form com 14 colunas:
+        DataFrame wide-form com 13 colunas (granularidade DIÁRIA):
             data (datetime64[ns]): instante normalizado pro dia
-            hora (int8): 0-23
             id_subsistema (str): N / NE / S / SE
             nom_subsistema (str): NORTE / NORDESTE / SUL / SUDESTE
             nom_usina (str): nome ONS da usina
             usina_eneva (str|None): nome canônico Eneva ou None pra não-Eneva
-            val_verifgeracao (float): MWh por (hora, usina)
+            val_verifgeracao (float): MWh por (data, usina) — soma das 24h
             val_verifinflexibilidade (float): MWh — substituição inflexpura aplicada
             val_verifordemmerito (float): MWh
             val_verifunitcommitment (float): MWh
@@ -412,6 +469,11 @@ def carregar_termico(
         try:
             df_mes = _carregar_mes_com_cache(ano, mes)
             if len(df_mes) > 0:
+                # Agregar pra DIARIA antes de adicionar (reduz RAM ~24x).
+                # _normalizar_motivos + _mapear_eneva continuam apos
+                # o concat pra preservar decisao GLOBAL da substituicao
+                # inflexpura (decisao Fase A.1).
+                df_mes = _agregar_diario_no_worker(df_mes)
                 dfs.append(df_mes)
             del df_mes
             gc.collect()
@@ -435,15 +497,15 @@ def carregar_termico(
     df = _normalizar_motivos(df)
     df = _mapear_eneva(df)
 
-    if "din_instante" not in df.columns:
-        _registrar_erro("din_instante ausente — DataFrame ONS inválido")
-        return pd.DataFrame()
-    ts = pd.to_datetime(df["din_instante"])
-    df["data"] = ts.dt.normalize()
-    df["hora"] = ts.dt.hour.astype("int8")
+    # Conversao datetime + criacao de 'hora' REMOVIDAS (Fase 2 do
+    # refactor dual-loader):
+    # - 'data' ja foi criada por _agregar_diario_no_worker no for loop.
+    # - 'din_instante' nao existe mais (descartada no groupby).
+    # - 'hora' nao existe mais (granularidade horaria perdida
+    #   intencionalmente; modo Horario usa loader separado em Fase 3).
 
     cols_finais = [
-        "data", "hora",
+        "data",
         "id_subsistema", "nom_subsistema", "nom_usina", "usina_eneva",
         "val_verifgeracao",
         "val_verifinflexibilidade",
@@ -458,11 +520,91 @@ def carregar_termico(
     df = df[cols_existentes].copy()
 
     try:
-        df = df.sort_values(["data", "hora", "nom_usina"]).reset_index(drop=True)
+        df = df.sort_values(["data", "nom_usina"]).reset_index(drop=True)
     except Exception as e:
         _registrar_erro(f"Erro no sort final: {type(e).__name__}: {e}")
 
     return df
+
+
+@st.cache_data(ttl=21600, show_spinner=False)
+def carregar_termico_horario_dia(dia: date) -> pd.DataFrame:
+    """Carrega dados HORARIOS de um unico dia (lazy load).
+
+    Usado APENAS pelo modo Horario (single-day, decisao 5.46) e pelo
+    drill-down Horario (3o grafico do drill, decisao 5.54). NAO usar
+    pra ranges multi-dia — pra isso use carregar_termico (agregacao
+    diaria).
+
+    Carrega APENAS o parquet do mes que contem 'dia', aplica
+    _normalizar_motivos + _mapear_eneva, filtra "data == dia",
+    retorna ~1900 rows com schema HORARIO (incluindo coluna 'hora').
+
+    Cache: TTL 6h por dia. Multiplos dias != entradas separadas no cache.
+
+    Args:
+        dia: data alvo (datetime.date).
+
+    Returns:
+        DataFrame com 14 cols (incluindo 'hora') filtrado pra
+        df["data"].dt.date == dia. Pode estar vazio se dia eh
+        anterior ao dataset ou se ONS nao publicou ainda.
+    """
+    if not isinstance(dia, date):
+        _registrar_erro(f"carregar_termico_horario_dia: dia invalido {dia!r}")
+        return pd.DataFrame()
+
+    # Carregar APENAS o parquet do mes do dia:
+    df_mes = _carregar_mes_com_cache(dia.year, dia.month)
+    if df_mes.empty:
+        return pd.DataFrame()
+
+    # Aplicar normalize + mapear (mesma logica de carregar_termico, sem agregar):
+    df_mes = _normalizar_motivos(df_mes)
+    df_mes = _mapear_eneva(df_mes)
+
+    # Criar 'data' e 'hora' a partir de din_instante:
+    if "din_instante" not in df_mes.columns:
+        _registrar_erro(f"din_instante ausente em {dia.year}-{dia.month:02d}")
+        return pd.DataFrame()
+
+    ts = pd.to_datetime(df_mes["din_instante"], errors="coerce")
+    df_mes = df_mes.copy()
+    df_mes["data"] = ts.dt.normalize()
+    df_mes["hora"] = ts.dt.hour.astype("int8")
+
+    # Filtrar pra 1 dia:
+    mask_dia = df_mes["data"].dt.date == dia
+    df_dia = df_mes[mask_dia].copy()
+    del df_mes
+    gc.collect()
+
+    if df_dia.empty:
+        return pd.DataFrame()
+
+    # Schema final 14 cols:
+    cols_finais = [
+        "data", "hora",
+        "id_subsistema", "nom_subsistema", "nom_usina", "usina_eneva",
+        "val_verifgeracao",
+        "val_verifinflexibilidade",
+        "val_verifordemmerito",
+        "val_verifunitcommitment",
+        "val_verifexportacao",
+        "val_verifgsub",
+        "val_verifrazaoeletrica",
+        "val_verifgarantiaenergetica",
+    ]
+    cols_existentes = [c for c in cols_finais if c in df_dia.columns]
+    df_dia = df_dia[cols_existentes].copy()
+
+    try:
+        df_dia = df_dia.sort_values(["data", "hora", "nom_usina"]).reset_index(drop=True)
+    except Exception as e:
+        _registrar_erro(f"Erro no sort horario: {type(e).__name__}: {e}")
+
+    gc.collect()
+    return df_dia
 
 
 def is_termico_cache_fresh(ano: int, mes: int) -> bool:
@@ -486,6 +628,10 @@ def clear_termico_cache() -> None:
         carregar_termico.clear()
     except Exception as e:
         _registrar_erro(f"Falha clear carregar_termico: {type(e).__name__}: {e}")
+    try:
+        carregar_termico_horario_dia.clear()
+    except Exception as e:
+        _registrar_erro(f"Falha clear carregar_termico_horario_dia: {type(e).__name__}: {e}")
     try:
         _download_mes_historico.clear()
     except Exception as e:
