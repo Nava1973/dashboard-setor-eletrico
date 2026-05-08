@@ -615,9 +615,11 @@ function fixPlotlyEventsBg() {
         console.warn('Plotly events bg fix blocked:', e);
     }
 }
-// Roda imediatamente + polling pra capturar reruns do plotly_events
+// Roda apenas no load inicial - polling removido pra evitar
+// rate limit do Streamlit Cloud (causa "Oh no" derrubando WebSocket).
+// Trade-off: iframes re-renderizados pos-click podem voltar a ter
+// fundo preto ate proximo full reload.
 fixPlotlyEventsBg();
-setInterval(fixPlotlyEventsBg, 500);
 </script>
 """, height=0)
 
