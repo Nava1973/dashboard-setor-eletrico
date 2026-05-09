@@ -470,6 +470,74 @@ REGRA: scripts de inspecao manual (`scripts/investigar_*.py` ou inline)
 colunas de parquet bruto ONS. NUNCA assumir que `df[col].sum()` retorna
 numero.
 
+### 4.10 @st.cache_data nao detecta mudanca em arquivos lidos pelo loader
+
+SINTOMA: edicao in-place de arquivo de dados (ex: Excel de
+proprietarios) + Ctrl+R no browser nao reflete mudanca no app.
+DataFrame em runtime mostra valores antigos do arquivo. Botao
+"Atualizar" na sidebar pode nao resolver tambem.
+
+CAUSA: `@st.cache_data` calcula cache key a partir dos ARGUMENTOS
+da funcao decorada, nao do mtime/conteudo dos arquivos que a
+funcao le internamente. Loader tipo:
+
+```python
+@st.cache_data(ttl=3600)
+def carregar_grupos_excel(caminho: str = "...xlsx") -> pd.DataFrame:
+    return pd.read_excel(caminho, ...)
+```
+
+cacheia o resultado por `(caminho,)`. Se o caminho nao muda,
+cache HIT mesmo apos editar o Excel — Streamlit nao re-le.
+
+Ctrl+R no browser tambem nao limpa: cache vive no PROCESSO do
+servidor Streamlit, nao na sessao do navegador.
+
+Botao "Atualizar" da sidebar (`clear_cache()` em
+data_loader.py:1838) cobre PLD/Reservatorios/ENA/Geracao mas
+NAO cobre Curtailment + Excel de grupos. Funcoes nao limpas
+descobertas na sessao 08/05/2026:
+- carregar_grupos_excel (data_loader_grupos_excel.py:127)
+- carregar_aliases (data_loader_grupos_excel.py:202)
+- _aplicar_rateio_cached (tab_curtailment.py:1429)
+- _construir_opcoes_entidade (tab_curtailment.py:448)
+- _calcular_linhas_unidade (tab_curtailment.py:962)
+- _download_mes_historico (data_loader_curtailment.py:484)
+- carregar_curtailment (data_loader_curtailment.py:534)
+- descobrir_ultimo_dia_disponivel (data_loader_curtailment.py:595)
+
+3 SOLUCOES (do mais simples ao mais permanente):
+
+1. **Restart do servidor Streamlit** (recomendado pra dev):
+   Ctrl+C no terminal + relancar via
+   `venv\Scripts\python.exe -m streamlit run app.py`. Mata
+   processo, mata cache, le arquivo novo.
+
+2. **Aguardar TTL expirar** (passivo): TTLs variam — 1h pro
+   Excel, 6h pra Curtailment, 30d pra parquets ONS fechados.
+   Lento e imprevisivel pra dev local.
+
+3. **Estender clear_cache()** (fix de longo prazo): adicionar
+   `.clear()` nas funcoes Excel-dependentes. Decisao da sessao
+   08/05/2026 foi NAO fazer agora — preserva `clear_cache()`
+   focado nos loaders ONS centrais. Restart eh aceitavel pro
+   caso raro de edicao do Excel. Reconsiderar se Excel virar
+   editavel via UI no futuro.
+
+CASO QUE MOTIVOU: sessao 08/05/2026 (commit `bce44f9`). Excel
+unidades_geradoras.xlsx editado pra padronizar labels
+"EQTL (Echo)" -> "Equatorial" em Solar. Local mostrou bug
+"O grupo Equatorial nao tem unidades em Solar" mesmo apos
+Ctrl+R. Diagnostico via debug `st.write` em
+tab_curtailment.py:569 revelou df ainda tinha `EQTL (Echo)`
+em PROPRIETARIO unicos pos-rateio. Restart full do Streamlit
+resolveu.
+
+REGRA: ao editar arquivo de dados lido por loader cacheado,
+fazer restart full do servidor. Nao confiar em Ctrl+R nem em
+"Atualizar". Cloud: redeploy ja faz container fresh, mas
+reboot manual em share.streamlit.io eh garantido.
+
 ---
 
 ## 5. Decisões Arquiteturais
