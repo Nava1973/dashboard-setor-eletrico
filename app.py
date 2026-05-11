@@ -3699,7 +3699,7 @@ elif aba == "Despacho Térmico":
                 white-space: nowrap !important;
                 padding-left: 0.40rem !important;
                 padding-right: 0.40rem !important;
-                font-size: 0.85rem !important;
+                font-size: 0.78rem !important;
                 min-width: 0 !important;
             }
             /* Botões de ano "colados" — sobreposição sutil de 1px cria
@@ -4589,7 +4589,7 @@ elif aba == "Despacho Térmico":
                 white-space: nowrap !important;
                 padding-left: 0.40rem !important;
                 padding-right: 0.40rem !important;
-                font-size: 0.85rem !important;
+                font-size: 0.78rem !important;
                 min-width: 0 !important;
             }
             /* Botões de ano "colados" — sobreposição sutil de 1px cria
