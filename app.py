@@ -3708,7 +3708,7 @@ elif aba == "Despacho Térmico":
             [class*="st-key-termico_sistema_btn_ano_"] button p,
             [class*="st-key-termico_sistema_btn_ano_"] button div,
             [class*="st-key-termico_sistema_btn_ano_"] button span {
-                font-size: 0.78rem !important;
+                font-size: 0.95rem !important;
             }
             /* Botões de ano "colados" — sobreposição sutil de 1px cria
                aparência de segmento contínuo (Fase H — Item 4).
@@ -3716,6 +3716,15 @@ elif aba == "Despacho Térmico":
             [class*="st-key-termico_sistema_btn_ano_"] button[kind] {
                 margin-left: -10px !important;
                 border-radius: 0 !important;
+            }
+            /* Ajuste fino do primeiro botão da row de anos (2022) —
+               empurra 3px à direita pra alinhar visualmente com o
+               texto do selectbox Granularidade acima. Sobrescreve o
+               margin-left: -10px da regra "Botões de ano colados"
+               anterior (por maior especificidade do :first-child).
+               Calibrado iterativamente via DevTools (Fase H bis). */
+            [class*="st-key-termico_sistema_btn_ano_"]:first-child button[kind] {
+                margin-left: 3px !important;
             }
             /* Botões de período Mensal (12M/Max): nowrap + padding
                reduzido + min-width:0. Paridade defensiva com a regra
@@ -3906,74 +3915,70 @@ elif aba == "Despacho Térmico":
             # Row 2 envolvida em st.container(key=) pra CSS targeting
             # do gap (Fase H.7.B-bis). Classe `st-key-...row2` no DOM.
             with st.container(key="termico_sistema_trimestral_row2"):
-                # Layout 8 cols: [0.1 spacer inicial] + 6 botões (5 anos +
-                # LTM, proporção 0.55 cada = 3.3 total) + spacer 6.6.
-                # Spacer inicial empurra botões pra direita pra alinhar
-                # com selectbox Granularidade acima. Proporção 0.55 (vs
-                # 0.5 anterior) compensa gaps internos do st.columns
-                # pra LTM terminar visualmente no fim do selectbox
-                # Granularidade (calibrado H.8.A).
-                # Índices: cols_anos[0]=spacer, [1]=2022 ... [5]=2026,
-                # [6]=LTM, [7]=spacer final.
-                # Fase E.5 original.
-                cols_anos = st.columns([0.1, 0.55, 0.55, 0.55, 0.55, 0.55, 0.55, 6.6])
-                for i, ano in enumerate(anos_disponiveis):
-                    if i >= 5:
-                        break  # defesa: layout suporta até 5 anos
-                    ativo_ano = ano in anos_marcados
-                    with cols_anos[i + 1]:
-                        if st.button(
-                            str(ano),
-                            use_container_width=True,
-                            key=f"termico_sistema_btn_ano_{ano}",
-                            type="primary" if ativo_ano else "secondary",
-                        ):
-                            # Click ano = toggle multi-select (Fase H — Item 6,
-                            # reverte parcial decisão 5.40 — single-select foi
-                            # removido). Preserva trims; **desliga LTM** ao
-                            # marcar ano (Fase H.1 — Ajuste 3: UX prefere
-                            # análise focada em anos específicos vs LTM puro).
-                            # Quando 1º ano é marcado SEM trims explícitos,
-                            # marca todos os 4 trims pra UX coerente (default
-                            # = ano cheio). Edge case "tudo desmarcado" abaixo
-                            # garante que LTM volte a ativar se anos vazios.
-                            if ativo_ano:
-                                st.session_state["termico_sistema_anos_comparacao"] = [
-                                    a for a in anos_marcados if a != ano
-                                ]
-                            else:
-                                if not trims_marcados:
-                                    st.session_state["termico_sistema_trimestres_marcados"] = [1, 2, 3, 4]
-                                st.session_state["termico_sistema_anos_comparacao"] = sorted(
-                                    anos_marcados + [ano]
-                                )
-                                st.session_state["termico_sistema_ltm_marcado"] = False
-                            st.rerun()
-
-                # Botão LTM — janela móvel "últimos 4 trimestres" (Fase E.8).
-                # Comportamento depende do modo (Fase E.9):
-                #   - ano_completo: single-select; LTM ativo é no-op (força mantém);
-                #     LTM inativo substitui ano selecionado.
-                #   - historico: toggle independente.
-                with cols_anos[6]:
-                    if st.button(
-                        "LTM",
-                        use_container_width=True,
-                        key="termico_sistema_btn_ano_LTM",
-                        type="primary" if ltm_marcado else "secondary",
-                        help="Últimos 4 trimestres (móveis)",
-                    ):
-                        if modo_trim == "ano_completo":
-                            if ltm_marcado:
-                                pass  # no-op (não pode desmarcar tudo)
-                            else:
-                                # Single-select: substitui ano selecionado
-                                st.session_state["termico_sistema_anos_comparacao"] = []
-                                st.session_state["termico_sistema_ltm_marcado"] = True
+                # Wrapper externo de proporção 3.55 alinha os botões com
+                # col_g (3.6) da row 1, calibrado empiricamente via
+                # DevTools (Fase H bis — espelho do Eneva). Dentro: 6
+                # cols equidistantes (5 anos + LTM).
+                col_anos_wrapper, _spc_anos = st.columns([3.55, 6.45])
+                with col_anos_wrapper:
+                    cols_anos = st.columns(6)
+                    for i, ano in enumerate(anos_disponiveis):
+                        if i >= 5:
+                            break  # defesa: layout suporta até 5 anos
+                        ativo_ano = ano in anos_marcados
+                        with cols_anos[i]:
+                            if st.button(
+                                str(ano),
+                                use_container_width=True,
+                                key=f"termico_sistema_btn_ano_{ano}",
+                                type="primary" if ativo_ano else "secondary",
+                            ):
+                                # Click ano = toggle multi-select (Fase H — Item 6,
+                                # reverte parcial decisão 5.40 — single-select foi
+                                # removido). Preserva trims; **desliga LTM** ao
+                                # marcar ano (Fase H.1 — Ajuste 3: UX prefere
+                                # análise focada em anos específicos vs LTM puro).
+                                # Quando 1º ano é marcado SEM trims explícitos,
+                                # marca todos os 4 trims pra UX coerente (default
+                                # = ano cheio). Edge case "tudo desmarcado" abaixo
+                                # garante que LTM volte a ativar se anos vazios.
+                                if ativo_ano:
+                                    st.session_state["termico_sistema_anos_comparacao"] = [
+                                        a for a in anos_marcados if a != ano
+                                    ]
+                                else:
+                                    if not trims_marcados:
+                                        st.session_state["termico_sistema_trimestres_marcados"] = [1, 2, 3, 4]
+                                    st.session_state["termico_sistema_anos_comparacao"] = sorted(
+                                        anos_marcados + [ano]
+                                    )
+                                    st.session_state["termico_sistema_ltm_marcado"] = False
                                 st.rerun()
-                        else:  # historico — toggle independente
-                            st.session_state["termico_sistema_ltm_marcado"] = not ltm_marcado
-                            st.rerun()
+
+                    # Botão LTM — janela móvel "últimos 4 trimestres" (Fase E.8).
+                    # Comportamento depende do modo (Fase E.9):
+                    #   - ano_completo: single-select; LTM ativo é no-op (força mantém);
+                    #     LTM inativo substitui ano selecionado.
+                    #   - historico: toggle independente.
+                    with cols_anos[5]:
+                        if st.button(
+                            "LTM",
+                            use_container_width=True,
+                            key="termico_sistema_btn_ano_LTM",
+                            type="primary" if ltm_marcado else "secondary",
+                            help="Últimos 4 trimestres (móveis)",
+                        ):
+                            if modo_trim == "ano_completo":
+                                if ltm_marcado:
+                                    pass  # no-op (não pode desmarcar tudo)
+                                else:
+                                    # Single-select: substitui ano selecionado
+                                    st.session_state["termico_sistema_anos_comparacao"] = []
+                                    st.session_state["termico_sistema_ltm_marcado"] = True
+                                    st.rerun()
+                            else:  # historico — toggle independente
+                                st.session_state["termico_sistema_ltm_marcado"] = not ltm_marcado
+                                st.rerun()
 
                 # H.7.D: trims migrados pra st.checkbox nativo (key prefix
                 # `_chk_t_`). Visual herdado do filter grayscale global
@@ -4604,7 +4609,7 @@ elif aba == "Despacho Térmico":
             [class*="st-key-termico_eneva_btn_ano_"] button p,
             [class*="st-key-termico_eneva_btn_ano_"] button div,
             [class*="st-key-termico_eneva_btn_ano_"] button span {
-                font-size: 0.78rem !important;
+                font-size: 0.95rem !important;
             }
             /* Botões de ano "colados" — sobreposição sutil de 1px cria
                aparência de segmento contínuo (Fase H — Item 4).
@@ -4612,6 +4617,15 @@ elif aba == "Despacho Térmico":
             [class*="st-key-termico_eneva_btn_ano_"] button[kind] {
                 margin-left: -10px !important;
                 border-radius: 0 !important;
+            }
+            /* Ajuste fino do primeiro botão da row de anos (2022) —
+               empurra 3px à direita pra alinhar visualmente com o
+               texto do selectbox Granularidade acima. Sobrescreve o
+               margin-left: -10px da regra "Botões de ano colados"
+               anterior (por maior especificidade do :first-child).
+               Calibrado iterativamente via DevTools (Fase H bis). */
+            [class*="st-key-termico_eneva_btn_ano_"]:first-child button[kind] {
+                margin-left: 3px !important;
             }
             /* Botões de período Mensal (12M/Max): nowrap + padding
                reduzido pra caber em 1 linha nas colunas estreitas
@@ -4924,73 +4938,70 @@ elif aba == "Despacho Térmico":
             # Row 2 envolvida em st.container(key=) pra CSS targeting
             # do gap (Fase H.7.B-bis). Classe `st-key-...row2` no DOM.
             with st.container(key="termico_eneva_trimestral_row2"):
-                # Layout 8 cols: [0.1 spacer inicial] + 6 botões (5 anos +
-                # LTM, proporção 0.55 cada = 3.3 total) + spacer 6.6.
-                # Spacer inicial empurra botões pra direita pra alinhar
-                # com selectbox Granularidade acima. Proporção 0.55 (vs
-                # 0.5 anterior) compensa gaps internos do st.columns
-                # pra LTM terminar visualmente no fim do selectbox
-                # Granularidade (calibrado H.8.A).
-                # Índices: cols_anos[0]=spacer, [1]=2022 ... [5]=2026,
-                # [6]=LTM, [7]=spacer final.
-                cols_anos = st.columns([0.1, 0.55, 0.55, 0.55, 0.55, 0.55, 0.55, 6.6])
-                for i, ano in enumerate(anos_disponiveis):
-                    if i >= 5:
-                        break  # defesa: layout suporta até 5 anos
-                    ativo_ano = ano in anos_marcados
-                    with cols_anos[i + 1]:
-                        if st.button(
-                            str(ano),
-                            use_container_width=True,
-                            key=f"termico_eneva_btn_ano_{ano}",
-                            type="primary" if ativo_ano else "secondary",
-                        ):
-                            # Click ano = toggle multi-select (Fase H — Item 6,
-                            # reverte parcial decisão 5.40 — single-select foi
-                            # removido). Preserva trims; **desliga LTM** ao
-                            # marcar ano (Fase H.1 — Ajuste 3: UX prefere
-                            # análise focada em anos específicos vs LTM puro).
-                            # Quando 1º ano é marcado SEM trims explícitos,
-                            # marca todos os 4 trims pra UX coerente (default
-                            # = ano cheio). Edge case "tudo desmarcado" abaixo
-                            # garante que LTM volte a ativar se anos vazios.
-                            if ativo_ano:
-                                st.session_state["termico_eneva_anos_comparacao"] = [
-                                    a for a in anos_marcados if a != ano
-                                ]
-                            else:
-                                if not trims_marcados:
-                                    st.session_state["termico_eneva_trims_marcados"] = [1, 2, 3, 4]
-                                st.session_state["termico_eneva_anos_comparacao"] = sorted(
-                                    anos_marcados + [ano]
-                                )
-                                st.session_state["termico_eneva_ltm_marcado"] = False
-                            st.rerun()
-
-                # Botão LTM — janela móvel "últimos 4 trimestres" (decisão 5.38).
-                # Comportamento depende do modo (decisão 5.40):
-                #   - ano_completo: single-select; LTM ativo é no-op (força mantém);
-                #     LTM inativo substitui ano selecionado.
-                #   - historico: toggle independente.
-                with cols_anos[6]:
-                    if st.button(
-                        "LTM",
-                        use_container_width=True,
-                        key="termico_eneva_btn_ano_LTM",
-                        type="primary" if ltm_marcado else "secondary",
-                        help="Últimos 4 trimestres (móveis)",
-                    ):
-                        if modo_trim == "ano_completo":
-                            if ltm_marcado:
-                                pass  # no-op (não pode desmarcar tudo)
-                            else:
-                                # Single-select: substitui ano selecionado
-                                st.session_state["termico_eneva_anos_comparacao"] = []
-                                st.session_state["termico_eneva_ltm_marcado"] = True
+                # Wrapper externo de proporção 3.55 alinha os botões com
+                # col_g (3.6) da row 1, calibrado empiricamente via
+                # DevTools (Fase H bis). Dentro: 6 cols equidistantes
+                # (5 anos + LTM).
+                col_anos_wrapper, _spc_anos = st.columns([3.55, 6.45])
+                with col_anos_wrapper:
+                    cols_anos = st.columns(6)
+                    for i, ano in enumerate(anos_disponiveis):
+                        if i >= 5:
+                            break  # defesa: layout suporta até 5 anos
+                        ativo_ano = ano in anos_marcados
+                        with cols_anos[i]:
+                            if st.button(
+                                str(ano),
+                                use_container_width=True,
+                                key=f"termico_eneva_btn_ano_{ano}",
+                                type="primary" if ativo_ano else "secondary",
+                            ):
+                                # Click ano = toggle multi-select (Fase H — Item 6,
+                                # reverte parcial decisão 5.40 — single-select foi
+                                # removido). Preserva trims; **desliga LTM** ao
+                                # marcar ano (Fase H.1 — Ajuste 3: UX prefere
+                                # análise focada em anos específicos vs LTM puro).
+                                # Quando 1º ano é marcado SEM trims explícitos,
+                                # marca todos os 4 trims pra UX coerente (default
+                                # = ano cheio). Edge case "tudo desmarcado" abaixo
+                                # garante que LTM volte a ativar se anos vazios.
+                                if ativo_ano:
+                                    st.session_state["termico_eneva_anos_comparacao"] = [
+                                        a for a in anos_marcados if a != ano
+                                    ]
+                                else:
+                                    if not trims_marcados:
+                                        st.session_state["termico_eneva_trims_marcados"] = [1, 2, 3, 4]
+                                    st.session_state["termico_eneva_anos_comparacao"] = sorted(
+                                        anos_marcados + [ano]
+                                    )
+                                    st.session_state["termico_eneva_ltm_marcado"] = False
                                 st.rerun()
-                        else:  # historico — toggle independente
-                            st.session_state["termico_eneva_ltm_marcado"] = not ltm_marcado
-                            st.rerun()
+
+                    # Botão LTM — janela móvel "últimos 4 trimestres" (decisão 5.38).
+                    # Comportamento depende do modo (decisão 5.40):
+                    #   - ano_completo: single-select; LTM ativo é no-op (força mantém);
+                    #     LTM inativo substitui ano selecionado.
+                    #   - historico: toggle independente.
+                    with cols_anos[5]:
+                        if st.button(
+                            "LTM",
+                            use_container_width=True,
+                            key="termico_eneva_btn_ano_LTM",
+                            type="primary" if ltm_marcado else "secondary",
+                            help="Últimos 4 trimestres (móveis)",
+                        ):
+                            if modo_trim == "ano_completo":
+                                if ltm_marcado:
+                                    pass  # no-op (não pode desmarcar tudo)
+                                else:
+                                    # Single-select: substitui ano selecionado
+                                    st.session_state["termico_eneva_anos_comparacao"] = []
+                                    st.session_state["termico_eneva_ltm_marcado"] = True
+                                    st.rerun()
+                            else:  # historico — toggle independente
+                                st.session_state["termico_eneva_ltm_marcado"] = not ltm_marcado
+                                st.rerun()
 
                 # Trims 1T/2T/3T/4T como st.checkbox nativo (Fase H.7.C).
                 # Visual herdado do CSS global (filter grayscale →
