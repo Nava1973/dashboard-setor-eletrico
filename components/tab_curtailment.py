@@ -434,6 +434,27 @@ def _render_period_controls_curt(
 
     # Toggle %/GWh (opcional — só quando unit_toggle_key foi passado).
     if unit_toggle_key is not None:
+        # CSS scoped: força "GWh" em 1 linha. Sem isso, o wrapper do
+        # help= (stTooltipHoverTarget) reduz espaço interno do botão e
+        # o texto quebra em "GW"/"h". Combinação:
+        # - white-space: nowrap (não quebra entre glifos);
+        # - padding 0.25rem (default Streamlit ~0.75rem; ganha ~16px
+        #   de espaço útil, evitando overflow silencioso).
+        # Seletor casa st-key-*unit_pct + st-key-*unit_gwh,
+        # independente de key_prefix (acoplamento mais estável).
+        st.markdown(
+            """
+            <style>
+            [class*="st-key-"][class*="unit_pct"] button,
+            [class*="st-key-"][class*="unit_gwh"] button {
+                white-space: nowrap !important;
+                padding-left: 0.25rem !important;
+                padding-right: 0.25rem !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
         unidade_atual = st.session_state[unit_toggle_key]
         with cols[n + 1]:
             if st.button(
