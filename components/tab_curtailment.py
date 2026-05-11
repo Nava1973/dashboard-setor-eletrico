@@ -317,6 +317,7 @@ def _render_period_controls_curt(
     cache_data_ini_atual: Optional[date] = None,
     hard_min: Optional[date] = None,
     on_expansion_request: Optional[Callable[[str], None]] = None,
+    unit_toggle_key: Optional[str] = None,
 ):
     """N botões de preset + 2 date_inputs em 1 linha. Botão primary
     (amarelo via CSS global do app.py) quando preset ativo.
@@ -360,7 +361,21 @@ def _render_period_controls_curt(
                     break
 
     n = len(presets)
-    cols = st.columns([1] * n + [0.3, 1.4, 1.4])
+    if unit_toggle_key is not None:
+        # Init defensivo do state do toggle (default "pct").
+        if unit_toggle_key not in st.session_state:
+            st.session_state[unit_toggle_key] = "pct"
+        # Layout: presets + spacer + % + GWh + spacer + 2 date_inputs.
+        cols = st.columns(
+            [1] * n + [0.3, 0.7, 0.7, 0.3, 1.4, 1.4]
+        )
+        idx_data_ini = n + 4
+        idx_data_fim = n + 5
+    else:
+        # Layout legado (backward compat): presets + spacer + 2 date_inputs.
+        cols = st.columns([1] * n + [0.3, 1.4, 1.4])
+        idx_data_ini = n + 1
+        idx_data_fim = n + 2
 
     for i, (label, data_ini_fn, is_max) in enumerate(presets):
         with cols[i]:
@@ -417,13 +432,35 @@ def _render_period_controls_curt(
                 st.session_state[session_key_fim] = max_d
                 st.rerun()
 
-    with cols[n + 1]:
+    # Toggle %/GWh (opcional — só quando unit_toggle_key foi passado).
+    if unit_toggle_key is not None:
+        unidade_atual = st.session_state[unit_toggle_key]
+        with cols[n + 1]:
+            if st.button(
+                "%", use_container_width=True,
+                key=f"{key_prefix}unit_pct",
+                type="primary" if unidade_atual == "pct" else "secondary",
+                help="Mostrar gráfico em % de curtailment",
+            ):
+                st.session_state[unit_toggle_key] = "pct"
+                st.rerun()
+        with cols[n + 2]:
+            if st.button(
+                "GWh", use_container_width=True,
+                key=f"{key_prefix}unit_gwh",
+                type="primary" if unidade_atual == "gwh" else "secondary",
+                help="Mostrar gráfico em GWh frustrados (CNF + ENE + REL)",
+            ):
+                st.session_state[unit_toggle_key] = "gwh"
+                st.rerun()
+
+    with cols[idx_data_ini]:
         st.date_input(
             "Data inicial", min_value=min_d, max_value=max_d,
             key=session_key_ini,
             format="DD/MM/YYYY",
         )
-    with cols[n + 2]:
+    with cols[idx_data_fim]:
         st.date_input(
             "Data final", min_value=min_d, max_value=max_d,
             key=session_key_fim,
@@ -557,6 +594,9 @@ def _render_visao_geral(
         "SIN" no padrão Brasil; nome do grupo/unidade.upper() em modo
         drill-down. Default "SIN" se None.
     """
+    # Modo do toggle %/GWh (Edit C). Default "pct" se state ausente.
+    unidade_modo = st.session_state.get("curt_unidade", "pct")
+
     if filtro_unidade is not None and filtro_grupo is not None:
         raise ValueError(
             "filtro_unidade e filtro_grupo são mutuamente exclusivos — "
@@ -609,11 +649,12 @@ def _render_visao_geral(
     # =========================================================================
     # Tag de granularidade (decisão 5.22)
     # =========================================================================
+    _unidade_label = "GWh curtailment" if unidade_modo == "gwh" else "% curtailment"
     st.markdown(
         f'<div style="font-family:\'Inter\', sans-serif; '
         f'font-size:0.9rem; color:#1A1A1A; font-weight:500; '
         f'letter-spacing:0.04em; margin:0 0 0.5rem 0;">'
-        f'{granularidade_ui} · % curtailment'
+        f'{granularidade_ui} · {_unidade_label}'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -634,25 +675,61 @@ def _render_visao_geral(
     razoes_ordem = ["ENE", "CNF", "REL"]
     for razao in razoes_ordem:
         col_pct = f"PCT_{razao}"
-        if col_pct not in s.columns:
+        col_mwh = f"FRUSTRADO_{razao}_MWH"
+        col_needed = col_mwh if unidade_modo == "gwh" else col_pct
+        if col_needed not in s.columns:
             continue
         cor = CORES_RAZAO[razao]
         label_razao = LABELS_RAZAO[razao]
         # Padded label pra alinhamento monospace no hover unified
         label_fix = label_razao.ljust(15).replace(" ", "&nbsp;")
+        # y em % (×100) ou em GWh (MWh / 1000) conforme toggle. Hover usa
+        # formato BR via separators=",." setado no layout.
+        if unidade_modo == "gwh":
+            y_vals = s[col_mwh] / 1000.0
+            _y_format = "%{y:,.2f} GWh"
+        else:
+            y_vals = s[col_pct] * 100
+            _y_format = "%{y:.2f}%"
         fig.add_trace(go.Bar(
             x=s["PERIODO_LABEL"],
-            y=s[col_pct] * 100,
+            y=y_vals,
             name=label_razao,
             marker=dict(color=cor),
             hovertemplate=(
                 f'<span style="color:{cor}; font-weight:700;">'
                 f'{label_fix}</span>'
                 '&nbsp;&nbsp;'
-                '<span style="color:#1A1A1A;">%{y:.2f}%</span>'
+                f'<span style="color:#1A1A1A;">{_y_format}</span>'
                 '<extra></extra>'
             ),
         ))
+
+    # Trace invisível "Total" — adiciona linha no hover unified com o
+    # total do período (% curtailment ou GWh frustrados, conforme toggle).
+    # marker(size=0, opacity=0) + showlegend=False = não renderiza no plot
+    # mas hovermode="x unified" agrega o ponto no tooltip.
+    if unidade_modo == "gwh":
+        y_total = s["FRUSTRADO_TOTAL_MWH"] / 1000.0
+        _y_format_total = "%{y:,.2f} GWh"
+    else:
+        y_total = s["PCT_TOTAL"] * 100
+        _y_format_total = "%{y:.2f}%"
+    _label_total_fix = "Total".ljust(15).replace(" ", "&nbsp;")
+    fig.add_trace(go.Scatter(
+        x=s["PERIODO_LABEL"],
+        y=y_total,
+        mode="markers",
+        marker=dict(size=0, opacity=0),
+        showlegend=False,
+        hovertemplate=(
+            '<span style="color:#1A1A1A; font-weight:700;">'
+            f'{_label_total_fix}</span>'
+            '&nbsp;&nbsp;'
+            f'<span style="color:#1A1A1A;">{_y_format_total}</span>'
+            '<extra></extra>'
+        ),
+    ))
 
     # TODO(curtailment): xaxis.type="category" funciona bem em Mensal/
     # Trimestral (poucos pontos), mas vai ficar amontoado em
@@ -706,8 +783,8 @@ def _render_visao_geral(
                 size=13, color=BAUHAUS_BLACK,
             ),
             zeroline=False,
-            ticksuffix="%",
-            tickformat=",.1f",
+            ticksuffix=" GWh" if unidade_modo == "gwh" else "%",
+            tickformat=",.0f" if unidade_modo == "gwh" else ",.1f",
         ),
         font=dict(family="Inter, sans-serif", size=12),
     )
@@ -1561,65 +1638,9 @@ def _render_aba_curtailment_impl() -> None:
     # ---- Registrar CSS dos KPIs (1× por render) ----
     st.markdown(_CSS_KPI_CURT, unsafe_allow_html=True)
 
-    # =========================================================================
-    # SUB-ABA selector — 3 st.button customizados em vez de st.segmented_control.
-    # Razão: segmented_control não expõe atributo estável distinguindo ativo
-    # de inativo (testado: aria-pressed/checked/selected todos vazios; classes
-    # Emotion são instáveis — armadilha 4.3 do CLAUDE.md). 3 st.button +
-    # type="primary"/"secondary" usam atributo HTML semântico (kind=) e
-    # geram class .st-key-<key> no element-container (pattern já validado
-    # no projeto, ver app.py:455-463 e decisão Sessão 4a).
-    #
-    # CSS: inverte hierarquia visual — ativo fica BRANCO com borda preta
-    # (destaca sobre cream do app); inativos ficam pretos com texto cream.
-    # Escopado via [class*="st-key-btn_curt_subaba_"] — não vaza pra outros
-    # botões type="primary" da página (presets de período mantêm amarelo).
-    # =========================================================================
-    st.markdown("""
-    <style>
-    [class*="st-key-btn_curt_subaba_"] button[kind="primary"] {
-        /* G.2 (Fase G): amarelo Bauhaus, alinha com presets de período. */
-        background-color: #F6BD16 !important;  /* BAUHAUS_YELLOW */
-        color: #1A1A1A !important;
-        border: 2px solid #1A1A1A !important;
-        border-radius: 0 !important;
-        box-shadow: none !important;
-        font-family: 'Inter', sans-serif !important;
-        font-weight: 700 !important;
-    }
-    [class*="st-key-btn_curt_subaba_"] button[kind="secondary"] {
-        background-color: #1A1A1A !important;
-        color: #F5F1E8 !important;
-        border: 2px solid #1A1A1A !important;
-        border-radius: 0 !important;
-        box-shadow: none !important;
-        font-family: 'Inter', sans-serif !important;
-        font-weight: 600 !important;
-    }
-    [class*="st-key-btn_curt_subaba_"] button:hover {
-        opacity: 0.9;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    if "curt_sub_aba" not in st.session_state:
-        st.session_state["curt_sub_aba"] = "Visão geral"
-
-    opcoes_subaba = ["Visão geral", "Por usina", "Por grupo"]
-    cols_subaba = st.columns(3)
-    for i, nome in enumerate(opcoes_subaba):
-        with cols_subaba[i]:
-            ativo = st.session_state["curt_sub_aba"] == nome
-            if st.button(
-                nome,
-                type="primary" if ativo else "secondary",
-                key=f"btn_curt_subaba_{i}",
-                use_container_width=True,
-            ):
-                st.session_state["curt_sub_aba"] = nome
-                st.rerun()
-
-    sub_aba = st.session_state["curt_sub_aba"]
+    # Sub-aba forçada em "Visão geral" — botões "Por usina"/"Por grupo"
+    # removidos da UI. Branches dead code preservados no arquivo (1751 / 1914).
+    sub_aba = "Visão geral"
 
     # =========================================================================
     # CONTROLES GLOBAIS — fonte sempre visível; granularidade + período só
@@ -1722,6 +1743,7 @@ def _render_aba_curtailment_impl() -> None:
             cache_data_ini_atual=data_ini_ampla_ui,
             hard_min=date(2022, 1, 1),  # min_d_curt (limite absoluto ONS)
             on_expansion_request=_on_expansion_request_curt,
+            unit_toggle_key="curt_unidade",
         )
 
         # Caption indicativa (lê data efetiva do cache atual). Padrão
