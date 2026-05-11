@@ -3960,6 +3960,218 @@ Reset automático do preset ao trocar granularidade.
 3. Badge "baixa representatividade" usando `mwmed_medio` (já calculado e disponível no DataFrame).
 4. Avaliar se solar amarelo sobre creme nos labels precisa de mostarda escura `#8B7A0F` (decisão atual: manter cor da barra, validamos no uso).
 
+### 5.62 Customização de st.button via CSS scoped: gotchas e patterns
+
+Conjunto de patterns descobertos ao customizar botões Streamlit em
+escopo restrito (ex: toggles, presets). Sessão combinou 2 problemas
+distintos com a mesma raiz arquitetural — `st.button` tem estrutura
+DOM aninhada que torna seletores ingênuos inúteis.
+
+**Pattern 1 — Botões com `help=` ganham wrapper `stTooltipHoverTarget`
+que rouba espaço interno.** Em colunas estreitas, o texto quebra em 2
+linhas (sintoma observado: "GWh" → "GW"/"h"). Fix:
+
+```css
+[class*="st-key-"][class*="<sufixo>"] button {
+    white-space: nowrap !important;
+    padding-left: 0.25rem !important;
+    padding-right: 0.25rem !important;
+}
+```
+
+Aplicado em `tab_curtailment.py` pro toggle `%`/`GWh` (commit `6d08e43`).
+Seletor casa pelo sufixo da key (`unit_pct`, `unit_gwh`), independente
+de `key_prefix` no Python.
+
+**Pattern 2 — Para mudar `font-size` do TEXTO do botão, mirar
+descendentes, NÃO o `<button>` em si.** Estrutura DOM real:
+
+```
+<button>
+  <div data-testid="stMarkdownContainer">
+    <span>
+      <div data-testid="stMarkdownContainer">
+        <p>texto</p>   ← texto vive aqui
+      </div>
+    </span>
+  </div>
+</button>
+```
+
+`font-size` aplicado em `button` não cascateia porque o `<p>` interno
+tem regra própria do CSS de markdown do Streamlit com maior
+especificidade. Fix:
+
+```css
+[class*="st-key-<prefix>"] button p,
+[class*="st-key-<prefix>"] button div,
+[class*="st-key-<prefix>"] button span {
+    font-size: 0.95rem !important;
+}
+```
+
+Aplicado em ambas sub-views do Despacho Térmico (Eneva e Sistema)
+nos botões de ano (`_btn_ano_`). Commit `a1fdead` substituiu
+tentativa anterior `e3afa56` que aplicava no `<button>` direto e era
+dead code visual.
+
+**Diagnóstico via DevTools:** quando uma regra CSS scoped "não tem
+efeito", inspecionar pela aba Elements + Computed pra ver QUAL regra
+realmente está vencendo. F12 → click no elemento → Computed →
+procurar a propriedade. Se a regra esperada nem aparece na lista de
+aplicadas, é cascata/herança quebrada — alvo do seletor errado.
+
+**Quando aplicar este pattern:** customização visual de st.button
+fora do amarelo Bauhaus default (decisão 5.6) — toggles, presets,
+botões com help=, etc.
+
+**Quando NÃO aplica:** botões que herdam o estilo Bauhaus global
+sem customização (type="primary" + sem help= e em coluna larga).
+
+### 5.63 "Máx" → "Max" no Despacho Térmico (escopo restrito)
+
+**Decisão:** padronizar o label do preset Mensal `"Máx"` (com acento)
+pra `"Max"` (sem acento) APENAS nas sub-views Eneva e Sistema do
+Despacho Térmico. Outras abas (PLD, Reservatórios, ENA, Geração,
+Carga, Curtailment, Modulação) **mantêm `"Máx"`** — não fazem parte
+do escopo.
+
+**Razões:**
+
+1. **Glifo mais estreito** — `M`/`a`/`x` ASCII ocupam menos largura
+   visual que `M`/`á`/`x` (acento adiciona ~1-2px). Em colunas
+   estreitas (Eneva: 0.6/9.9 ≈ 60px por botão), folga importa.
+2. **Evita problemas de encoding** — consistente com armadilha 4.6
+   (PowerShell + UTF-8 + BOM). Embora o Write tool e `git commit -F`
+   tratem acentos corretamente, label sem acento no código simplifica
+   debug futuro.
+
+**CSS scoped acompanhou** — regras `_btn_p_` adicionadas em ambas
+sub-views com `white-space: nowrap + padding 0.25rem + min-width: 0`
+pra equalizar visual com `_btn_ano_` do Trimestral. Commit `5003674`.
+
+**Trade-off da inconsistência:** outras 7 abas mantêm `"Máx"`. Razão:
+remover acento em TODAS as abas exigiria refator massivo (≥30
+substituições espalhadas), mas a aba Despacho Térmico tem o caso
+mais crítico de espaço (`cols [0.6, 0.6, 2.9, 1.155, 1.155, 3.59]`).
+Inconsistência aceita por escopo cirúrgico.
+
+**Quando aplicar este pattern:** rename de label visual sob restrição
+de espaço, ESCOPO RESTRITO, sem afetar arquitetura.
+
+### 5.64 Refactor Trimestral: wrapper + calibragem :first-child (Fase H bis)
+
+**Decisão:** botões de ano (2022/2023/2024/2025/2026/LTM) das
+sub-views Eneva e Sistema do Despacho Térmico saíram da estrutura
+plana de 8 colunas `[0.1 + 6×0.55 + 6.6]` (soma 10, com spacers nas
+extremidades) pra **wrapper aninhado** que alinha exatamente com a
+largura do selectbox "Trimestral" da row 1:
+
+```python
+with st.container(key="termico_<sub>_trimestral_row2"):
+    col_anos_wrapper, _spc_anos = st.columns([3.55, 6.45])
+    with col_anos_wrapper:
+        cols_anos = st.columns(6)
+        for i, ano in enumerate(anos_disponiveis):
+            ...
+            with cols_anos[i]:
+                if st.button(str(ano), ...):
+                    ...
+        with cols_anos[5]:  # LTM
+            if st.button("LTM", ...):
+                ...
+```
+
+**Calibragem empírica via DevTools** — wrapper começou em `3.7`,
+iterou pra `3.55` medindo deltas left/right entre o primeiro/último
+botão e as bordas do selectbox. Padrão da Fase H estendido (Fase H
+bis).
+
+**Calibragem fina do botão 2022 (`:first-child`):** o pattern "Botões
+colados" (margin-left: -10px em TODOS `_btn_ano_`, decisão Fase H —
+Item 4) puxava o 2022 10px à esquerda do limite do wrapper. Regra
+sobrescritora:
+
+```css
+[class*="st-key-termico_<sub>_btn_ano_"]:first-child button[kind] {
+    margin-left: 3px !important;
+}
+```
+
+Especificidade `:first-child` (10) + `[kind]` vence a global `_btn_ano_`
+sem `:first-child`. **4 iterações empíricas:** -12px → -7px → -3px →
++3px (final, alinhado com o "T" de Trimestral).
+
+**Font-size aumentado** de 0.78rem → 0.95rem nas regras `_btn_ano_
+p,div,span` (decisão 5.62, pattern 2). Aproveita espaço extra do
+refactor pra texto mais legível.
+
+**Assimetria intencional Eneva ↔ Sistema** ⚠ — a regra
+`_btn_ano_ button[kind]` mantém `min-width: 0 !important` em **AMBAS**
+sub-views. Tentativa de remover só do Sistema (commit `4a005ea`,
+descartado via `git reset --hard 871234f`) **causou regressão na
+Eneva** — botão 2022 saiu do alinhamento calibrado. Causa exata não
+investigada. **Regra:** não remover `min-width: 0` sem testar
+visualmente nas DUAS sub-views.
+
+**Pendência conhecida — SIN Trimestral, botão LTM:** no Sistema, o
+LTM aparece visualmente mais largo que os botões de ano porque tem
+`help="Últimos 4 trimestres (móveis)"` que reserva espaço pro ícone
+do tooltip. **Não foi fixado nesta sessão.** Caminhos pra explorar
+em sessão futura:
+- (a) `max-width: 100%` no botão LTM
+- (b) Remover `help=` do LTM (perde tooltip, ganha consistência)
+- (c) Regra `:not(:first-child):not(:last-child)` com `min-width: 0`
+  seletivo
+
+**Commits da Fase H bis** (sessão 12/05/2026):
+
+| # | Hash | Mensagem |
+|---|---|---|
+| 1 | `6d08e43` | fix(curtailment): GWh button label em 1 linha |
+| 2 | `5003674` | fix(despacho-termico): botões 12M/Max + padroniza grafia |
+| 3 | `b20d201` | style(despacho-termico): aumenta padding dos botões |
+| 4 | `e3afa56` | style(despacho-termico): reduz font-size dos botões de ano (dead code visual — substituído pelo a1fdead) |
+| 5 | `a1fdead` | fix(despacho-termico): seletor correto pro font-size dos anos |
+| 6 | `871234f` | refactor(despacho-termico): alinhamento + tamanho dos botões de ano |
+
+### 5.65 Armadilha: st.markdown com `<script>` é sanitizado pelo Streamlit
+
+**Sintoma:** bloco `st.markdown("""<script>...console.log(...)</script>""",
+unsafe_allow_html=True)` adicionado pra medição empírica de DOM **não
+aparece no Ctrl+Shift+F do DevTools** (pelo texto único do script).
+Nenhum log no Console. Nenhum erro também — silenciosamente removido.
+
+**Causa:** apesar de `unsafe_allow_html=True`, Streamlit (versão atual)
+sanitiza tags `<script>` por segurança. Outras tags HTML passam.
+
+**Workarounds:**
+
+1. **Pra medição empírica descartável (uso desta sessão):** colar JS
+   direto no Console do DevTools (F12 → Console → paste). Não vai pro
+   git. Pattern aplicado na Fase H bis:
+
+   ```javascript
+   (() => {
+     const sel = document.querySelector('[class*="st-key-<key>"]');
+     const r = sel.getBoundingClientRect();
+     console.log(r.left, r.right, r.width);
+   })();
+   ```
+
+2. **Pra JS persistente em produção** (não usado nesta sessão, mas
+   pattern conhecido): `streamlit.components.v1.html()` cria iframe
+   isolado onde scripts rodam. Pra acessar DOM da página pai, usar
+   `window.parent.document` dentro do iframe. Decisão 5.56 documenta
+   o pattern aplicado no drill-down do Despacho Térmico SIN.
+
+**Quando aplicar este pattern:** sempre que precisar de JS no app
+Streamlit. Determinar se é descartável (Console) ou persistente
+(components.v1.html).
+
+**Quando NÃO aplica:** se basta CSS pra resolver — preferir CSS
+sempre que possível.
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
