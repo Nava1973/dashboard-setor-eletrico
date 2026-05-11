@@ -336,7 +336,7 @@ def _render_grafico_submercado(
         f'<div style="font-family:\'Inter\', sans-serif; '
         f'font-size:0.9rem; color:{BAUHAUS_BLACK}; font-weight:500; '
         f'letter-spacing:0.04em; margin:0 0 0.5rem 0;">'
-        f'{gran_label} · PLD ponderado pela geração (R$/MWh)'
+        f'{gran_label} · (R$/MWh)'
         f'</div>',
         unsafe_allow_html=True,
     )
