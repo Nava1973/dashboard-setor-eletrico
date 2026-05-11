@@ -1628,8 +1628,8 @@ with st.sidebar:
         st.session_state["aba_selecionada"] = "PLD"
 
     abas_principais = [
-        "PLD", "Reservatórios", "ENA/Chuva", "Despacho Térmico",
-        "Geração", "Carga", "Curtailment", "Modulação",
+        "PLD", "Modulação", "Reservatórios", "ENA/Chuva", "Despacho Térmico",
+        "Geração", "Carga", "Curtailment",
     ]
 
     for _aba_opcao in abas_principais:
