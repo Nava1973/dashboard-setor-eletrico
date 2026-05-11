@@ -122,8 +122,8 @@ PRESETS_POR_GRANULARIDADE = {
 
 DEFAULT_PRESET_POR_GRANULARIDADE = {
     "mensal":     "12M",
-    "trimestral": "12M",
-    "semanal":    "1M",
+    "trimestral": "24M",
+    "semanal":    "3M",
 }
 
 
