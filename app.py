@@ -3709,6 +3709,18 @@ elif aba == "Despacho Térmico":
                 margin-left: -10px !important;
                 border-radius: 0 !important;
             }
+            /* Botões de período Mensal (12M/Max): nowrap + padding
+               reduzido + min-width:0. Paridade defensiva com a regra
+               _btn_p_ da Eneva (~linha 4590). No Sistema, as colunas
+               são mais largas ([1,1,8]) e o bug de quebra em 2 linhas
+               NÃO acontece hoje — esta regra é preventiva (proteção
+               contra mudanças futuras nas larguras). */
+            [class*="st-key-termico_sistema_btn_p_"] button[kind] {
+                white-space: nowrap !important;
+                padding-left: 0.25rem !important;
+                padding-right: 0.25rem !important;
+                min-width: 0 !important;
+            }
             /* Regra `margin-top: -0.5rem` no `_btn_ano_` removida na
                Fase H.4 — B: atacava o wrapper do botão (`.stButton`),
                não o gap entre rows de st.columns. Substituída por
@@ -4083,7 +4095,7 @@ elif aba == "Despacho Térmico":
                 if (max_d_sis - data_ini_atual).days == 365:
                     preset_atual = "12M"
                 elif data_ini_atual == min_d_sis:
-                    preset_atual = "Máx"
+                    preset_atual = "Max"
 
             # Row 2 envolvida em st.container(key=) pra CSS targeting
             # do gap (Fase H.7.B-bis). Classe `st-key-...row2` no DOM.
@@ -4091,7 +4103,7 @@ elif aba == "Despacho Térmico":
                 cols_p = st.columns([1, 1, 8])
                 presets_sis = [
                     ("12M", 365, False),
-                    ("Máx", None, True),
+                    ("Max", None, True),
                 ]
                 for i, (label, delta, is_max) in enumerate(presets_sis):
                     with cols_p[i]:
@@ -4587,6 +4599,16 @@ elif aba == "Despacho Térmico":
                 margin-left: -10px !important;
                 border-radius: 0 !important;
             }
+            /* Botões de período Mensal (12M/Max): nowrap + padding
+               reduzido pra caber em 1 linha nas colunas estreitas
+               (0.6 width). Mesmo padrão do _btn_ano_ acima e do
+               fix do GWh da Curtailment. */
+            [class*="st-key-termico_eneva_btn_p_"] button[kind] {
+                white-space: nowrap !important;
+                padding-left: 0.25rem !important;
+                padding-right: 0.25rem !important;
+                min-width: 0 !important;
+            }
             /* Regra `margin-top: -0.5rem` no `_btn_ano_` removida na
                Fase H.4 — B: atacava o wrapper do botão (`.stButton`),
                não o gap entre rows de st.columns. Substituída por
@@ -4811,7 +4833,7 @@ elif aba == "Despacho Térmico":
                 if (max_d - data_ini_atual).days == 365:
                     preset_atual = "12M"
                 elif data_ini_atual == min_d:
-                    preset_atual = "Máx"
+                    preset_atual = "Max"
 
             # Row 2 envolvida em st.container(key=) pra CSS targeting
             # do gap (Fase H.7.B-bis). Classe `st-key-...row2` no DOM.
@@ -4831,7 +4853,7 @@ elif aba == "Despacho Térmico":
                 cols_p = st.columns([0.6, 0.6, 2.9, 1.155, 1.155, 3.59])
                 presets_mensal = [
                     ("12M", 365, False),
-                    ("Máx", None, True),
+                    ("Max", None, True),
                 ]
                 for i, (label, delta, is_max) in enumerate(presets_mensal):
                     with cols_p[i]:
