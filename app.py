@@ -3699,8 +3699,16 @@ elif aba == "Despacho Térmico":
                 white-space: nowrap !important;
                 padding-left: 0.40rem !important;
                 padding-right: 0.40rem !important;
-                font-size: 0.78rem !important;
                 min-width: 0 !important;
+            }
+            /* Font-size do texto interno (descendentes do <button>) — o
+               texto do botão fica em <p>/<div>/<span> aninhados, não no
+               próprio <button>. Regra aplicada ao <button> não cascateia
+               por causa de especificidade do CSS de markdown do Streamlit. */
+            [class*="st-key-termico_sistema_btn_ano_"] button p,
+            [class*="st-key-termico_sistema_btn_ano_"] button div,
+            [class*="st-key-termico_sistema_btn_ano_"] button span {
+                font-size: 0.78rem !important;
             }
             /* Botões de ano "colados" — sobreposição sutil de 1px cria
                aparência de segmento contínuo (Fase H — Item 4).
@@ -4589,8 +4597,14 @@ elif aba == "Despacho Térmico":
                 white-space: nowrap !important;
                 padding-left: 0.40rem !important;
                 padding-right: 0.40rem !important;
-                font-size: 0.78rem !important;
                 min-width: 0 !important;
+            }
+            /* Font-size do texto interno (descendentes do <button>) —
+               mesmo motivo da regra equivalente do Sistema (~linha 3705). */
+            [class*="st-key-termico_eneva_btn_ano_"] button p,
+            [class*="st-key-termico_eneva_btn_ano_"] button div,
+            [class*="st-key-termico_eneva_btn_ano_"] button span {
+                font-size: 0.78rem !important;
             }
             /* Botões de ano "colados" — sobreposição sutil de 1px cria
                aparência de segmento contínuo (Fase H — Item 4).
