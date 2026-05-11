@@ -3861,6 +3861,105 @@ planilha consultada.
   silencioso (vide rejeição da hipótese inicial "BARREIRAS II →
   SERTÃO SOLAR" desta sessão, refutada por aritmética).
 
+### 5.61 — Aba Modulação: spread de captura por (submercado, fonte)
+
+**Objetivo:** calcular e visualizar o spread de captura — diferença entre o PLD médio ponderado pela geração de cada fonte e o PLD médio flat do período — por submercado.
+
+**Definição matemática (Fórmula A — horária pura, decidida nesta sessão):**
+
+```
+spread = PLD_ponderado_pela_geração − PLD_flat
+       = Σh(mwmed × pld) / Σh(mwmed)  −  Σh(pld) / N_h
+```
+
+Interpretação: spread positivo = fonte gera mais nas horas caras (ganha vs. alocação flat). Spread negativo = gera mais nas horas baratas (perde vs. flat). Métrica padrão de mercados de energia (PJM/ERCOT/AESO).
+
+**Variantes consideradas e descartadas:**
+- Fórmula B (agregação diária primeiro, depois ponderar): perde a riqueza intradiária, mascararia o efeito real em solar.
+- Fórmula C (spread diário, média mensal dos spreads): mede outra coisa — comportamento típico de um dia, não captura ao longo do mês.
+
+**Fontes:** hidro, eólica, solar (long-format, coluna `fonte`). Termica e nuclear excluídas (objetivo é renováveis variáveis + hidráulica).
+
+**Submercados:** SE, S, NE, N. **SIN excluído** porque `load_pld_horaria()` não tem nativo (decisão arquitetural — derivação por ponderação fica como backlog).
+
+**Período:** 2022-01-01 até última hora da interseção balanço × PLD (gap típico: PLD CCEE 1-2 dias atrás de balanço ONS).
+
+**Granularidades disponíveis:**
+
+| Granularidade | Presets | Default | freq pandas |
+|---|---|---|---|
+| Mensal | 12M / Máx | 12M | M |
+| Trimestral | 12M / 24M | 24M | Q |
+| Semanal | 1M / 3M | 3M | W (Mon→Sun) |
+
+Reset automático do preset ao trocar granularidade.
+
+**Arquitetura:**
+
+- Módulo: `components/tab_modulacao.py` (~566 linhas).
+- Registrado em `app.py:41` (import) e `app.py:7831-7833` (branch dispatch).
+- Re-exportado em `components/__init__.py`.
+- Padrão wrapper defensivo: `render_aba_modulacao` + `_render_aba_modulacao_impl` (replica padrão de Curtailment/Geração Grupo).
+- Função pura de cálculo: `_calcular_spread(granularidade: str) -> pd.DataFrame` retornando colunas `periodo_inicio, submercado, fonte, spread_rs_mwh, mwmed_medio, n_horas`.
+- Resolver de janela isolado em `_resolver_janela(df, preset_label, granularidade)` — função pura, testável.
+- Formatador único `_fmt_periodo(ts, granularidade)` cobre os 3 formatos: `mai/26` (mensal), `2T26` (trimestral), `S19/26` (ISO week semanal).
+
+**Cache 2-layer:**
+
+- RAM: `@st.cache_data(ttl=30d)` em `_calcular_spread`.
+- Disco: 3 parquets independentes por granularidade:
+  - `~/.cache/dashboard-setor-eletrico/modulacao_spread_v2_mensal.parquet`
+  - `~/.cache/dashboard-setor-eletrico/modulacao_spread_v2_trimestral.parquet`
+  - `~/.cache/dashboard-setor-eletrico/modulacao_spread_v2_semanal.parquet`
+  - TTL 24h (mais conservador que default 6h porque PLD demora a fechar).
+- Prefixo `v2_` é intencional: schema mudou de `ano_mes` (v1) pra `periodo_inicio` (v2). Parquet v1 antigo fica órfão no disco — sem prejuízo.
+- Reusa `_make_disk_cache_helpers` do `data_loader.py` (decisão 5.15).
+
+**Schema validado (Sessão Modulação Fase 1, 11/05/26):**
+
+- Balanço: 572.400 linhas pós-filtro, 5 submercados, 3 fontes, frequência horária estrita (1h), 0 nulls/duplicatas/negativos/gaps.
+- PLD horária: schema `{data: datetime com hora, submercado: str, pld: float R$/MWh}`. Coluna de timestamp é `data` (não `data_hora`) — renomeada no merge.
+- Frequência: estritamente horária em ambos, merge inner por `(submercado, data_hora)` sem necessidade de resample.
+
+**UX (decisões cosméticas):**
+
+- Layout: 4 gráficos full-width empilhados (SE → S → NE → N).
+- Cada gráfico: grouped bar (3 séries), eixo Y autônomo (escalas diferentes entre submercados).
+- Linha horizontal y=0 em cada gráfico (referência crítica positivo/negativo).
+- Cores das fontes: replicadas localmente do `CORES_FONTE_GEN` do `app.py` (decisão 5.33 pendente de refator pra `utils/bauhaus_palette.py`). Hidro `#4A6FA5`, Eólica `#8FA31E`, Solar `#F6BD16`.
+- Título por gráfico: `SPREAD DE MODULAÇÃO · {NOME_COMPLETO}` em Bebas Neue, padrão decisão 5.22.
+- Subtítulo simplificado: `{Granularidade} · (R$/MWh)`.
+- Labels acima/abaixo das barras: bold, 12px, cor da barra (decisão consciente sobre baixo contraste do solar amarelo sobre fundo creme — usuário aceita).
+- Controles: selectbox de granularidade à esquerda + 2 botões preset à direita, layout `st.columns([2,4,1,1])`.
+- Decimal BR no hover via `customdata` + `.replace(".",",")` (foolproof vs. `separators`).
+- Tipografia hover: `'IBM Plex Mono', 'Courier New', monospace` (alinhamento por largura fixa).
+
+**Armadilhas / pontos de atenção:**
+
+1. **SIN pré-agregado no balanço:** o filtro `submercado.isin(["SE","S","NE","N"])` exclui explicitamente o SIN. Sem isso, double-count em agregações.
+2. **Solar = 0 em ~50% das horas (noite):** spread em janelas curtas pode ficar ruidoso. Mitigado em granularidades maiores (mensal/trimestral). Verificado empiricamente: SE × Solar tem spread negativo consistente (-50 a -190 R$/MWh) — reflete realidade do mercado em 2024-2026 (excesso de oferta solar + hidro cheia em horas diurnas).
+3. **`mwmed_medio` calculado mas não usado visualmente:** coluna pronta no DataFrame retornado para implementar badge "baixa representatividade" futura (ex: opacity reduzida quando `mwmed_medio < X`).
+4. **MIN_HORAS por granularidade:** drop hard de períodos parciais — `mensal=672`, `trimestral=2136`, `semanal=168`. Último período do dataset pode ser cortado.
+5. **Plotly `weight="bold"` em textfont:** requer Plotly ≥ 5.14 (projeto está em 5.24.1, OK).
+6. **Categórico no eixo X:** labels pré-formatados via `_fmt_periodo`, `xaxis.type="category"`. Perde zoom semântico, ganha previsibilidade visual.
+
+**Sequência de commits (5 commits em produção):**
+
+| # | Hash | Mensagem |
+|---|---|---|
+| 1 | 86df183 | feat: registra aba Modulação na sidebar |
+| 2 | f322a87 | feat: adiciona granularidade + labels + título completo |
+| 3 | ce1fdbf | style: refina labels e subtítulo |
+| 4 | 87acfa9 | style: simplifica subtítulo |
+| 5 | 99d4cc8 | style: troca defaults de preset (trimestral 24M, semanal 3M) |
+
+**Próximos passos pendentes (backlog):**
+
+1. PLD nacional ponderado (média carga/geração ponderada dos 4 submercados) pra habilitar visualização SIN agregada.
+2. Refator paleta Bauhaus pra `utils/bauhaus_palette.py` (decisão 5.33) — bloqueado por circular import, mas o backlog cresceu (Curtailment + Geração Grupo + Modulação duplicam constantes).
+3. Badge "baixa representatividade" usando `mwmed_medio` (já calculado e disponível no DataFrame).
+4. Avaliar se solar amarelo sobre creme nos labels precisa de mostarda escura `#8B7A0F` (decisão atual: manter cor da barra, validamos no uso).
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
@@ -4466,6 +4565,30 @@ baseadas no relatório.
       drill-down clicavel).
     - Bordas pretas dos iframes plotly_events sumiram (setInterval
       restaurado).
+
+29. **Aba Modulação criada (11/05/2026)** — spread de captura por
+    (submercado, fonte), granularidades Mensal/Trimestral/Semanal.
+    Decisão 5.61, 5 commits sequenciais (`86df183` → `99d4cc8`),
+    deploy em produção.
+
+    Fórmula A (horária pura): PLD ponderado pela geração − PLD flat
+    (R$/MWh). Positivo = fonte gera mais nas horas caras; negativo =
+    gera mais nas horas baratas. Padrão de mercados de energia.
+
+    Arquitetura: `components/tab_modulacao.py` (~566 linhas), cache
+    2-layer (RAM 30d + disk 24h), 3 parquets independentes por
+    granularidade (`modulacao_spread_v2_{mensal,trimestral,semanal}`).
+    Reusa `load_balanco_subsistema()` + `load_pld_horaria()` via
+    merge inner por `(submercado, data_hora)`.
+
+    UX: 4 gráficos full-width empilhados (SE/S/NE/N), grouped bar
+    com linha y=0, eixo Y autônomo por submercado, labels bold
+    coloridos acima das barras, hover decimal BR. Selectbox de
+    granularidade + 2 botões preset contextuais (defaults 12M/24M/3M).
+
+    Backlog: PLD nacional ponderado (habilita SIN), refator paleta
+    Bauhaus pra `utils/bauhaus_palette.py` (decisão 5.33), badge
+    "baixa representatividade" via `mwmed_medio`.
 
 ---
 
