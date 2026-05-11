@@ -3697,8 +3697,8 @@ elif aba == "Despacho Térmico":
                no Eneva. */
             [class*="st-key-termico_sistema_btn_ano_"] button[kind] {
                 white-space: nowrap !important;
-                padding-left: 0.25rem !important;
-                padding-right: 0.25rem !important;
+                padding-left: 0.40rem !important;
+                padding-right: 0.40rem !important;
                 font-size: 0.85rem !important;
                 min-width: 0 !important;
             }
@@ -3717,8 +3717,8 @@ elif aba == "Despacho Térmico":
                contra mudanças futuras nas larguras). */
             [class*="st-key-termico_sistema_btn_p_"] button[kind] {
                 white-space: nowrap !important;
-                padding-left: 0.25rem !important;
-                padding-right: 0.25rem !important;
+                padding-left: 0.40rem !important;
+                padding-right: 0.40rem !important;
                 min-width: 0 !important;
             }
             /* Regra `margin-top: -0.5rem` no `_btn_ano_` removida na
@@ -4587,8 +4587,8 @@ elif aba == "Despacho Térmico":
                bug do tick branco da H.4 — C1). */
             [class*="st-key-termico_eneva_btn_ano_"] button[kind] {
                 white-space: nowrap !important;
-                padding-left: 0.25rem !important;
-                padding-right: 0.25rem !important;
+                padding-left: 0.40rem !important;
+                padding-right: 0.40rem !important;
                 font-size: 0.85rem !important;
                 min-width: 0 !important;
             }
@@ -4605,8 +4605,8 @@ elif aba == "Despacho Térmico":
                fix do GWh da Curtailment. */
             [class*="st-key-termico_eneva_btn_p_"] button[kind] {
                 white-space: nowrap !important;
-                padding-left: 0.25rem !important;
-                padding-right: 0.25rem !important;
+                padding-left: 0.40rem !important;
+                padding-right: 0.40rem !important;
                 min-width: 0 !important;
             }
             /* Regra `margin-top: -0.5rem` no `_btn_ano_` removida na
