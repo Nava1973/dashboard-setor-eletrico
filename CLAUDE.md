@@ -3685,6 +3685,47 @@ REGRA pratica de prefixo:
 - `inspect_*`: descoberta inicial de schema/dataset
 - (sem prefixo): utilitario reutilizavel, versionado
 
+### 5.59 Refactor UI Curtailment - remove sub-abas, adiciona toggle %/GWh (08-09/05/2026)
+
+CONTEXTO: aba Curtailment originalmente tinha 3 sub-abas no topo (Visao geral
+/ Por usina / Por grupo). Apos implementacao do dropdown "Entidade" (que
+permite escolher SIN, grupo proprietario, ou usina individual em 1 controle),
+as sub-abas viraram redundantes - o dropdown ja cobre os mesmos casos de uso.
+
+DECISAO:
+1. Remover botoes de sub-aba do topo, forcar sub_aba="Visao geral" hardcoded.
+2. Preservar funcoes _render_por_unidade e _placeholder_em_construcao no
+   arquivo (dead code intencional) - pode haver retorno no futuro.
+3. Adicionar toggle binario %/GWh entre presets de periodo e date_inputs,
+   default % (modo atual). Mesma decomposicao por razao (ENE/CNF/REL).
+4. Adicionar linha "Total" no hover unified como ultima linha (soma das 3
+   razoes no periodo, usando PCT_TOTAL ou FRUSTRADO_TOTAL_MWH ja calculados
+   por serie_temporal).
+
+POR QUE:
+- UI mais limpa: 1 linha de controles em vez de 2.
+- Dropdown ja eh entidade abrangente, botoes eram redundantes.
+- Toggle GWh permite analise de magnitude absoluta (volume em GWh frustrados),
+  complementando a visao relativa em % curtailment.
+- Linha Total no hover responde a pergunta "qual o curtailment total deste
+  periodo?" sem precisar de KPI extra.
+
+PADROES TECNICOS APLICADOS:
+- Toggle: parametro opcional unit_toggle_key no helper compartilhado
+  _render_period_controls_curt. Backward compat (None = layout legado).
+- State em st.session_state["curt_unidade"], valores "pct"|"gwh".
+- Plot condicional em _render_visao_geral via leitura de session_state no
+  topo da funcao (C-I em vez de passar param - 1 caller so).
+- Trace invisivel pro Total: go.Scatter mode=markers opacity=0 +
+  showlegend=False. Plotly agrega no hover unified automaticamente.
+
+REVERSIBILIDADE: alta. Botoes de sub-aba ficaram em historico git (commit
+725b4e7 contem o codigo removido). Funcoes _render_por_unidade preservadas
+no arquivo. Toggle eh aditivo - remover unit_toggle_key=... no caller
+desativa sem outras mudancas.
+
+REFERENCIA: commit 725b4e7 (sessao Sao Paulo BR).
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
