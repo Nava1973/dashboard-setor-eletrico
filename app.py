@@ -1661,6 +1661,33 @@ with st.sidebar:
                     st.session_state["termico_subview"] = _valor
                     st.rerun()
 
+        # Sub-itens condicionais embaixo de "Geração" (decisão 5.37 — pendente
+        # de doc): SIN (conteúdo histórico inalterado) + Eólica/Solar por Grupo.
+        # Keys com prefixo `nav_sub_gen_` casam com o CSS `[class*="st-key-nav_sub_"]`
+        # via match por prefixo — sem CSS dedicado.
+        if _aba_opcao == "Geração" and _is_active:
+            if "geracao_subview" not in st.session_state:
+                st.session_state["geracao_subview"] = "SIN"
+            _subviews_gen = [
+                ("SIN", "SIN"),
+                ("Eólica/Solar por Grupo", "Grupo"),
+            ]
+            for _label, _valor in _subviews_gen:
+                _is_sub_active = (
+                    st.session_state["geracao_subview"] == _valor
+                )
+                _label_display = (
+                    f"│ {_label}" if _is_sub_active else _label
+                )
+                if st.button(
+                    _label_display,
+                    key=f"nav_sub_gen_{_valor}",
+                    type="primary" if _is_sub_active else "secondary",
+                    use_container_width=True,
+                ):
+                    st.session_state["geracao_subview"] = _valor
+                    st.rerun()
+
     aba = st.session_state["aba_selecionada"]
 
     st.divider()
@@ -5535,12 +5562,14 @@ elif aba == "Despacho Térmico":
             unsafe_allow_html=True,
         )
 
-elif aba == "Geração":
+elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "SIN":
     # -----------------------------------------------------------------------
-    # Aba Geração — stacked area de geração por fonte (térmica/hidro/eólica/
-    # solar) + linha tracejada de carga verificada. Fonte ONS balanço de
-    # subsistemas. Inclui anotação da quebra metodológica de 29/04/2023
-    # (carga passa a incluir MMGD).
+    # Aba Geração — sub-view SIN (default). Stacked area de geração por fonte
+    # (térmica/hidro/eólica/solar) + linha tracejada de carga verificada.
+    # Fonte ONS balanço de subsistemas. Inclui anotação da quebra metodológica
+    # de 29/04/2023 (carga passa a incluir MMGD).
+    # Sub-view "Grupo" (Eólica/Solar por Grupo) é renderizada em branch
+    # separado abaixo (componente components.tab_geracao_grupo).
     # -----------------------------------------------------------------------
     st.markdown("# GERAÇÃO")
     st.markdown(
@@ -6489,6 +6518,16 @@ elif aba == "Geração":
             mime="text/csv",
             use_container_width=False,
         )
+
+elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "Grupo":
+    # -----------------------------------------------------------------------
+    # Aba Geração — sub-view "Eólica/Solar por Grupo" (decisão 5.37 pendente).
+    # Reusa o df pós-rateio da Curtailment (Caminho A) — mesma janela ampla
+    # 15M e mesmo cache disco compartilhado via st.session_state["curt_janela_modo"].
+    # Componentizada em components/tab_geracao_grupo.py.
+    # -----------------------------------------------------------------------
+    from components.tab_geracao_grupo import render_aba_geracao_grupo
+    render_aba_geracao_grupo()
 
 elif aba == "Carga":
     # -----------------------------------------------------------------------
