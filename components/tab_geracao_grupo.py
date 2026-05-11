@@ -464,11 +464,12 @@ def _render_grafico_grupo(
     fig = go.Figure()
 
     # Padded labels pra alinhamento monospace no hover unified.
-    # "Eólica" tem 6 chars, "Solar" e "Total" têm 5 — ljust(8) alinha
-    # os 3 com 2-3 espaços de respiro à direita.
+    # "Eólica" tem 6 chars, "Solar" 5 — ljust(8) alinha os 2 com
+    # 2-3 espaços de respiro à direita. "Total (E+S)" tem 11 chars,
+    # precisa ljust(12) próprio pra preservar alinhamento.
     label_eol_fix   = "Eólica".ljust(8).replace(" ", "&nbsp;")
     label_sol_fix   = "Solar".ljust(8).replace(" ", "&nbsp;")
-    label_total_fix = "Total".ljust(8).replace(" ", "&nbsp;")
+    label_total_fix = "Total (E+S)".ljust(12).replace(" ", "&nbsp;")
 
     fig.add_trace(go.Bar(
         x=df["PERIODO_LABEL"],

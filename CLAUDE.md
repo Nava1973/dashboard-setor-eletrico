@@ -3726,6 +3726,141 @@ desativa sem outras mudancas.
 
 REFERENCIA: commit 725b4e7 (sessao Sao Paulo BR).
 
+### 5.60 Equatorial Solar 4T25: correção mapeamento Excel + UX hover "Total (E+S)" (11/05/2026)
+
+**Contexto:** durante implementação da sub-aba "Eólica/Solar por
+Grupo" (sessão 11/05/2026, commit `1eb6c5a`), descobriu-se que o
+dashboard mostrava 148 MWm 4T25 pra Equatorial Solar vs 99 MWm
+que a Equatorial reporta em release como geração líquida.
+
+**Investigação:**
+
+- Release Equatorial 4T25: Portfólio Solar (líquido) = 213,3 GWh
+  / 96,6 MWm; Constrained-Off = 129,5 GWh / 58,6 MWm; ex-CO
+  (potencial) = 342,8 GWh / 155,2 MWm.
+- `OUTPUT_MWH` no `_padronizar` captura geração LÍQUIDA
+  (pós-curtailment, verificada), equivalente à linha "Portfólio
+  Solar" do release. `FRUSTRADO_MWH` captura geração frustrada
+  (Constrained-Off). `OUTPUT_MWH + FRUSTRADO_MWH` = geração
+  potencial pré-corte (= "ex Constrained-Off" do release).
+  Confirmado empiricamente em 11/05/2026: ratio 1,04× vs release
+  Equatorial 4T25 nos 3 indicadores.
+- Dataset constrained-off ONS NÃO contém TODAS as usinas — só as
+  que tiveram apuração de restrição no período. Cada linha é uma
+  apuração de restrição.
+- Migração pra `geracao-usina-2` (SMF/CCEE) investigada e
+  DESCARTADA: dataset retorna IDÊNTICO ao constrained-off pras
+  3 usinas Solar Equatorial 4T25 (148,4 MWm em ambos pré-fix).
+  Schema do dataset `geracao-usina-2` confirmou modalidade
+  "Conjunto de Usinas" pras 3 entradas — agregação ONS no nível
+  do POI, não há vazamento por UFV individual.
+- CKAN `datastore_search` NÃO funciona pra `geracao-usina-2` — só
+  metadados estão no índice; arquivos S3 precisam de download
+  direto. Se migrar no futuro, loader v2 vai precisar baixar
+  parquet direto + cache disco (sem 3-strategy cascade ao estilo
+  curtailment).
+
+**Nota didática sobre o schema `OUTPUT_MWH` vs `FRUSTRADO_MWH`:**
+`OUTPUT_MWH` = geração verificada pós-corte (LÍQUIDA, o que de
+fato foi gerado e despachado). `FRUSTRADO_MWH` = geração que
+teria sido gerada mas foi cortada pelo ONS (constrained-off).
+A soma = capacidade potencial pré-corte. Esta interpretação foi
+empiricamente validada na sessão 11/05/2026 contra release
+Equatorial 4T25 — interpretações alternativas (e.g. `OUTPUT` =
+potencial) NÃO fecham a aritmética.
+
+**Correção aplicada no Excel
+`data/curtailment/unidades_geradoras.xlsx`:**
+
+- Sheet `Solar` linha 75 (`CONJ. RIBEIRO GONÇALVES 500 KV`):
+  `Proprietário` "Equatorial" → "Other".
+- Justificativa: planilha oficial Equatorial mostra apenas 7 UFVs
+  Ribeiro Gonçalves (I-IV, VI-VIII) com entrada em operação em
+  23/05/2024. NÃO há expansão de fase II em 2025. O
+  `CONJ. RIBEIRO GONÇALVES 500 KV` que apareceu no ONS em
+  17/09/2025 é de outro proprietário (provável Enerside/FG
+  Soluções, São Miguel SPE ou Raios do Parnaíba — não confirmado).
+- Backup: `data/curtailment/unidades_geradoras.xlsx.bak.20260511`.
+- Approach "re-atribuir pra Other" (não deletar linha):
+  reversível, preserva cobertura, diff git mostra 1 célula.
+- Edit via `openpyxl` (preserva formatação/metadados — `pandas
+  to_excel` reescreveria do zero).
+- Pós-edit: Equatorial Solar = 2 USINAs (Ribeiro Gonçalves +
+  Barreiras II 500 KV). Aritmética 4T25 (script
+  `teste_equatorial_solar_correto.py`):
+  - LÍQUIDA (`OUTPUT_MWH`): 221,02 GWh / 100,1 MWm
+  - FRUSTRADO_MWH (Constrained-Off): 136,39 GWh / 61,8 MWm
+  - POTENCIAL (`OUTPUT + FRUSTRADO`): 357,41 GWh / 161,9 MWm
+  - Ratios vs release: LÍQ 1,04× (100,1 vs 96,6), CO 1,05×
+    (61,8 vs 58,6), POT 1,04× (161,9 vs 155,2).
+  - Gap residual ~4% provavelmente perímetro contábil, MRE
+    ou GSF.
+
+**UX no hover do gráfico Eólica/Solar por Grupo:**
+
+- Label "Total" trocado pra "Total (E+S)" pra deixar explícito
+  que a soma é sempre das DUAS séries, independente de qual está
+  visível no plot via toggle de legenda.
+- `ljust` ajustado de 8 pra 12 chars pra preservar alinhamento
+  monospace no hover unified.
+- Bug original: usuário esconde Eólica via legenda; "Total"
+  continua somando ambas porque a Trace 2 invisível usa
+  `df["TOTAL_Y"]` pré-calculado (Plotly não recalcula em runtime).
+  Solução escolhida: deixar claro no label que sempre é soma das
+  duas — Plotly não tem hook nativo pra reagir a `visible` toggle.
+
+**Resolução conflito de fonte Sertão Solar Barreiras (11/05/2026):**
+consulta RI das companhias (Equatorial e Engie) confirmou que
+CONJ. SERTÃO SOLAR BARREIRAS pertence à Engie. Excel atual estava
+correto. Pesquisa externa do Nava (planilha Equatorial mencionando
+'UFV Sertão Solar Barreiras XV-XXI') referia-se provavelmente a
+outro ativo com nome comercial similar ou erro de descrição na
+planilha consultada.
+
+**Pendências pra sessões futuras:**
+
+- Confirmar dono real de `CONJ. RIBEIRO GONÇALVES 500 KV` via
+  ANEEL (atualmente em "Other").
+- Caso decisão futura mude mapeamento: também afeta histórico
+  da aba Curtailment (Excel compartilhado entre as 2 abas).
+- Padronizar UX "Total (E+S)" na aba Curtailment (mesmo pattern
+  hoje usa apenas "Total" no hover unified do
+  `_render_visao_geral`).
+- Gap residual ~4% em todos os 3 indicadores (LÍQ/CO/POT) entre
+  dashboard pós-fix e release Equatorial 4T25 — provavelmente
+  UFVs Tipo III/MMGD não cobertas pelo dataset constrained-off,
+  ou perímetro contábil (MRE/GSF). Difícil quantificar sem
+  cruzar com dataset MMGD separado.
+
+**Sessão produziu:**
+
+- `components/tab_geracao_grupo.py` editado (label Total →
+  Total (E+S)).
+- `data/curtailment/unidades_geradoras.xlsx` editado (1 célula).
+- `data/curtailment/unidades_geradoras.xlsx.bak.20260511` (backup
+  pré-edit).
+- 15+ scripts untracked em `scripts/investigar_*.py` /
+  `scripts/teste_*.py` documentando investigação (padrão decisão
+  5.58).
+
+**Quando aplicar este pattern:**
+
+- Auditoria de mapeamento de proprietários no Excel deve ser
+  feita SEMPRE com benchmark externo (release corporativo, IR,
+  ANEEL/SIGA) antes de assumir que o cadastro está correto.
+- Renomeações estilo "Total" → "Total (E+S)" em gráficos
+  stacked/grouped com toggle de legenda: aplicar preventivamente
+  quando o hover unified inclui uma soma agregada que não
+  responde ao toggle de visibilidade. Custo: ~2 linhas;
+  benefício: zero confusão de usuário.
+
+**Quando NÃO aplica:**
+
+- Renomeações cosméticas sem investigação numérica empírica
+  prévia — risco de re-atribuir errado e introduzir bug
+  silencioso (vide rejeição da hipótese inicial "BARREIRAS II →
+  SERTÃO SOLAR" desta sessão, refutada por aritmética).
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
