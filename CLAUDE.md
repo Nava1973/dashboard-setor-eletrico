@@ -538,6 +538,24 @@ fazer restart full do servidor. Nao confiar em Ctrl+R nem em
 "Atualizar". Cloud: redeploy ja faz container fresh, mas
 reboot manual em share.streamlit.io eh garantido.
 
+### 4.11 ANEEL CKAN tem endpoint SQL mas com whitelist de funcoes
+
+SINTOMA: query SQL agregada (SUM, COUNT, etc) retorna HTTP 403 "Acesso negado: permissions: ['Not authorized to call function CAST']" em datastore_search_sql endpoint da ANEEL.
+
+CAUSA: ANEEL aplica whitelist server-side de funcoes SQL permitidas. CAST(...) e to_number() estao na blacklist; tentativas via GET ou POST retornam 403. Operadores PostgreSQL nativos (::float) e funcoes basicas (SUM, COUNT, replace) sao permitidas.
+
+WORKAROUND: para somar coluna text com virgula decimal BR (tipico em datasets ANEEL como MdaPotenciaInstaladaKW='5,94'), usar replace + cast operator em vez de funcao CAST:
+
+```sql
+SELECT SUM(replace("CampoTexto", ',', '.')::float) AS total
+FROM "{resource_id}"
+WHERE "ColunaDeData" <= '{cutoff}'
+```
+
+NOTA RELACIONADA: endpoint paginado datastore_search e endpoint /datastore/dump sao FRAGEIS pra ingestao completa de datasets grandes (truncamento server-side em ~28% via dump, timeout em ~46% via paginacao de 4.3M linhas). Preferir SQL agregado server-side sempre que possivel — retorna 1 linha em ~4-7s sem truncamento.
+
+Investigacao completa: docs/B5_findings.md (Commit E 196a427).
+
 ---
 
 ## 5. Decisões Arquiteturais
@@ -4171,6 +4189,23 @@ Streamlit. Determinar se é descartável (Console) ou persistente
 
 **Quando NÃO aplica:** se basta CSS pra resolver — preferir CSS
 sempre que possível.
+
+### 5.66 DthAtualizaCadastralEmpreend é proxy confiável de "data de conexão" MMGD
+
+Investigação empírica B.5 (Commit E 196a427) validou:
+- Cross-check de 5 cutoffs MMGD vs gold standard EPE PDGD
+- Viés ~2% nos anos com referência oficial (dez/2024: +1.9%, dez/2025: +2.4%)
+- Sem evidência de picos artificiais por migração SISGD→MMGD (set/2025)
+- 4.3M linhas; distribuição UCs por ano coerente com expansão real do setor
+
+Antes da B.5: assumia-se que `DthAtualizaCadastralEmpreend` era proxy enviesada (~30%+) porque seria "data da última atualização cadastral", não "data de conexão". Hipótese descartada empiricamente — campo é razoavelmente próximo da entrada em operação real.
+
+Implicações arquiteturais (não implementadas hoje, registradas pra próxima sessão):
+1. Loader MMGD pode evoluir de hardcoded → dinâmico via SQL workaround §4.11 (5 cutoffs em ~20s, cache 24h, fallback hardcoded)
+2. Carry-forward atual `abr/2026: 45.000 MW` provavelmente subestimado: SQL real retorna 48.032 MW
+3. Anchors INFERIDOS 2022/2023 (20.000/28.000 MW) eram otimistas: reais ~18.100/26.600 MW
+
+Não implementar mudança nos anchors sem nova validação com release PDGD ~abr/2027 (próximo gold standard).
 
 ---
 
