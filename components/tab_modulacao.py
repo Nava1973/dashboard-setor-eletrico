@@ -34,6 +34,11 @@ from data_loader import (
     load_pld_horaria,
     _make_disk_cache_helpers,
 )
+from utils.cores_fontes import (
+    COR_FONTE_HIDRO,
+    COR_FONTE_EOLICA,
+    COR_FONTE_SOLAR,
+)
 
 
 # =============================================================================
@@ -45,9 +50,11 @@ BAUHAUS_BLACK  = "#1A1A1A"
 BAUHAUS_CREAM  = "#F5F1E8"
 BAUHAUS_LIGHT  = "#E8E3D4"
 
-COR_FONTE_HIDRO  = "#4A6FA5"
-COR_FONTE_EOLICA = "#8FA31E"
-COR_FONTE_SOLAR  = "#F6BD16"
+# Cores canônicas de fontes de geração — agora importadas de
+# utils/cores_fontes.py (decisão 5.33 RESOLVIDA). Os nomes locais
+# COR_FONTE_HIDRO/EOLICA/SOLAR continuam disponíveis via import,
+# então CORES_FONTE_MOD abaixo + todas as referências subsequentes
+# seguem funcionando inalteradas — só a fonte da constante mudou.
 
 CORES_FONTE_MOD = {
     "hidro":  COR_FONTE_HIDRO,

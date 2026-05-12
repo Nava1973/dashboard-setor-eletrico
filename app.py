@@ -39,6 +39,12 @@ from data_loader import (
 )
 from components.tab_curtailment import render_aba_curtailment
 from components.tab_modulacao import render_aba_modulacao
+from utils.cores_fontes import (
+    COR_FONTE_SOLAR,
+    COR_FONTE_EOLICA,
+    COR_FONTE_HIDRO,
+    COR_FONTE_TERMICA,
+)
 
 # Mapa de granularidade → loader. Usado por get_pld_df().
 # Fase 1: só "diario" é ativado (session_state hardcoded).
@@ -76,14 +82,16 @@ BAUHAUS_CREAM = "#F5F1E8"    # creme (papel) em vez de branco estéril
 BAUHAUS_GRAY = "#4A4A4A"     # cinza escuro legível sobre creme (antes #6B6B6B ficou fraco)
 BAUHAUS_LIGHT = "#E8E3D4"    # creme mais escuro pra elementos sutis
 
-# Paleta canônica de fontes de geração (decisão 5.33)
-# Aplicada em: aba Geração + aba Carga Viz 2.
+# Paleta canônica de fontes de geração — agora importada de
+# utils/cores_fontes.py (decisão 5.33 RESOLVIDA). Aplicada em:
+# aba Geração + aba Carga Viz 2 + aba Capacidade.
+# Os nomes locais COR_FONTE_SOLAR/EOLICA/HIDRO/TERMICA continuam
+# disponíveis via import, então CORES_FONTE_GEN (linha ~6280) +
+# todas as referências subsequentes seguem funcionando inalteradas —
+# só a fonte das constantes mudou.
 # Não confundir com cores Bauhaus estruturais (BAUHAUS_BLUE,
-# BAUHAUS_BLACK) — essas são pra UI (bordas, texto, eixos).
-COR_FONTE_SOLAR   = "#F6BD16"
-COR_FONTE_EOLICA  = "#8FA31E"
-COR_FONTE_HIDRO   = "#4A6FA5"
-COR_FONTE_TERMICA = "#A04B2E"
+# BAUHAUS_BLACK) — essas continuam aqui (linhas 75-78) porque
+# regem UI (bordas, texto, eixos), não dados.
 
 # Atribuição por submercado
 CORES_SUBMERCADO = {

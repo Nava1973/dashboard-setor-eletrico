@@ -42,6 +42,7 @@ from utils.utils_curtailment import (
     calcular_periodos_curtailment, pct_no_periodo,
     _inicio_trimestre, _inicio_trimestre_anterior, _inicio_mes_anterior,
 )
+from utils.cores_fontes import COR_FONTE_SOLAR, COR_FONTE_EOLICA
 
 
 # =============================================================================
@@ -58,9 +59,11 @@ BAUHAUS_CREAM  = "#F5F1E8"
 BAUHAUS_GRAY   = "#4A4A4A"
 BAUHAUS_LIGHT  = "#E8E3D4"
 
-# Cores canônicas de fontes de geração (decisão 5.33 do CLAUDE.md)
-COR_FONTE_SOLAR  = "#F6BD16"
-COR_FONTE_EOLICA = "#8FA31E"
+# Cores canônicas de fontes de geração — agora importadas de
+# utils/cores_fontes.py (decisão 5.33 RESOLVIDA). Os nomes locais
+# COR_FONTE_SOLAR / COR_FONTE_EOLICA continuam disponíveis via import,
+# então todas as referências subsequentes no arquivo seguem funcionando
+# inalteradas — só a fonte da constante mudou.
 
 
 # =============================================================================
