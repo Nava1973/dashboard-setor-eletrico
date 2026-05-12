@@ -49,6 +49,7 @@ from data_loaders.data_loader_aneel_siga import (
     _get_siga_cache_path,
     _baixar_siga,
     _padronizar_siga,
+    load_siga_anual,
 )
 
 
@@ -312,6 +313,110 @@ def main() -> None:
             f"Não foi possível ler debug log: "
             f"{type(exc).__name__}: {exc}"
         )
+
+    # ====== CHECK 7 ======
+    sep("CHECK 7 — load_siga_anual() (agregação anual + IS_PARTIAL)")
+    try:
+        t0 = time.perf_counter()
+        df_anual = load_siga_anual()
+        dt = time.perf_counter() - t0
+        print(f"Tempo load_siga_anual:  {dt:.2f}s")
+        print(f"Tipo retorno:           {type(df_anual).__name__}")
+        print(f"Shape:                  {df_anual.shape}")
+        print(f"Index name:             {df_anual.index.name}")
+        print(f"Colunas (ordem):        {df_anual.columns.tolist()}")
+
+        if df_anual.empty:
+            print("⚠ DataFrame vazio — sem dados pra validar.")
+        else:
+            # Schema: 7 colunas CAP_*_MW + IS_PARTIAL
+            colunas_esperadas = [
+                "CAP_HIDRO_MW", "CAP_TERMICA_MW", "CAP_NUCLEAR_MW",
+                "CAP_EOLICA_MW", "CAP_SOLAR_MW", "CAP_OUTRAS_MW",
+                "CAP_TOTAL_MW",
+            ]
+            faltando = [
+                c for c in colunas_esperadas if c not in df_anual.columns
+            ]
+            sanity_cols = "✓" if not faltando else "⚠"
+            print(
+                f"Schema 7 colunas CAP_*_MW preservadas: [{sanity_cols}]"
+                + (f" — faltando: {faltando}" if faltando else "")
+            )
+
+            sanity_partial_col = (
+                "✓" if "IS_PARTIAL" in df_anual.columns else "⚠"
+            )
+            print(
+                f"Coluna IS_PARTIAL presente: [{sanity_partial_col}]"
+            )
+
+            sanity_idx = (
+                "✓" if df_anual.index.name == "ANO_MES" else "⚠"
+            )
+            print(
+                f"Index name == 'ANO_MES': [{sanity_idx}]"
+            )
+
+            print()
+            print("--- df_anual.head(3) ---")
+            print(df_anual.head(3).to_string())
+            print()
+            print("--- df_anual.tail(3) ---")
+            print(df_anual.tail(3).to_string())
+
+            anos_cobertos = sorted(set(df_anual.index.year.tolist()))
+            print()
+            print(f"Anos cobertos ({len(anos_cobertos)}):")
+            print(f"  {anos_cobertos}")
+
+            # Linhas IS_PARTIAL=True
+            if "IS_PARTIAL" in df_anual.columns:
+                linhas_partial = df_anual[df_anual["IS_PARTIAL"]]
+                print()
+                print(
+                    f"Linhas com IS_PARTIAL=True: {len(linhas_partial)}"
+                )
+                if len(linhas_partial) > 0:
+                    print(linhas_partial[
+                        ["CAP_TOTAL_MW", "IS_PARTIAL"]
+                    ].to_string())
+
+            # Sanity 1: primeiro ano = 2001
+            primeiro_ano = anos_cobertos[0] if anos_cobertos else None
+            sanity_primeiro = "✓" if primeiro_ano == 2001 else "⚠"
+            print()
+            print(
+                f"Sanity: primeiro ano == 2001: "
+                f"got {primeiro_ano} [{sanity_primeiro}]"
+            )
+
+            # Sanity 2: total na última linha ≈ 219 GW
+            total_ultimo_gw = (
+                float(df_anual.iloc[-1]["CAP_TOTAL_MW"]) / 1000.0
+            )
+            sanity_total = (
+                "✓" if 200.0 <= total_ultimo_gw <= 240.0 else "⚠"
+            )
+            print(
+                f"Sanity: TOTAL última linha entre 200-240 GW: "
+                f"{total_ultimo_gw:.2f} GW [{sanity_total}]"
+            )
+
+            # Sanity 3: exatamente 1 linha IS_PARTIAL=True
+            # (esperado se mês atual ≠ dezembro; vira 0 se for dez/AAAA)
+            if "IS_PARTIAL" in df_anual.columns:
+                n_partial = int(df_anual["IS_PARTIAL"].sum())
+                # Esperado: 0 (se rodando em dezembro fechado) OU 1
+                # (se rodando em outro mês do ano corrente).
+                sanity_n = "✓" if n_partial in (0, 1) else "⚠"
+                print(
+                    f"Sanity: contagem IS_PARTIAL=True ∈ {{0,1}}: "
+                    f"got {n_partial} [{sanity_n}]"
+                )
+    except Exception as e:
+        print(f"CHECK 7 falhou: {type(e).__name__}: {e}")
+        traceback.print_exc()
 
     print()
     print("=" * 60)

@@ -16,8 +16,8 @@ NÃO confundir com a **paleta Bauhaus estrutural** (``BAUHAUS_BLACK``,
 regem **UI** (bordas, eixos, texto, fundos) e continuam em
 ``app.py:75-78``.
 
-Mapeamento canônico (5 fontes)
-------------------------------
+Mapeamento canônico (5 fontes SIGA + 1 MMGD)
+--------------------------------------------
 - ``COR_FONTE_HIDRO``   = ``#4A6FA5`` (azul-hidro)
 - ``COR_FONTE_TERMICA`` = ``#A04B2E`` (terracota)
 - ``COR_FONTE_NUCLEAR`` = ``#4A4A4A`` (cinza escuro = BAUHAUS_GRAY)
@@ -27,6 +27,12 @@ Mapeamento canônico (5 fontes)
   Capacidade plotará Angra 1+2 (~2 GW) como linha distinta no stack.
 - ``COR_FONTE_EOLICA``  = ``#8FA31E`` (oliva)
 - ``COR_FONTE_SOLAR``   = ``#F6BD16`` (amarelo Bauhaus)
+- ``COR_FONTE_MMGD``    = ``#C9961A`` (ocre escuro)
+  → **categoria nova** introduzida pela aba Capacidade (Sub-sessão A).
+  Mini e Microgeração Distribuída — majoritariamente fotovoltaica
+  atrás do medidor. Não confundir com Solar centralizada (UFV via SIGA).
+  Tom ocre preserva família cromática com Solar (#F6BD16) mas diferencia
+  claramente, mantendo luminância similar à terracota e ao oliva.
 
 Uso típico
 ----------
@@ -38,6 +44,7 @@ Uso típico
         COR_FONTE_NUCLEAR,
         COR_FONTE_EOLICA,
         COR_FONTE_SOLAR,
+        COR_FONTE_MMGD,
     )
 
     # OU via dict pra mapeamento dinâmico por chave do schema:
@@ -54,6 +61,14 @@ COR_FONTE_NUCLEAR = "#4A4A4A"
 COR_FONTE_EOLICA  = "#8FA31E"
 COR_FONTE_SOLAR   = "#F6BD16"
 
+# MMGD (Mini e Microgeração Distribuída) — categoria nova introduzida
+# pela aba Capacidade. Não confundir com Solar centralizada (UFV via SIGA);
+# MMGD é majoritariamente fotovoltaica distribuída atrás do medidor.
+# Tom ocre escolhido pra preservar família cromática com Solar (#F6BD16)
+# mas diferenciar claramente. Mantém luminância similar à terracota
+# e ao oliva — não cria "buraco" na hierarquia visual do stack.
+COR_FONTE_MMGD    = "#C9961A"  # ocre escuro
+
 # Dict de conveniência pra mapeamento por chave do schema
 # (ex: ``CORES_FONTE_DICT[df["fonte"]]`` em loops sobre DataFrames).
 CORES_FONTE_DICT = {
@@ -62,4 +77,5 @@ CORES_FONTE_DICT = {
     "nuclear": COR_FONTE_NUCLEAR,
     "eolica":  COR_FONTE_EOLICA,
     "solar":   COR_FONTE_SOLAR,
+    "mmgd":    COR_FONTE_MMGD,
 }

@@ -602,3 +602,62 @@ def load_siga() -> pd.DataFrame:
         "Download falhou e DEMO_MODE desabilitado — DataFrame vazio"
     )
     return _empty_df_siga()
+
+
+@st.cache_data(ttl=60 * 60 * 24 * 30, show_spinner=False)
+def load_siga_anual() -> pd.DataFrame:
+    """Versão ANUAL do ``load_siga()`` — para a aba Capacidade.
+
+    Retorna DataFrame com 1 linha por ano (snapshot de DEZEMBRO/AAAA),
+    a partir de dez/2001 (25 anos de histórico — pós-liberação do setor),
+    + 1 linha adicional para o último mês disponível do ano corrente
+    se este não for dezembro (sinalizando "ano parcial").
+
+    Schema (mesmas 7 colunas de ``load_siga()`` + 1 flag):
+        CAP_HIDRO_MW, CAP_TERMICA_MW, CAP_NUCLEAR_MW, CAP_EOLICA_MW,
+        CAP_SOLAR_MW, CAP_OUTRAS_MW, CAP_TOTAL_MW, IS_PARTIAL
+
+    Index:
+        ``pd.DatetimeIndex`` com nome ``ANO_MES``, valores tipicamente
+        2001-12-01, 2002-12-01, ..., 2025-12-01, 2026-MM-01 (parcial).
+
+    Coluna adicional ``IS_PARTIAL``:
+        ``bool``. ``True`` apenas pra última linha SE for ano corrente
+        não-fechado (último mês disponível < dezembro). Permite a UI
+        diferenciar visualmente snapshots fechados de parciais.
+
+    Raison d'être
+    -------------
+    Aba Capacidade adotou visão **anual** (decisão arquitetural pós-A.2
+    da Sub-sessão A, branch ``feat/capacidade-instalada``). Esta função
+    reusa ``load_siga()`` existente e agrega — não duplica o pipeline
+    de download/padronização. ``load_siga()`` mensal continua disponível
+    pra outros consumidores.
+    """
+    df_mensal = load_siga()
+    if df_mensal is None or df_mensal.empty:
+        return df_mensal
+
+    # Recorte: últimos 25 anos (dez/2001 em diante)
+    janela_inicio = pd.Timestamp("2001-12-01")
+    df_recortado = df_mensal[df_mensal.index >= janela_inicio]
+
+    # Pega dezembros de cada ano disponível
+    dezembros = df_recortado[df_recortado.index.month == 12].copy()
+    dezembros["IS_PARTIAL"] = False
+
+    # Verifica se o último mês do df_mensal é mais recente que o último dezembro
+    ultimo_mes_disponivel = df_recortado.index.max()
+    ano_corrente = ultimo_mes_disponivel.year
+    ultimo_dez = dezembros.index.max() if not dezembros.empty else None
+
+    if ultimo_dez is None or ultimo_dez.year < ano_corrente:
+        # Ano corrente ainda não fechou em dezembro → adicionar como parcial
+        linha_parcial = df_recortado.loc[[ultimo_mes_disponivel]].copy()
+        linha_parcial["IS_PARTIAL"] = True
+        resultado = pd.concat([dezembros, linha_parcial])
+    else:
+        resultado = dezembros
+
+    resultado.index.name = "ANO_MES"
+    return resultado
