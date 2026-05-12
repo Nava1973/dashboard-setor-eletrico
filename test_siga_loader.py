@@ -214,49 +214,87 @@ def main() -> None:
     except Exception as e:
         print(f"CHECK 4 falhou: {type(e).__name__}: {e}")
 
-    # ====== CHECK 5 ======
-    sep("CHECK 5 — Padronização end-to-end")
+    # ====== CHECK 5 — Padronização end-to-end (DataFrame decomposto) ======
+    sep("CHECK 5 — Padronização end-to-end (DataFrame por fonte)")
     try:
         t0 = time.perf_counter()
-        serie = _padronizar_siga(df_raw)
+        df_out = _padronizar_siga(df_raw)
         dt = time.perf_counter() - t0
-        print(f"Tempo padronizar: {dt:.2f}s")
-        print(f"Tipo retorno:     {type(serie).__name__}")
-        print(f"Nome:             {serie.name}")
-        try:
-            print(f"Index name:       {serie.index.name}")
-        except Exception:
-            pass
-        print(f"Total meses:      {len(serie):,}")
-        if len(serie) > 0:
-            print()
-            print("Primeiras 5 entradas:")
-            for idx, val in serie.head(5).items():
-                try:
-                    label_data = idx.strftime("%Y-%m")
-                except Exception:
-                    label_data = str(idx)
-                print(f"  {label_data}: {val:>14,.1f} MW")
-            print()
-            print("Últimas 5 entradas:")
-            for idx, val in serie.tail(5).items():
-                try:
-                    label_data = idx.strftime("%Y-%m")
-                except Exception:
-                    label_data = str(idx)
-                print(f"  {label_data}: {val:>14,.1f} MW")
-            print()
-            ultimo_mw = float(serie.iloc[-1])
-            ultimo_gw = ultimo_mw / 1000.0
-            print(f"Valor mais recente: {ultimo_gw:.2f} GW")
-            ref = 200.0  # ~200 GW Brasil (referência SIGA atual)
-            diff_pct = abs(ultimo_gw - ref) / ref * 100
-            status = "✓" if diff_pct < 25 else "⚠"
-            print(
-                f"Sanity vs ~200 GW Brasil: diff={diff_pct:.1f}% [{status}]"
-            )
+        print(f"Tempo padronizar:  {dt:.2f}s")
+        print(f"Tipo retorno:      {type(df_out).__name__}")
+        print(f"Shape:             {df_out.shape}  (linhas × colunas)")
+        print(f"Index name:        {df_out.index.name}")
+        print(f"Colunas (ordem):   {df_out.columns.tolist()}")
+
+        if df_out.empty:
+            print("⚠ DataFrame vazio — verificar logs do CHECK 6.")
         else:
-            print("⚠ Series vazia — verificar logs do CHECK 6.")
+            print()
+            print("--- df.head(3) ---")
+            print(df_out.head(3).to_string())
+            print()
+            print("--- df.tail(3) ---")
+            print(df_out.tail(3).to_string())
+
+            # Último mês: valor por fonte em GW
+            ultimo = df_out.iloc[-1]
+            total_mw = float(ultimo["CAP_TOTAL_MW"])
+            total_gw = total_mw / 1000.0
+            fontes = ["HIDRO", "TERMICA", "NUCLEAR",
+                      "EOLICA", "SOLAR", "OUTRAS"]
+            print()
+            print(
+                f"Mês mais recente: "
+                f"{df_out.index[-1].strftime('%Y-%m')}"
+            )
+            print()
+            print(f"{'Fonte':<10} {'GW':>10} {'% Total':>10}")
+            print(f"{'-'*10} {'-'*10:>10} {'-'*10:>10}")
+            soma_fontes_mw = 0.0
+            for fonte in fontes:
+                col = f"CAP_{fonte}_MW"
+                val_mw = float(ultimo[col])
+                val_gw = val_mw / 1000.0
+                pct = (val_mw / total_mw * 100) if total_mw > 0 else 0.0
+                print(f"{fonte:<10} {val_gw:>10,.2f} {pct:>9,.1f}%")
+                soma_fontes_mw += val_mw
+            print(f"{'-'*10} {'-'*10:>10} {'-'*10:>10}")
+            print(f"{'SOMA':<10} {soma_fontes_mw/1000.0:>10,.2f}")
+            print(f"{'TOTAL':<10} {total_gw:>10,.2f}")
+
+            # Sanity 1: soma das 6 fontes ≈ CAP_TOTAL_MW (tolerância 0.01 MW)
+            diff_soma = abs(soma_fontes_mw - total_mw)
+            sanity_soma = "✓" if diff_soma < 0.01 else "⚠"
+            print()
+            print(
+                f"Sanity numérica (soma das 6 ≈ TOTAL): "
+                f"diff={diff_soma:.4f} MW [{sanity_soma}]"
+            )
+
+            # Sanity 2: ordem semântica HIDRO > TERMICA > EOLICA > SOLAR > NUCLEAR
+            hidro = float(ultimo["CAP_HIDRO_MW"])
+            termica = float(ultimo["CAP_TERMICA_MW"])
+            eolica = float(ultimo["CAP_EOLICA_MW"])
+            solar = float(ultimo["CAP_SOLAR_MW"])
+            nuclear = float(ultimo["CAP_NUCLEAR_MW"])
+            ordem_ok = (
+                hidro > termica > eolica
+                and solar < eolica  # SOLAR vs EOLICA pode ser próximo
+                and nuclear < solar
+            )
+            sanity_ordem = "✓" if ordem_ok else "⚠"
+            print(
+                f"Sanity semântica (HIDRO>TERMICA>EOLICA, "
+                f"SOLAR<EOLICA, NUCLEAR<SOLAR): [{sanity_ordem}]"
+            )
+
+            # Sanity 3: faixa total 200-240 GW
+            faixa_ok = 200.0 <= total_gw <= 240.0
+            sanity_faixa = "✓" if faixa_ok else "⚠"
+            print(
+                f"Sanity faixa (TOTAL entre 200-240 GW): "
+                f"{total_gw:.2f} GW [{sanity_faixa}]"
+            )
     except Exception as e:
         print(f"CHECK 5 falhou: {type(e).__name__}: {e}")
         traceback.print_exc()

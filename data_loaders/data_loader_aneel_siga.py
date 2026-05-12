@@ -38,9 +38,20 @@ Cache (2 camadas)
 
 Schema de saída (função pública ``load_siga``)
 ---------------------------------------------
-``pd.Series`` indexada por ``ANO_MES`` (Timestamp do 1º dia do mês),
-nomeada ``CAP_CENTRALIZADA_MW``, valores em **MW** (estoque acumulado
-mês-a-mês via cumsum).
+``pd.DataFrame`` indexado por ``ANO_MES`` (Timestamp 1º dia do mês),
+com 7 colunas (todos os valores em **MW**, estoque acumulado via cumsum
+por fonte):
+
+    CAP_HIDRO_MW    - UHE + PCH + CGH
+    CAP_TERMICA_MW  - UTE
+    CAP_NUCLEAR_MW  - UTN
+    CAP_EOLICA_MW   - EOL
+    CAP_SOLAR_MW    - UFV
+    CAP_OUTRAS_MW   - siglas não mapeadas (defensivo, 0 no schema atual)
+    CAP_TOTAL_MW    - soma das 6 anteriores
+
+Decomposição via mapeamento ``_MAPA_FONTES`` da coluna ``SigTipoGeracao``
+do schema bruto SIGA.
 
 Filtros e premissas
 -------------------
@@ -132,6 +143,32 @@ URL_CSV_DIRETO = (
 )
 
 DEMO_MODE = os.environ.get("DEMO_MODE", "").lower() in ("1", "true", "yes")
+
+# Mapeamento das siglas do SIGA pra categorias finais do DataFrame.
+# Schema observado empiricamente em 2026-05-12: 7 siglas, todas mapeadas
+# diretamente. "OUTRAS" fica como defesa contra siglas futuras (ex: BIO,
+# WAV, HIB) — log defensivo registra qualquer sigla nova encontrada.
+_MAPA_FONTES = {
+    "UHE": "HIDRO",  "PCH": "HIDRO",  "CGH": "HIDRO",
+    "UTE": "TERMICA",
+    "UTN": "NUCLEAR",
+    "EOL": "EOLICA",
+    "UFV": "SOLAR",
+}
+
+# Categorias finais (ordem importa pro layout do gráfico stacked).
+_CATEGORIAS = ["HIDRO", "TERMICA", "NUCLEAR", "EOLICA", "SOLAR", "OUTRAS"]
+
+# Schema final do DataFrame retornado por load_siga().
+_COLUNAS_FINAIS = [f"CAP_{c}_MW" for c in _CATEGORIAS] + ["CAP_TOTAL_MW"]
+
+
+def _empty_df_siga() -> pd.DataFrame:
+    """DataFrame vazio com as 7 colunas declaradas (evita KeyError na UI)."""
+    df = pd.DataFrame(columns=_COLUNAS_FINAIS)
+    df.index.name = "ANO_MES"
+    return df
+
 
 # Disk cache via fábrica padronizada (decisão 5.15). 4 closures:
 # get_path, is_fresh, try_read, try_write — cada com fallback silencioso
@@ -322,24 +359,34 @@ def _baixar_siga() -> tuple[Optional[pd.DataFrame], str]:
 # ---------------------------------------------------------------------------
 
 
-def _padronizar_siga(df: pd.DataFrame) -> pd.Series:
-    """Filtra coluna de fase, agrega por mês, retorna cumsum em MW.
+def _padronizar_siga(df: pd.DataFrame) -> pd.DataFrame:
+    """Filtra fase, decompõe por sigla de geração, agrega mensalmente,
+    retorna DataFrame com cumsum por fonte + total.
 
-    Retorna ``pd.Series`` indexada por ``ANO_MES`` (Timestamp 1º dia do
-    mês), nomeada ``CAP_CENTRALIZADA_MW``, valores em MW (estoque
-    acumulado). Series vazia se schema inválido.
+    Retorna ``pd.DataFrame`` indexado por ``ANO_MES`` (Timestamp 1º dia
+    do mês), com 7 colunas (em MW, estoque acumulado por fonte):
+
+        CAP_HIDRO_MW, CAP_TERMICA_MW, CAP_NUCLEAR_MW,
+        CAP_EOLICA_MW, CAP_SOLAR_MW, CAP_OUTRAS_MW, CAP_TOTAL_MW
+
+    DataFrame vazio (mesmas 7 colunas, sem linhas) se schema inválido.
 
     Tratamentos defensivos
     ----------------------
     - **Coluna de fase case-insensitive** (resolve pendência §9.2 da
       SPEC): keyword principal ``DscFaseUsina`` (nome atual confirmado
       empiricamente no schema ANEEL); fallbacks defensivos pra
-      ``SitFase``/``FaseUsina`` se a ANEEL renomear no futuro.
-      Compara valores contra ``"OPERAÇÃO"`` E ``"OPERACAO"`` (cobre
-      com e sem acento).
+      ``SitFase``/``FaseUsina``. Compara contra ``"OPERAÇÃO"`` E
+      ``"OPERACAO"`` (com e sem acento).
+    - **Coluna de tipo de geração case-insensitive**: keyword
+      ``SigTipoGeracao``, fallback ``TipoGeracao``.
     - **Campo capacidade com fallback** (resolve pendência §9.1):
-      tenta ``MdaPotenciaOutorgadaKw`` primeiro; se ausente, usa
-      ``MdaPotenciaFiscalizadaKw``; loga qual foi usado.
+      tenta ``MdaPotenciaOutorgadaKw``; se ausente, usa
+      ``MdaPotenciaFiscalizadaKw``.
+    - **Mapeamento de siglas**: ``_MAPA_FONTES`` cobre as 7 siglas
+      observadas (UHE/PCH/CGH/UTE/UTN/EOL/UFV). Siglas não mapeadas
+      caem em ``OUTRAS`` com log defensivo no ``_debug_erros`` —
+      detecta schema drift sem quebrar processamento.
     - **Datas inválidas** viram NaT e são descartadas via ``dropna``.
     - **Vírgula decimal BR** em capacidade tratada via ``str.replace``.
     """
@@ -347,16 +394,17 @@ def _padronizar_siga(df: pd.DataFrame) -> pd.Series:
         df, "DscFaseUsina", "SitFase", "FaseUsina"
     )
     col_data = _identificar_coluna(df, "DatEntradaOperacao")
+    col_tipo = _identificar_coluna(df, "SigTipoGeracao", "TipoGeracao")
     col_cap_outorgada = _identificar_coluna(df, "MdaPotenciaOutorgadaKw")
     col_cap_fiscalizada = _identificar_coluna(df, "MdaPotenciaFiscalizadaKw")
 
-    if not col_fase or not col_data:
+    if not col_fase or not col_data or not col_tipo:
         _registrar_erro(
             f"Colunas mínimas ausentes. fase={col_fase}, "
-            f"DatEntradaOperacao={col_data}. "
+            f"data={col_data}, tipo={col_tipo}. "
             f"Disponíveis: {list(df.columns)[:15]}"
         )
-        return pd.Series(dtype="float64", name="CAP_CENTRALIZADA_MW")
+        return _empty_df_siga()
 
     # Pendência §9.1: campo de capacidade com fallback automático
     if col_cap_outorgada is not None:
@@ -373,12 +421,11 @@ def _padronizar_siga(df: pd.DataFrame) -> pd.Series:
             "Nenhum campo de capacidade (Outorgada/Fiscalizada) "
             f"encontrado. Disponíveis: {list(df.columns)[:15]}"
         )
-        return pd.Series(dtype="float64", name="CAP_CENTRALIZADA_MW")
+        return _empty_df_siga()
 
     df = df.copy()
 
     # Pendência §9.2: filtro case-insensitive na coluna de fase
-    # (DscFaseUsina é o nome atual na ANEEL — validado empiricamente).
     fase_norm = df[col_fase].astype(str).str.strip().str.upper()
     mask_operacao = fase_norm.isin({"OPERAÇÃO", "OPERACAO"})
     if mask_operacao.sum() == 0:
@@ -387,7 +434,7 @@ def _padronizar_siga(df: pd.DataFrame) -> pd.Series:
             f"Valores únicos (top 10): "
             f"{sorted(fase_norm.unique())[:10]}"
         )
-        return pd.Series(dtype="float64", name="CAP_CENTRALIZADA_MW")
+        return _empty_df_siga()
     df = df[mask_operacao].copy()
 
     # Parse de data
@@ -402,11 +449,46 @@ def _padronizar_siga(df: pd.DataFrame) -> pd.Series:
     df["CAP_MW"] = pd.to_numeric(cap_str, errors="coerce") / 1000.0
     df = df.dropna(subset=["CAP_MW"])
 
-    # Agrega por mês + cumsum (estoque acumulado)
-    agg = df.groupby("ANO_MES")["CAP_MW"].sum().sort_index()
-    serie = agg.cumsum().rename("CAP_CENTRALIZADA_MW")
-    serie.index.name = "ANO_MES"
-    return serie
+    # Mapeamento sigla → categoria (fallback "OUTRAS" pra siglas novas)
+    df["SIGLA"] = df[col_tipo].astype(str).str.strip().str.upper()
+    df["CATEGORIA"] = df["SIGLA"].map(_MAPA_FONTES).fillna("OUTRAS")
+
+    # Log defensivo: registra siglas não mapeadas (schema drift)
+    nao_mapeadas = df[df["CATEGORIA"] == "OUTRAS"]
+    if len(nao_mapeadas) > 0:
+        siglas_novas = nao_mapeadas["SIGLA"].value_counts()
+        for sigla, count in siglas_novas.items():
+            _registrar_erro(
+                f"Sigla nova encontrada (mapeada como OUTRAS): "
+                f"{sigla} ({count} linhas)"
+            )
+
+    # Agrega por (ANO_MES, CATEGORIA) → pivot wide
+    agg = (
+        df.groupby(["ANO_MES", "CATEGORIA"])["CAP_MW"]
+        .sum()
+        .reset_index()
+    )
+    pivot = (
+        agg.pivot(index="ANO_MES", columns="CATEGORIA", values="CAP_MW")
+        .sort_index()
+    )
+
+    # Garante todas as 6 categorias presentes (0 onde ausente)
+    pivot = pivot.reindex(columns=_CATEGORIAS, fill_value=0.0)
+    pivot = pivot.fillna(0.0)
+
+    # Cumsum por categoria (estoque acumulado por fonte)
+    cumsum = pivot.cumsum()
+
+    # Total = soma das 6 categorias (inclui OUTRAS)
+    cumsum["TOTAL"] = cumsum.sum(axis=1)
+
+    # Renomeia colunas pra padrão CAP_<X>_MW e ordena explicitamente
+    cumsum = cumsum.rename(columns={c: f"CAP_{c}_MW" for c in cumsum.columns})
+    cumsum = cumsum[_COLUNAS_FINAIS]
+    cumsum.index.name = "ANO_MES"
+    return cumsum
 
 
 # ---------------------------------------------------------------------------
@@ -414,8 +496,21 @@ def _padronizar_siga(df: pd.DataFrame) -> pd.Series:
 # ---------------------------------------------------------------------------
 
 
-def _carregar_siga_demo() -> pd.Series:
-    """Série sintética: 2023-01 → mês atual, base 200.000 MW, +0,3% a.m.
+def _carregar_siga_demo() -> pd.DataFrame:
+    """DataFrame sintético: 2023-01 → mês atual.
+
+    Base 200.000 MW total decomposto em 5 fontes + outras (proporções
+    aproximadas do parque Brasil 2024-2025):
+
+        HIDRO    50%
+        TERMICA  22%
+        EOLICA   15%
+        SOLAR    11%
+        NUCLEAR   1%
+        OUTRAS    1%
+
+    Crescimento total ~0,3% a.m. (cumulativo, aplicado a cada fonte
+    proporcionalmente — sem variação setorial, é apenas placeholder).
 
     Usado APENAS como fallback quando ``DEMO_MODE=1`` E todas as 3
     estratégias de download falharam (padrão do projeto, não é modo
@@ -424,10 +519,24 @@ def _carregar_siga_demo() -> pd.Series:
     fim = pd.Timestamp.today().to_period("M").to_timestamp()
     datas = pd.date_range(start="2023-01-01", end=fim, freq="MS")
     base = 200_000.0  # 200 GW iniciais
-    valores = [base * (1.003 ** i) for i in range(len(datas))]
-    serie = pd.Series(valores, index=datas, name="CAP_CENTRALIZADA_MW")
-    serie.index.name = "ANO_MES"
-    return serie
+    valores_total = [base * (1.003 ** i) for i in range(len(datas))]
+
+    shares = {
+        "HIDRO":   0.50,
+        "TERMICA": 0.22,
+        "NUCLEAR": 0.01,
+        "EOLICA":  0.15,
+        "SOLAR":   0.11,
+        "OUTRAS":  0.01,
+    }
+
+    df = pd.DataFrame(index=datas)
+    df.index.name = "ANO_MES"
+    for cat in _CATEGORIAS:  # ordem canônica
+        df[f"CAP_{cat}_MW"] = [v * shares[cat] for v in valores_total]
+    df["CAP_TOTAL_MW"] = df[[f"CAP_{c}_MW" for c in _CATEGORIAS]].sum(axis=1)
+    df = df[_COLUNAS_FINAIS]
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -436,12 +545,20 @@ def _carregar_siga_demo() -> pd.Series:
 
 
 @st.cache_data(ttl=60 * 60 * 24 * 30, show_spinner=False)
-def load_siga() -> pd.Series:
-    """Carrega capacidade centralizada Brasil (SIGA/ANEEL) — fonte principal.
+def load_siga() -> pd.DataFrame:
+    """Carrega capacidade centralizada Brasil decomposta por fonte
+    (SIGA/ANEEL) — fonte principal.
 
-    Retorna ``pd.Series`` indexada por ``ANO_MES`` (Timestamp 1º dia do
-    mês), nomeada ``CAP_CENTRALIZADA_MW``, valores em MW (estoque
-    acumulado mês-a-mês).
+    Retorna ``pd.DataFrame`` indexado por ``ANO_MES`` (Timestamp 1º dia
+    do mês), com 7 colunas em MW (estoque acumulado mês-a-mês por fonte):
+
+        CAP_HIDRO_MW    - UHE + PCH + CGH
+        CAP_TERMICA_MW  - UTE
+        CAP_NUCLEAR_MW  - UTN
+        CAP_EOLICA_MW   - EOL
+        CAP_SOLAR_MW    - UFV
+        CAP_OUTRAS_MW   - siglas não mapeadas (defensivo, 0 hoje)
+        CAP_TOTAL_MW    - soma das 6 anteriores
 
     Cobertura: empreendimentos com outorga ANEEL em fase de "Operação"
     (SIN + sistemas isolados). Série é "viva hoje, retroprojetada por
@@ -456,9 +573,9 @@ def load_siga() -> pd.Series:
        datastore_dump → URL fixa). Em sucesso, persiste snapshot
        BRUTO no disco antes de retornar.
     3. **Fallback DEMO** (apenas se ``DEMO_MODE=1`` e download
-       totalmente falhar) — série sintética.
-    4. **Falha total** — retorna Series vazia (consumidores devem
-       checar ``.empty``).
+       totalmente falhar) — DataFrame sintético.
+    4. **Falha total** — retorna DataFrame VAZIO com as 7 colunas
+       declaradas (consumidores devem checar ``.empty``).
     """
     # Tentativa 1: cache disco
     df_disk = _try_read_siga()
@@ -477,9 +594,11 @@ def load_siga() -> pd.Series:
 
     # Tentativa 3: DEMO fallback
     if DEMO_MODE:
-        _registrar_erro("Download falhou; DEMO_MODE=1 → série sintética")
+        _registrar_erro("Download falhou; DEMO_MODE=1 → DataFrame sintético")
         return _carregar_siga_demo()
 
-    # Tentativa 4: falha total
-    _registrar_erro("Download falhou e DEMO_MODE desabilitado — Series vazia")
-    return pd.Series(dtype="float64", name="CAP_CENTRALIZADA_MW")
+    # Tentativa 4: falha total → DataFrame vazio com schema declarado
+    _registrar_erro(
+        "Download falhou e DEMO_MODE desabilitado — DataFrame vazio"
+    )
+    return _empty_df_siga()

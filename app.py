@@ -39,6 +39,7 @@ from data_loader import (
 )
 from components.tab_curtailment import render_aba_curtailment
 from components.tab_modulacao import render_aba_modulacao
+from components.tab_capacidade import render_aba_capacidade
 from utils.cores_fontes import (
     COR_FONTE_SOLAR,
     COR_FONTE_EOLICA,
@@ -1637,7 +1638,7 @@ with st.sidebar:
 
     abas_principais = [
         "PLD", "Modulação", "Reservatórios", "ENA/Chuva", "Despacho Térmico",
-        "Geração", "Carga", "Curtailment",
+        "Geração", "Carga", "Curtailment", "Capacidade",
     ]
 
     for _aba_opcao in abas_principais:
@@ -7885,6 +7886,9 @@ elif aba == "Curtailment":
 
 elif aba == "Modulação":
     render_aba_modulacao()
+
+elif aba == "Capacidade":
+    render_aba_capacidade()
 
 # =============================================================================
 # RODAPÉ — com espaçamento claro para evitar sobreposição

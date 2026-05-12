@@ -1,2 +1,3 @@
 from .tab_curtailment import render_aba_curtailment
 from .tab_modulacao import render_aba_modulacao
+from .tab_capacidade import render_aba_capacidade
