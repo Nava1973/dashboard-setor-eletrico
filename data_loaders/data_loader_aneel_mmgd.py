@@ -43,6 +43,16 @@ import pandas as pd
 # - dez/2023: ~28.000 MW (INFERIDO por subtração: 36200 - 8300 [expansão 2023])
 # - dez/2024:  36.200 MW (CONFIRMADO via release oficial EPE abril/2026)
 # - dez/2025:  45.000 MW (CONFIRMADO via release oficial EPE abril/2026)
+# - abr/2026:  45.000 MW (CARRY-FORWARD do dez/2025; não há dado oficial
+#   posterior ao último release EPE PDGD abril/2026. Decisão pós-screenshot:
+#   preferir leitura honesta do último valor confirmado a extrapolação γ.
+#   Substituir por valor PDGD em ~abr/2027.)
+#
+# Investigação B.5 empírica (mai/2026) tentou reconstruir série temporal
+# via DthAtualizaCadastralEmpreend; endpoint datastore/dump trunca em 28%
+# e datastore_search paginado timeout em ~46% (servidor instável).
+# Decisão arquitetural: manter anchor manual EPE PDGD como fonte oficial,
+# adicionar 1 anchor carry-forward pra ano corrente.
 #
 # Os valores INFERIDOS para 2022 e 2023 têm margem estimada de ±1 GW e
 # devem ser substituídos por leituras diretas do PDGD na próxima sessão
@@ -53,6 +63,7 @@ MMGD_ANCHORS = {
     "2023-12-01": 28000.0,   # INFERIDO
     "2024-12-01": 36200.0,   # CONFIRMADO (EPE PDGD abr/2026)
     "2025-12-01": 45000.0,   # CONFIRMADO (EPE PDGD abr/2026)
+    "2026-04-01": 45000.0,   # CARRY-FORWARD (último oficial dez/2025; sem release PDGD posterior)
 }
 
 
@@ -65,10 +76,12 @@ def load_mmgd_anual() -> pd.Series:
     - Values: ``float`` (MW)
     - Name: ``'CAP_MMGD_MW'``
 
-    Cobertura inicial: dez/2022 a dez/2025 (4 pontos).
+    Cobertura inicial: dez/2022 a abr/2026 (5 pontos).
 
     Janela inicial em dez/2022 reflete Lei 14.300/2022 (marco legal
     pós-sanção jan/2022 — dez/2022 é o primeiro fim-de-ano sob novo regime).
+    Último anchor (abr/2026) é carry-forward do último valor oficial
+    confirmado (dez/2025) — ANEEL não publica série mensal oficial de MMGD.
 
     USO:
         >>> serie = load_mmgd_anual()
