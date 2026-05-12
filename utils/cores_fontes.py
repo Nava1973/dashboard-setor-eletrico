@@ -27,12 +27,12 @@ Mapeamento canônico (5 fontes SIGA + 1 MMGD)
   Capacidade plotará Angra 1+2 (~2 GW) como linha distinta no stack.
 - ``COR_FONTE_EOLICA``  = ``#8FA31E`` (oliva)
 - ``COR_FONTE_SOLAR``   = ``#F6BD16`` (amarelo Bauhaus)
-- ``COR_FONTE_MMGD``    = ``#C9961A`` (ocre escuro)
+- ``COR_FONTE_MMGD``    = ``#E76F51`` (coral terracota)
   → **categoria nova** introduzida pela aba Capacidade (Sub-sessão A).
   Mini e Microgeração Distribuída — majoritariamente fotovoltaica
   atrás do medidor. Não confundir com Solar centralizada (UFV via SIGA).
-  Tom ocre preserva família cromática com Solar (#F6BD16) mas diferencia
-  claramente, mantendo luminância similar à terracota e ao oliva.
+  Tom coral terracota mantém família cromática warm (próximo de terracota
+  e oliva), diferenciando-se claramente de Solar (#F6BD16, amarelo vivo).
 
 Uso típico
 ----------
@@ -64,10 +64,13 @@ COR_FONTE_SOLAR   = "#F6BD16"
 # MMGD (Mini e Microgeração Distribuída) — categoria nova introduzida
 # pela aba Capacidade. Não confundir com Solar centralizada (UFV via SIGA);
 # MMGD é majoritariamente fotovoltaica distribuída atrás do medidor.
-# Tom ocre escolhido pra preservar família cromática com Solar (#F6BD16)
-# mas diferenciar claramente. Mantém luminância similar à terracota
-# e ao oliva — não cria "buraco" na hierarquia visual do stack.
-COR_FONTE_MMGD    = "#C9961A"  # ocre escuro
+# Tom coral terracota escolhido pra manter família cromática warm com
+# terracota e oliva, diferenciando-se claramente de Solar (#F6BD16, amarelo
+# vivo). Mantém luminância similar à terracota e ao oliva — não cria
+# "buraco" na hierarquia visual do stack. RISCO ASSUMIDO (G.6.5.b): pode
+# se aproximar visualmente da Térmica (#A04B2E, marrom-tijolo) em
+# certos contextos — validado empiricamente pós-smoke.
+COR_FONTE_MMGD    = "#E76F51"  # coral terracota (G.6.5.b — paleta Bauhaus warm; substituiu #D4AF37 que substituiu #C9961A)
 
 # Dict de conveniência pra mapeamento por chave do schema
 # (ex: ``CORES_FONTE_DICT[df["fonte"]]`` em loops sobre DataFrames).

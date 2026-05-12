@@ -39,3 +39,6 @@ desktop.ini
 # IDE
 .vscode/
 .idea/
+
+# Cache disk dos loaders SQL (mmgd_sql etc) — regenerável via primeira execução
+cache/

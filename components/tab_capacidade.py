@@ -45,7 +45,10 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from data_loaders.data_loader_aneel_siga import load_siga_anual
-from data_loaders.data_loader_aneel_mmgd import load_mmgd_anual
+from data_loaders.data_loader_aneel_mmgd_sql import (
+    load_mmgd_anual,
+    load_mmgd_mensal,
+)
 from utils.cores_fontes import (
     COR_FONTE_HIDRO,
     COR_FONTE_TERMICA,
@@ -154,6 +157,9 @@ def _montar_df_consolidado() -> pd.DataFrame:
     # Merge MMGD: anos pré-2022 ficam NaN (Plotly omite do hover unified).
     df["CAP_MMGD_MW"] = df.index.map(serie_mmgd).astype(float)
 
+    # Propaga origem do MMGD (sql_live | fallback_anchors | unavailable)
+    df.attrs["mmgd_source"] = serie_mmgd.attrs.get("source", "unknown")
+
     # Recalcular total incluindo MMGD (NaN tratado como 0 no total).
     df["CAP_TOTAL_MW"] = (
         df["CAP_HIDRO_MW"]
@@ -217,7 +223,7 @@ def _gerar_csv_capacidade(df_filtrado: pd.DataFrame) -> bytes:
 
 
 # =============================================================================
-# Helper: modo Mensal (12M) — 5 fontes SIGA, sem MMGD
+# Helper: modo Mensal (12M) — 5 fontes SIGA + MMGD condicional via ANEEL CKAN
 # =============================================================================
 
 
@@ -225,14 +231,44 @@ def _render_modo_mensal(df_mensal: pd.DataFrame) -> None:
     """Renderiza modo Mensal (12M) da aba Capacidade.
 
     Estética Bauhaus 100% preservada (CSS ``.bauhaus-table``, paleta SIGA,
-    Plotly CREAM/JetBrains/Bebas). 5 fontes SIGA empilhadas (sem MMGD —
-    MMGD é inerentemente anual, ver decisão arquitetural da Sub-sessão A).
+    Plotly CREAM/JetBrains/Bebas). 5 fontes SIGA empilhadas + MMGD condicional
+    via ANEEL CKAN (SUM agregado por cutoffs mensais — G.5 da branch
+    ``feat/capacidade-instalada``).
+
+    Fallback ``unavailable``: se SQL falhar em >50% das 12 queries OU se
+    merge SIGA × MMGD produzir NaN em qualquer linha, o gráfico renderiza
+    apenas as 5 fontes SIGA (sem 6ª trace) e a mini-nota indica fonte
+    indisponível.
 
     Args:
         df_mensal: DataFrame com últimos 12 meses do ``load_siga()``
                    (7 colunas ``CAP_*_MW`` + ``CAP_TOTAL_MW``,
-                   indexado por ``ANO_MES``).
+                   indexado por ``ANO_MES``). Será mutado in-place
+                   pra adicionar ``CAP_MMGD_MW`` e recalcular
+                   ``CAP_TOTAL_MW`` (se ``_tem_mmgd``).
     """
+    # Carregar MMGD mensal (SQL ou unavailable se ANEEL fora)
+    serie_mmgd_m = load_mmgd_mensal()
+    _mmgd_source = serie_mmgd_m.attrs.get("source", "unknown")
+
+    # Merge: adicionar CAP_MMGD_MW ao df_mensal (NaN se index não bate)
+    df_mensal["CAP_MMGD_MW"] = df_mensal.index.map(serie_mmgd_m).astype(float)
+
+    # Recalcular TOTAL incluindo MMGD (só se source=sql_live com valores válidos)
+    _tem_mmgd = (
+        _mmgd_source == "sql_live"
+        and df_mensal["CAP_MMGD_MW"].notna().all()
+    )
+    if _tem_mmgd:
+        df_mensal["CAP_TOTAL_MW"] = (
+            df_mensal["CAP_HIDRO_MW"]
+            + df_mensal["CAP_TERMICA_MW"]
+            + df_mensal["CAP_NUCLEAR_MW"]
+            + df_mensal["CAP_EOLICA_MW"]
+            + df_mensal["CAP_SOLAR_MW"]
+            + df_mensal["CAP_MMGD_MW"]
+        )
+
     # ---- Título Bauhaus do gráfico ----
     periodo_str = (
         f"{df_mensal.index.min().strftime('%m/%Y')} a "
@@ -252,11 +288,16 @@ def _render_modo_mensal(df_mensal: pd.DataFrame) -> None:
     )
 
     # ---- Subtítulo Inter ----
+    _subtitulo_text = (
+        "Evolução mensal · GW (incluindo MMGD via ANEEL CKAN)"
+        if _tem_mmgd
+        else "Evolução mensal · GW (MMGD mensal indisponível via ANEEL)"
+    )
     st.markdown(
         f'<div style="font-family:\'Inter\', sans-serif; '
         f'font-size:0.9rem; color:{BAUHAUS_BLACK}; font-weight:500; '
         f'letter-spacing:0.04em; margin:0 0 0.5rem 0;">'
-        f'Evolução mensal · GW (sem MMGD — MMGD é granularidade anual)'
+        f'{_subtitulo_text}'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -265,8 +306,9 @@ def _render_modo_mensal(df_mensal: pd.DataFrame) -> None:
     labels_x = df_mensal.index.strftime("%m/%Y").tolist()
     fig = go.Figure()
 
-    # _FONTES_CONFIG[:5] = 5 fontes SIGA (skip [5]=MMGD).
-    for col, label, cor in _FONTES_CONFIG[:5]:
+    # _FONTES_CONFIG[:5] = 5 SIGA; _FONTES_CONFIG = 5 SIGA + MMGD (se disponível).
+    _fontes_iter = _FONTES_CONFIG if _tem_mmgd else _FONTES_CONFIG[:5]
+    for col, label, cor in _fontes_iter:
         val_gw = df_mensal[col].values / 1000.0
         customdata = [
             f"{v:.2f} GW".replace(".", ",") for v in val_gw
@@ -289,6 +331,30 @@ def _render_modo_mensal(df_mensal: pd.DataFrame) -> None:
                 ),
             )
         )
+
+    # ---- Trace invisível pra "Total" no hover unified (G.6.5) ----
+    totais_gw = df_mensal["CAP_TOTAL_MW"].values / 1000.0
+    total_customdata = [
+        f"{v:.2f} GW".replace(".", ",") for v in totais_gw
+    ]
+    fig.add_trace(
+        go.Scatter(
+            x=labels_x,
+            y=[0] * len(labels_x),
+            mode="markers",
+            marker=dict(opacity=0),
+            showlegend=False,
+            customdata=total_customdata,
+            hovertemplate=(
+                f'<span style="color:{BAUHAUS_BLACK}; font-weight:700;">'
+                f'{"TOTAL".ljust(8).replace(" ", "&nbsp;")}</span>'
+                '&nbsp;&nbsp;'
+                f'<span style="color:{BAUHAUS_BLACK};">'
+                '%{customdata}</span>'
+                '<extra></extra>'
+            ),
+        )
+    )
 
     fig.update_layout(
         barmode="stack",
@@ -364,6 +430,25 @@ def _render_modo_mensal(df_mensal: pd.DataFrame) -> None:
         config={"displaylogo": False},
     )
 
+    # ---- Mini-nota de origem do MMGD ----
+    if _tem_mmgd:
+        _src_text = "Fonte MMGD: ANEEL CKAN (live)"
+        _src_color = BAUHAUS_BLACK
+    else:
+        _src_text = (
+            "Fonte MMGD: indisponível via ANEEL — "
+            "modo Mensal exibido sem MMGD"
+        )
+        _src_color = BAUHAUS_GRAY
+    st.markdown(
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.7rem; color:{_src_color}; font-style:italic; '
+        f'margin: 0.3rem 0 0 0;">'
+        f'{_src_text}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
     # ---- Tabela Bauhaus — 12 meses ordem decrescente ----
     st.markdown(
         f'<div style="font-family:\'Bebas Neue\', sans-serif; '
@@ -381,8 +466,10 @@ def _render_modo_mensal(df_mensal: pd.DataFrame) -> None:
         ("CAP_NUCLEAR_MW", "NUCLEAR"),
         ("CAP_EOLICA_MW",  "EÓLICA"),
         ("CAP_SOLAR_MW",   "SOLAR"),
-        ("CAP_TOTAL_MW",   "TOTAL"),
     ]
+    if _tem_mmgd:
+        cols_tabela.append(("CAP_MMGD_MW", "MMGD"))
+    cols_tabela.append(("CAP_TOTAL_MW", "TOTAL"))
     linhas_html = []
     for ts, row in df_tab.iterrows():
         mes_fmt = ts.strftime("%m/%Y")
@@ -410,15 +497,18 @@ def _render_modo_mensal(df_mensal: pd.DataFrame) -> None:
         '<div style="margin-top: 1rem;"></div>',
         unsafe_allow_html=True,
     )
-    df_csv = pd.DataFrame({
+    csv_dict = {
         "Mês":          df_mensal.index.strftime("%m/%Y").values,
         "Hidro (GW)":   (df_mensal["CAP_HIDRO_MW"]   / 1000.0).round(3).values,
         "Térmica (GW)": (df_mensal["CAP_TERMICA_MW"] / 1000.0).round(3).values,
         "Nuclear (GW)": (df_mensal["CAP_NUCLEAR_MW"] / 1000.0).round(3).values,
         "Eólica (GW)":  (df_mensal["CAP_EOLICA_MW"]  / 1000.0).round(3).values,
         "Solar (GW)":   (df_mensal["CAP_SOLAR_MW"]   / 1000.0).round(3).values,
-        "Total (GW)":   (df_mensal["CAP_TOTAL_MW"]   / 1000.0).round(3).values,
-    })
+    }
+    if _tem_mmgd:
+        csv_dict["MMGD (GW)"] = (df_mensal["CAP_MMGD_MW"] / 1000.0).round(3).values
+    csv_dict["Total (GW)"] = (df_mensal["CAP_TOTAL_MW"] / 1000.0).round(3).values
+    df_csv = pd.DataFrame(csv_dict)
     csv_bytes = df_csv.to_csv(
         index=False, sep=";", decimal=","
     ).encode("utf-8-sig")
@@ -434,15 +524,26 @@ def _render_modo_mensal(df_mensal: pd.DataFrame) -> None:
         key="btn_cap_csv_mensal",
     )
 
-    # ---- Bloco "Fonte" no rodapé (modo Mensal — sem MMGD) ----
+    # ---- Bloco "Fonte" no rodapé (condicional MMGD) ----
+    if _tem_mmgd:
+        _fonte_rodape = (
+            "<strong>Fontes:</strong> SIGA/ANEEL (geração centralizada em fase de Operação) + "
+            "ANEEL CKAN (MMGD via SUM agregado server-side com cutoffs mensais). "
+            "<br/>"
+            "<strong>Cobertura MMGD:</strong> último mês fechado disponível "
+            "(cadastros podem ter lag de até 60 dias)."
+        )
+    else:
+        _fonte_rodape = (
+            "<strong>Fonte:</strong> SIGA/ANEEL (geração centralizada em fase de Operação). "
+            "MMGD não exibida (endpoint ANEEL CKAN indisponível no momento)."
+        )
     st.markdown(
         f'<div style="font-family:\'Inter\', sans-serif; '
         f'font-size:0.75rem; color:{BAUHAUS_GRAY}; font-style:italic; '
         f'margin: 2rem 0 0 0; padding-top: 1rem; '
         f'border-top: 1px solid {BAUHAUS_LIGHT};">'
-        f'<strong>Fonte:</strong> SIGA/ANEEL (geração centralizada em fase de Operação). '
-        f'MMGD não é mostrada no modo mensal (dado oficial publicado apenas '
-        f'anualmente pela EPE PDGD).'
+        f'{_fonte_rodape}'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -669,6 +770,30 @@ def _render_aba_capacidade_impl() -> None:
             )
         )
 
+    # ---- Trace invisível pra "Total" no hover unified (G.6.5) ----
+    totais_gw = df_filtrado["CAP_TOTAL_MW"].values / 1000.0
+    total_customdata = [
+        f"{v:.2f} GW".replace(".", ",") for v in totais_gw
+    ]
+    fig.add_trace(
+        go.Scatter(
+            x=labels_x,
+            y=[0] * len(labels_x),
+            mode="markers",
+            marker=dict(opacity=0),
+            showlegend=False,
+            customdata=total_customdata,
+            hovertemplate=(
+                f'<span style="color:{BAUHAUS_BLACK}; font-weight:700;">'
+                f'{"TOTAL".ljust(8).replace(" ", "&nbsp;")}</span>'
+                '&nbsp;&nbsp;'
+                f'<span style="color:{BAUHAUS_BLACK};">'
+                '%{customdata}</span>'
+                '<extra></extra>'
+            ),
+        )
+    )
+
     fig.update_layout(
         barmode="stack",
         height=460,
@@ -741,6 +866,26 @@ def _render_aba_capacidade_impl() -> None:
         fig,
         use_container_width=True,
         config={"displaylogo": False},
+    )
+
+    # ---- Mini-nota de origem do MMGD (G.3 — feedback visual de fallback) ----
+    _mmgd_source = df_filtrado.attrs.get("mmgd_source", "unknown")
+    if _mmgd_source == "sql_live":
+        _src_text = "Fonte MMGD: ANEEL CKAN (live)"
+        _src_color = BAUHAUS_BLACK
+    elif _mmgd_source == "fallback_anchors":
+        _src_text = "Fonte MMGD: anchors hardcoded (ANEEL indisponível)"
+        _src_color = BAUHAUS_GRAY
+    else:
+        _src_text = f"Fonte MMGD: {_mmgd_source}"
+        _src_color = BAUHAUS_GRAY
+    st.markdown(
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.7rem; color:{_src_color}; font-style:italic; '
+        f'margin: 0.3rem 0 0 0;">'
+        f'{_src_text}'
+        f'</div>',
+        unsafe_allow_html=True,
     )
 
     # ---- Tabela Bauhaus — últimos 10 ANOS do recorte, ordem decrescente ----
