@@ -4279,6 +4279,28 @@ Loaders que dependem de endpoint externo flaky com fonte fallback estática (sem
 
 Candidatos futuros se surgir flakiness: CCEE PLD (tem cascade interno mas sem fallback estático), ENA ONS, carga ONS (caso S3 fique flaky).
 
+### 5.68 Refactor PLD: filtragem via legenda + SIN só no data layer + reativação semanal
+
+**Decisão (Sub-sessão pós-Commit-H):** 3 mudanças cirúrgicas consolidadas em commit único na aba PLD — remoção dos checkboxes SE/S/NE/N/SIN (filtragem migrada pra legenda nativa do Plotly), remoção do submercado SIN de toda a camada de UI (preservando dados), e reativação da granularidade "PLD médio semanal" (removida do dropdown em commit `bc8f466`, 1 mai 2026, que também introduziu a constante `_PLD_DEFAULTS_POR_GRANULARIDADE` da §5.36; loader intacto em `data_loader.py:865`).
+
+**Motivação UX:** os 5 checkboxes ocupavam uma régua inteira logo abaixo dos botões de período, mais um guard "selecione ao menos um" que prendia o usuário em estado vazio. Plotly já oferece filtragem nativa via legenda (clique no item esconde/mostra a trace) — pattern conhecido e gratuito. Migração pra legenda reduz superfície de estado (sem `submercados_selecionados`/`mostrar_media` em session_state), elimina o caso de borda do guard, e libera ~25 linhas verticais. SIN removido da UI por análise de redundância — média dos 4 submercados é visualmente inferível do gráfico, e PLD é determinado por submercado individual (não pelo agregado sistêmico).
+
+**Data layer preservado:** `pivot["Média BR"]` (`app.py:1991`) continua sendo computado (1 linha, custo trivial) e `CORES_SUBMERCADO["Média BR"]` (`app.py:103`) permanece na paleta global. Decisão consciente: se SIN voltar à UI no futuro (mudança de produto), o esforço é mínimo. Custo de manter dead code local: aceitável. Outras abas (Reservatórios, ENA, Geração, Capacidade, Carga, Curtailment) **não foram tocadas** — continuam consumindo SIN normalmente.
+
+**Reativação do semanal — default 12M e ghost trace pro hover:** loader `load_pld_media_semanal` já existia (`data_loader.py:865`). `bc8f466` foi multi-escopo (remoção do semanal + introdução de `_PLD_DEFAULTS_POR_GRANULARIDADE` da §5.36); esta sub-sessão reverteu apenas a remoção do semanal (3 entradas: import, `GRANULARIDADES`, `opcoes_ordem`) e adicionou 3 entradas novas (entrada `"semanal"` em `_PLD_DEFAULTS_POR_GRANULARIDADE`, em `LABELS_GRAN`, e em `hoverformat`) + o ghost trace condicional — sem mexer no helper introduzido pela §5.36. Default 12M (365 dias) escolhido pra capturar ciclo úmido+seco completo (52 semanas) — bate com preset existente. **Hover unified** ganha primeira linha "Semana: DD/MM a DD/MM/YYYY" via trace `go.Scatter` invisível com `customdata` pré-computado — pattern de trace ghost análogo ao `TOTAL` no hover da Capacidade (Commit G). `xaxis.hoverformat` é format string estático que **não suporta aritmética temporal**, então o range exige customdata pré-computada via `pd.Timedelta(days=6)` no momento do render (recomendação do próprio `_normalize_semanal`). Customdata em formato 2D explícito (`[[s] for s in range_strs]`) pra evitar comportamento ambíguo do Plotly com customdata 1D.
+
+**Trade-offs aceitos:**
+
+1. **Filtragem por legenda só funciona no gráfico** — card "Último dia" e tabela "Estatísticas" mostram sempre os 4 submercados (HTML estático sem hook de legenda). Conscientemente preservado: tabelas servem como referência, não exploração.
+2. **Hover semanal tem redundância leve** — header (`06/01/2025`) + ghost (`Semana: 06/01 a 12/01/2025`) coexistem. Sub-opção "header vazio + ghost" descartada porque header vazio sinaliza visualmente "info ausente"; header redundante é mais claro semanticamente.
+3. **`pivot["Média BR"]` virou órfã dentro da PLD** — variável local computada mas não usada localmente. Custo trivial vs benefício de flexibilidade futura.
+
+**Fora de escopo:**
+
+- **Não remove** `CORES_SUBMERCADO["Média BR"]` da paleta global (`app.py:103`) — outras abas podem usar.
+- **Não atualiza** a docstring desatualizada de `_normalize_semanal` (`data_loader.py:865-868`) — registrada como débito técnico em §9.1.
+- **Não introduz** disk-cache pro semanal — decisão preservada (`data_loader.py:1593-1594`: "semanal/mensal NÃO recebem disk-cache").
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
@@ -4909,6 +4931,16 @@ baseadas no relatório.
     Bauhaus pra `utils/bauhaus_palette.py` (decisão 5.33), badge
     "baixa representatividade" via `mwmed_medio`.
 
+30. **Refactor PLD consolidado (12/05/2026)** — remoção dos checkboxes
+    SE/S/NE/N/SIN (filtragem migrada pra legenda nativa do Plotly),
+    remoção do SIN da camada de UI da aba PLD (data layer preservado),
+    e reativação da granularidade "PLD médio semanal" — reverte
+    parcialmente `bc8f466` (preserva §5.36 e seu helper
+    `_aplica_default_pld_inline`), com hover via trace ghost no pattern
+    da Capacidade (Commit G). Detalhes em §5.68. Débito técnico
+    registrado em §9.1 (docstring desatualizada de
+    `_normalize_semanal`).
+
 ---
 
 ## 8. Referências Cruzadas
@@ -4947,3 +4979,30 @@ baseadas no relatório.
   coluna `hora` int8 (decisão 5.44).
 - **`docs/termico_research.md`** — pesquisa Fase A (schema, URL pattern,
   smoke tests, USINAS_COBERTURA).
+
+---
+
+## 9. Débitos Técnicos Pendentes
+
+### 9.1 Docstring de load_pld_media_semanal desatualizada
+
+`data_loader.py:865-868` declara que `load_pld_media_semanal()` retorna
+`(data=ini-semana, data_fim=fim-semana, submercado, pld)`, mas
+`_normalize_semanal` (`data_loader.py:540-553`) explicitamente **não
+produz `data_fim`** — comentário interno recomenda calcular no
+consumidor via `data + timedelta(days=6)`. A redação atual é enganosa
+pra quem lê a API do loader. Adiada na sub-sessão do refactor PLD pra
+evitar mistura de escopos no commit; pendência registrada aqui pra
+próxima revisão de `data_loader.py`.
+
+**Caminhos de resolução:**
+
+- **Mínimo:** atualizar docstring pra refletir realidade
+  `(data=ini-semana, submercado, pld)`. Custo: 1 linha. Sem mudança
+  de comportamento.
+- **Alternativo:** adicionar coluna `data_fim` no `_normalize_semanal`
+  (custo: ~1 linha; benefício: alinha código e docstring, simplifica
+  consumidores que precisem do fim da semana — ex: hover do PLD
+  semanal computado em §5.68 via `pd.Timedelta(days=6)` no render).
+  Rompe decisão original do comentário interno ("pra evitar guardar
+  coluna derivada") — reavaliar se o trade-off ainda faz sentido.

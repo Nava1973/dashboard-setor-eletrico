@@ -31,6 +31,7 @@ from data_loader import (
     load_pld_media_diaria,
     load_pld_horaria,
     load_pld_media_mensal,
+    load_pld_media_semanal,
     load_reservatorios,
     load_ena,
     load_balanco_subsistema,
@@ -53,6 +54,7 @@ from utils.cores_fontes import (
 GRANULARIDADES = {
     "horario": load_pld_horaria,
     "diario":  load_pld_media_diaria,
+    "semanal": load_pld_media_semanal,
     "mensal":  load_pld_media_mensal,
 }
 
@@ -1787,6 +1789,7 @@ if aba == "PLD":
     _PLD_DEFAULTS_POR_GRANULARIDADE = {
         "horario": ("single_day", None),
         "diario":  ("dias", 90),
+        "semanal": ("dias", 365),
         "mensal":  ("dias", 90),
     }
 
@@ -1834,10 +1837,6 @@ if aba == "PLD":
     #   (b) primeira render da sessão já em horário (gran_anterior is None)
     # Sentinela `_pld_granularidade_anterior` atualizada SEMPRE (não só
     # quando reset dispara) — comportamento mais previsível.
-    # Submercados (sel_SE/S/NE/N/media) NÃO são popados — preserva
-    # seleção do usuário entre granularidades (princípio de menor
-    # surpresa). Default "todos marcados" só vale na 1ª criação dos
-    # widgets (value=True nas linhas dos checkboxes).
     _PLD_GRAN_PREV = "_pld_granularidade_anterior"
     gran_anterior = st.session_state.get(_PLD_GRAN_PREV)
     trocou_pra_horario = (
@@ -1912,502 +1911,500 @@ if aba == "PLD":
             max_d=max_d,
         )
 
-    # --- Seletor de submercados (antes do gráfico) ---
-    sel_cols = st.columns([1, 1, 1, 1, 1.3, 4])
-    submercados_selecionados = []
-    with sel_cols[0]:
-        if st.checkbox("SE", value=True, key="sel_SE"):
-            submercados_selecionados.append("SE")
-    with sel_cols[1]:
-        if st.checkbox("S", value=True, key="sel_S"):
-            submercados_selecionados.append("S")
-    with sel_cols[2]:
-        if st.checkbox("NE", value=True, key="sel_NE"):
-            submercados_selecionados.append("NE")
-    with sel_cols[3]:
-        if st.checkbox("N", value=True, key="sel_N"):
-            submercados_selecionados.append("N")
-    with sel_cols[4]:
-        mostrar_media = st.checkbox("SIN", value=True, key="sel_media")
+    # =====================================================================
+    # Título-dropdown (Fase 3 — integrado ao gráfico).
+    # st.selectbox estilizado como título Bauhaus. Usa testids estáveis
+    # (stSelectbox + data-baseweb="select") pra sobreviver a upgrades do
+    # Streamlit. Menu aberto mantém visual default BaseWeb — preço
+    # pago por robustez. Não renderizamos "· R$/MWh" aqui porque o
+    # eixo Y do gráfico já mostra a unidade.
+    #
+    # Fluxo: on_change callback atualiza session_state["granularidade"]
+    # ANTES do próximo main-script run. Assim o get_pld_df no topo do
+    # bloco já lê o novo valor e o render todo usa dados coerentes.
+    # =====================================================================
+    LABELS_GRAN = {
+        "horario": "PLD HORÁRIO",
+        "diario":  "PLD MÉDIO DIÁRIO",
+        "semanal": "PLD MÉDIO SEMANAL",
+        "mensal":  "PLD MÉDIO MENSAL",
+    }
 
-    if not submercados_selecionados and not mostrar_media:
-        st.info("Selecione ao menos um submercado ou o SIN para visualizar.")
-    else:
-        # =====================================================================
-        # Título-dropdown (Fase 3 — integrado ao gráfico).
-        # st.selectbox estilizado como título Bauhaus. Usa testids estáveis
-        # (stSelectbox + data-baseweb="select") pra sobreviver a upgrades do
-        # Streamlit. Menu aberto mantém visual default BaseWeb — preço
-        # pago por robustez. Não renderizamos "· R$/MWh" aqui porque o
-        # eixo Y do gráfico já mostra a unidade.
-        #
-        # Fluxo: on_change callback atualiza session_state["granularidade"]
-        # ANTES do próximo main-script run. Assim o get_pld_df no topo do
-        # bloco já lê o novo valor e o render todo usa dados coerentes.
-        # =====================================================================
-        LABELS_GRAN = {
-            "horario": "PLD HORÁRIO",
-            "diario":  "PLD MÉDIO DIÁRIO",
-            "mensal":  "PLD MÉDIO MENSAL",
+    def _on_granularidade_change():
+        st.session_state["granularidade"] = st.session_state[
+            "selectbox_granularidade"
+        ]
+
+    # CSS: flatten do selectbox pra virar título Bauhaus
+    st.markdown(
+        """
+        <style>
+        [data-testid="stSelectbox"] label {
+            display: none !important;
         }
+        [data-testid="stSelectbox"] [data-baseweb="select"] > div {
+            border: none !important;
+            border-bottom: 2px solid #1A1A1A !important;
+            border-radius: 0 !important;
+            background: transparent !important;
+            font-family: 'Bebas Neue', sans-serif !important;
+            font-size: 1.1rem !important;
+            letter-spacing: 0.08em !important;
+            color: #1A1A1A !important;
+            padding-left: 0 !important;
+            min-height: 0 !important;
+            cursor: pointer !important;
+            width: fit-content !important;
+            max-width: 100% !important;
+        }
+        /* Esconde chevron SVG default do BaseWeb (evita seta dupla) */
+        [data-testid="stSelectbox"] [data-baseweb="select"] svg {
+            display: none !important;
+        }
+        /* ▾ preta sempre visível, colada no texto */
+        [data-testid="stSelectbox"] [data-baseweb="select"] > div::after {
+            content: "▾";
+            color: #1A1A1A;
+            font-size: 1.7em;
+            margin-left: 0.3em;
+            pointer-events: none;
+            line-height: 1;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-        def _on_granularidade_change():
-            st.session_state["granularidade"] = st.session_state[
-                "selectbox_granularidade"
-            ]
+    opcoes_ordem = ["horario", "diario", "semanal", "mensal"]
+    st.selectbox(
+        "Granularidade do PLD",
+        options=opcoes_ordem,
+        index=opcoes_ordem.index(st.session_state["granularidade"]),
+        format_func=lambda k: LABELS_GRAN[k],
+        label_visibility="collapsed",
+        key="selectbox_granularidade",
+        on_change=_on_granularidade_change,
+    )
 
-        # CSS: flatten do selectbox pra virar título Bauhaus
+    # --- Preparar dados ---
+    pivot = dff.pivot_table(
+        index="data", columns="submercado", values="pld", aggfunc="mean"
+    ).sort_index()
+
+    submercados_presentes = [s for s in SUBMERCADOS_ORD if s in pivot.columns]
+    pivot["Média BR"] = pivot[submercados_presentes].mean(axis=1)
+
+    # =====================================================================
+    # KPIs do single-day mode (decisão 5.28).
+    # Renderizados ENTRE o título-dropdown e o gráfico — quando
+    # granularidade=horário e data_ini==data_fim (1D ativo).
+    # 5 cards: PLD médio do dia / Máximo+hora / Mínimo+hora / Spread /
+    # vs Média do mês. Submercado escolhido via dropdown auxiliar
+    # "Detalhar KPIs:" (default SE).
+    # =====================================================================
+    single_day_active = (
+        granularidade == "horario" and data_ini == data_fim
+    )
+
+    if single_day_active:
         st.markdown(
             """
             <style>
-            [data-testid="stSelectbox"] label {
-                display: none !important;
+            .pld1d-kpi-card {
+                background: #F5F1E8;
+                border: 2px solid #1A1A1A;
+                padding: 16px;
+                border-radius: 0;
             }
-            [data-testid="stSelectbox"] [data-baseweb="select"] > div {
+            /* Header do card: label à esquerda, meta opcional à
+               direita (ex: horário "18:00" nos cards Máximo/Mínimo).
+               Cards sem meta ficam só com label — espaço à direita
+               permanece vazio sem afetar alinhamento. */
+            .pld1d-kpi-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: baseline;
+                gap: 8px;
+            }
+            .pld1d-kpi-label {
+                font-family: 'Bebas Neue', sans-serif;
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                color: #1A1A1A;
+                font-weight: 400;
+                line-height: 1.2;
+            }
+            .pld1d-kpi-meta {
+                font-family: 'Inter', sans-serif;
+                font-size: 11px;
+                font-weight: 500;
+                color: #6B6B6B;
+                white-space: nowrap;
+            }
+            .pld1d-kpi-value-row {
+                display: flex;
+                align-items: baseline;
+                margin-top: 0.4rem;
+            }
+            .pld1d-kpi-currency {
+                font-family: 'Inter', sans-serif;
+                font-size: 13px;
+                font-weight: 400;
+                color: #6B6B6B;
+                vertical-align: baseline;
+                margin-right: 4px;
+            }
+            .pld1d-kpi-amount {
+                font-family: 'Inter', sans-serif;
+                font-size: 22px;
+                font-weight: 600;
+                color: #1A1A1A;
+                vertical-align: baseline;
+                line-height: 1.1;
+            }
+
+            /* Dropdown "Submercado dos KPIs" — 1º item da régua de
+               KPIs. Streamlit emite class="st-key-{key}" no
+               element-container do widget — usamos isso pra mirar
+               APENAS este selectbox sem afetar o dropdown global de
+               granularidade do PLD (que já tem CSS próprio em
+               app.py linhas ~1495-1525 fazendo flatten Bauhaus).
+               O wrapper recebe estilo de card (cream + borda +
+               padding); o selectbox interno fica minimalista (sem
+               borda, Inter 14px, chevron empurrado pra direita). */
+            .st-key-kpi_submercado_detalhe {
+                background: #F5F1E8;
+                border: 2px solid #1A1A1A;
+                border-radius: 0;
+                padding: 16px;
+                min-height: 76px;
+                display: flex;
+                align-items: center;
+                box-sizing: border-box;
+            }
+            .st-key-kpi_submercado_detalhe [data-testid="stSelectbox"] {
+                width: 100%;
+            }
+            .st-key-kpi_submercado_detalhe [data-testid="stSelectbox"]
+            [data-baseweb="select"] > div {
                 border: none !important;
-                border-bottom: 2px solid #1A1A1A !important;
-                border-radius: 0 !important;
+                border-bottom: none !important;
                 background: transparent !important;
-                font-family: 'Bebas Neue', sans-serif !important;
-                font-size: 1.1rem !important;
-                letter-spacing: 0.08em !important;
+                font-family: 'Inter', sans-serif !important;
+                font-size: 14px !important;
+                font-weight: 600 !important;
+                letter-spacing: 0 !important;
                 color: #1A1A1A !important;
-                padding-left: 0 !important;
-                min-height: 0 !important;
-                cursor: pointer !important;
-                width: fit-content !important;
+                width: 100% !important;
                 max-width: 100% !important;
             }
-            /* Esconde chevron SVG default do BaseWeb (evita seta dupla) */
-            [data-testid="stSelectbox"] [data-baseweb="select"] svg {
-                display: none !important;
+            /* Texto do valor selecionado em Inter 22px 600 — pareia
+               com o número dos KPIs (R$ 302,38) ao lado. BaseWeb
+               aninha o valor em divs internos com font-size/weight
+               próprios, então inheritance da regra acima (font-size
+               14px no > div) não chega ao texto visível — targeting
+               via descendant selector `> div *` pega todos. Não afeta:
+               - Chevron ▾ (pseudo-element ::after do > div, não é
+                 descendant — preserva tamanho atual 1.2em × 14px =
+                 16.8px).
+               - SVG do BaseWeb (display:none pela regra global linha
+                 1514).
+               - Opções do menu aberto (portal separado fora do
+                 .st-key-…). */
+            .st-key-kpi_submercado_detalhe [data-baseweb="select"]
+            > div * {
+                font-size: 22px !important;
+                font-weight: 600 !important;
+                line-height: 1.1 !important;
+                color: #1A1A1A !important;
             }
-            /* ▾ preta sempre visível, colada no texto */
-            [data-testid="stSelectbox"] [data-baseweb="select"] > div::after {
-                content: "▾";
-                color: #1A1A1A;
-                font-size: 1.7em;
-                margin-left: 0.3em;
-                pointer-events: none;
-                line-height: 1;
+            .st-key-kpi_submercado_detalhe [data-testid="stSelectbox"]
+            [data-baseweb="select"] > div::after {
+                font-size: 1.2em !important;
+                margin-left: auto !important;
             }
             </style>
             """,
             unsafe_allow_html=True,
         )
 
-        opcoes_ordem = ["horario", "diario", "mensal"]
-        st.selectbox(
-            "Granularidade do PLD",
-            options=opcoes_ordem,
-            index=opcoes_ordem.index(st.session_state["granularidade"]),
-            format_func=lambda k: LABELS_GRAN[k],
-            label_visibility="collapsed",
-            key="selectbox_granularidade",
-            on_change=_on_granularidade_change,
+        def _render_kpi_pld_1d(label, num, meta_right=""):
+            """Card KPI do single-day mode. Layout:
+              [LABEL ............... meta_right]   <- header (flex)
+              [R$ XX,XX]                            <- value row
+
+            `num` vem como HTML pronto do `_fmt_pld_1d` (spans
+            currency + amount). `meta_right` opcional — usado só
+            nos cards MÁXIMO/MÍNIMO pra mostrar o horário do
+            pico/vale alinhado à direita do label.
+            """
+            meta_html = (
+                f'<span class="pld1d-kpi-meta">{meta_right}</span>'
+                if meta_right else ""
+            )
+            return (
+                f'<div class="pld1d-kpi-card">'
+                f'<div class="pld1d-kpi-header">'
+                f'<span class="pld1d-kpi-label">{label}</span>'
+                f'{meta_html}'
+                f'</div>'
+                f'<div class="pld1d-kpi-value-row">{num}</div>'
+                f'</div>'
+            )
+
+        def _fmt_pld_1d(v):
+            """Retorna HTML com 'R$' e o número em spans separados —
+            hierarquia tipográfica: R$ secundário (Inter 13px cinza),
+            número primário (Inter 22px bold preto)."""
+            if v is None or pd.isna(v):
+                return "—"
+            n = (
+                f"{v:,.2f}"
+                .replace(",", "X").replace(".", ",").replace("X", ".")
+            )
+            return (
+                f'<span class="pld1d-kpi-currency">R$</span>'
+                f'<span class="pld1d-kpi-amount">{n}</span>'
+            )
+
+        # Subtítulo (largura cheia — descreve toda a régua de 5
+        # colunas abaixo: dropdown de submercado + 4 KPIs).
+        st.markdown(
+            f'<div style="font-family:\'Inter\', sans-serif; '
+            f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+            f'margin:0.6rem 0 0.4rem 0;">'
+            f'Indicadores do dia '
+            f'{data_ini.strftime("%d/%m/%Y")}.'
+            f'</div>',
+            unsafe_allow_html=True,
         )
 
-        # --- Preparar dados ---
-        pivot = dff.pivot_table(
-            index="data", columns="submercado", values="pld", aggfunc="mean"
-        ).sort_index()
-
-        submercados_presentes = [s for s in SUBMERCADOS_ORD if s in pivot.columns]
-        pivot["Média BR"] = pivot[submercados_presentes].mean(axis=1)
-
-        # =====================================================================
-        # KPIs do single-day mode (decisão 5.28).
-        # Renderizados ENTRE o título-dropdown e o gráfico — quando
-        # granularidade=horário e data_ini==data_fim (1D ativo).
-        # 5 cards: PLD médio do dia / Máximo+hora / Mínimo+hora / Spread /
-        # vs Média do mês. Submercado escolhido via dropdown auxiliar
-        # "Detalhar KPIs:" (default SE).
-        # =====================================================================
-        single_day_active = (
-            granularidade == "horario" and data_ini == data_fim
-        )
-
-        if single_day_active:
-            st.markdown(
-                """
-                <style>
-                .pld1d-kpi-card {
-                    background: #F5F1E8;
-                    border: 2px solid #1A1A1A;
-                    padding: 16px;
-                    border-radius: 0;
-                }
-                /* Header do card: label à esquerda, meta opcional à
-                   direita (ex: horário "18:00" nos cards Máximo/Mínimo).
-                   Cards sem meta ficam só com label — espaço à direita
-                   permanece vazio sem afetar alinhamento. */
-                .pld1d-kpi-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: baseline;
-                    gap: 8px;
-                }
-                .pld1d-kpi-label {
-                    font-family: 'Bebas Neue', sans-serif;
-                    font-size: 11px;
-                    text-transform: uppercase;
-                    letter-spacing: 0.08em;
-                    color: #1A1A1A;
-                    font-weight: 400;
-                    line-height: 1.2;
-                }
-                .pld1d-kpi-meta {
-                    font-family: 'Inter', sans-serif;
-                    font-size: 11px;
-                    font-weight: 500;
-                    color: #6B6B6B;
-                    white-space: nowrap;
-                }
-                .pld1d-kpi-value-row {
-                    display: flex;
-                    align-items: baseline;
-                    margin-top: 0.4rem;
-                }
-                .pld1d-kpi-currency {
-                    font-family: 'Inter', sans-serif;
-                    font-size: 13px;
-                    font-weight: 400;
-                    color: #6B6B6B;
-                    vertical-align: baseline;
-                    margin-right: 4px;
-                }
-                .pld1d-kpi-amount {
-                    font-family: 'Inter', sans-serif;
-                    font-size: 22px;
-                    font-weight: 600;
-                    color: #1A1A1A;
-                    vertical-align: baseline;
-                    line-height: 1.1;
-                }
-
-                /* Dropdown "Submercado dos KPIs" — 1º item da régua de
-                   KPIs. Streamlit emite class="st-key-{key}" no
-                   element-container do widget — usamos isso pra mirar
-                   APENAS este selectbox sem afetar o dropdown global de
-                   granularidade do PLD (que já tem CSS próprio em
-                   app.py linhas ~1495-1525 fazendo flatten Bauhaus).
-                   O wrapper recebe estilo de card (cream + borda +
-                   padding); o selectbox interno fica minimalista (sem
-                   borda, Inter 14px, chevron empurrado pra direita). */
-                .st-key-kpi_submercado_detalhe {
-                    background: #F5F1E8;
-                    border: 2px solid #1A1A1A;
-                    border-radius: 0;
-                    padding: 16px;
-                    min-height: 76px;
-                    display: flex;
-                    align-items: center;
-                    box-sizing: border-box;
-                }
-                .st-key-kpi_submercado_detalhe [data-testid="stSelectbox"] {
-                    width: 100%;
-                }
-                .st-key-kpi_submercado_detalhe [data-testid="stSelectbox"]
-                [data-baseweb="select"] > div {
-                    border: none !important;
-                    border-bottom: none !important;
-                    background: transparent !important;
-                    font-family: 'Inter', sans-serif !important;
-                    font-size: 14px !important;
-                    font-weight: 600 !important;
-                    letter-spacing: 0 !important;
-                    color: #1A1A1A !important;
-                    width: 100% !important;
-                    max-width: 100% !important;
-                }
-                /* Texto do valor selecionado em Inter 22px 600 — pareia
-                   com o número dos KPIs (R$ 302,38) ao lado. BaseWeb
-                   aninha o valor em divs internos com font-size/weight
-                   próprios, então inheritance da regra acima (font-size
-                   14px no > div) não chega ao texto visível — targeting
-                   via descendant selector `> div *` pega todos. Não afeta:
-                   - Chevron ▾ (pseudo-element ::after do > div, não é
-                     descendant — preserva tamanho atual 1.2em × 14px =
-                     16.8px).
-                   - SVG do BaseWeb (display:none pela regra global linha
-                     1514).
-                   - Opções do menu aberto (portal separado fora do
-                     .st-key-…). */
-                .st-key-kpi_submercado_detalhe [data-baseweb="select"]
-                > div * {
-                    font-size: 22px !important;
-                    font-weight: 600 !important;
-                    line-height: 1.1 !important;
-                    color: #1A1A1A !important;
-                }
-                .st-key-kpi_submercado_detalhe [data-testid="stSelectbox"]
-                [data-baseweb="select"] > div::after {
-                    font-size: 1.2em !important;
-                    margin-left: auto !important;
-                }
-                </style>
-                """,
-                unsafe_allow_html=True,
+        # Régua: dropdown de submercado (col 0) + 4 KPIs (cols 1-4).
+        opcoes_sub_kpi = ["SE", "S", "NE", "N"]
+        kpi_cols = st.columns(5)
+        with kpi_cols[0]:
+            sub_kpis = st.selectbox(
+                "Submercado dos KPIs",
+                options=opcoes_sub_kpi,
+                index=0,  # default SE
+                key="kpi_submercado_detalhe",
+                label_visibility="collapsed",
             )
 
-            def _render_kpi_pld_1d(label, num, meta_right=""):
-                """Card KPI do single-day mode. Layout:
-                  [LABEL ............... meta_right]   <- header (flex)
-                  [R$ XX,XX]                            <- value row
+        # Série do dia (24 valores) pro submercado escolhido
+        if sub_kpis in pivot.columns:
+            serie_dia = pivot[sub_kpis].dropna()
+        else:
+            serie_dia = pd.Series(dtype=float)
 
-                `num` vem como HTML pronto do `_fmt_pld_1d` (spans
-                currency + amount). `meta_right` opcional — usado só
-                nos cards MÁXIMO/MÍNIMO pra mostrar o horário do
-                pico/vale alinhado à direita do label.
-                """
-                meta_html = (
-                    f'<span class="pld1d-kpi-meta">{meta_right}</span>'
-                    if meta_right else ""
-                )
-                return (
-                    f'<div class="pld1d-kpi-card">'
-                    f'<div class="pld1d-kpi-header">'
-                    f'<span class="pld1d-kpi-label">{label}</span>'
-                    f'{meta_html}'
-                    f'</div>'
-                    f'<div class="pld1d-kpi-value-row">{num}</div>'
-                    f'</div>'
-                )
-
-            def _fmt_pld_1d(v):
-                """Retorna HTML com 'R$' e o número em spans separados —
-                hierarquia tipográfica: R$ secundário (Inter 13px cinza),
-                número primário (Inter 22px bold preto)."""
-                if v is None or pd.isna(v):
-                    return "—"
-                n = (
-                    f"{v:,.2f}"
-                    .replace(",", "X").replace(".", ",").replace("X", ".")
-                )
-                return (
-                    f'<span class="pld1d-kpi-currency">R$</span>'
-                    f'<span class="pld1d-kpi-amount">{n}</span>'
-                )
-
-            # Subtítulo (largura cheia — descreve toda a régua de 5
-            # colunas abaixo: dropdown de submercado + 4 KPIs).
-            st.markdown(
-                f'<div style="font-family:\'Inter\', sans-serif; '
-                f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-                f'margin:0.6rem 0 0.4rem 0;">'
-                f'Indicadores do dia '
-                f'{data_ini.strftime("%d/%m/%Y")}.'
-                f'</div>',
-                unsafe_allow_html=True,
+        if serie_dia.empty:
+            st.warning(
+                f"Sem dados pro submercado {sub_kpis} no dia "
+                f"{data_ini.strftime('%d/%m/%Y')}."
             )
+        else:
+            pld_medio_dia = serie_dia.mean()
+            max_val = serie_dia.max()
+            max_ts = serie_dia.idxmax()
+            min_val = serie_dia.min()
+            min_ts = serie_dia.idxmin()
+            spread = max_val - min_val
 
-            # Régua: dropdown de submercado (col 0) + 4 KPIs (cols 1-4).
-            opcoes_sub_kpi = ["SE", "S", "NE", "N", "Média BR"]
-            kpi_cols = st.columns(5)
-            with kpi_cols[0]:
-                sub_kpis = st.selectbox(
-                    "Submercado dos KPIs",
-                    options=opcoes_sub_kpi,
-                    index=0,  # default SE
-                    key="kpi_submercado_detalhe",
-                    label_visibility="collapsed",
-                    format_func=lambda x: "SIN" if x == "Média BR" else x,
-                )
-
-            # Série do dia (24 valores) pro submercado escolhido
-            if sub_kpis in pivot.columns:
-                serie_dia = pivot[sub_kpis].dropna()
-            else:
-                serie_dia = pd.Series(dtype=float)
-
-            if serie_dia.empty:
-                sub_kpis_display = "SIN" if sub_kpis == "Média BR" else sub_kpis
-                st.warning(
-                    f"Sem dados pro submercado {sub_kpis_display} no dia "
-                    f"{data_ini.strftime('%d/%m/%Y')}."
-                )
-            else:
-                pld_medio_dia = serie_dia.mean()
-                max_val = serie_dia.max()
-                max_ts = serie_dia.idxmax()
-                min_val = serie_dia.min()
-                min_ts = serie_dia.idxmin()
-                spread = max_val - min_val
-
-                with kpi_cols[1]:
-                    st.markdown(
-                        _render_kpi_pld_1d(
-                            "PLD MÉDIO DIA",
-                            _fmt_pld_1d(pld_medio_dia),
-                        ),
-                        unsafe_allow_html=True,
-                    )
-                with kpi_cols[2]:
-                    st.markdown(
-                        _render_kpi_pld_1d(
-                            "MÁXIMO",
-                            _fmt_pld_1d(max_val),
-                            meta_right=max_ts.strftime("%H:00"),
-                        ),
-                        unsafe_allow_html=True,
-                    )
-                with kpi_cols[3]:
-                    st.markdown(
-                        _render_kpi_pld_1d(
-                            "MÍNIMO",
-                            _fmt_pld_1d(min_val),
-                            meta_right=min_ts.strftime("%H:00"),
-                        ),
-                        unsafe_allow_html=True,
-                    )
-                with kpi_cols[4]:
-                    st.markdown(
-                        _render_kpi_pld_1d(
-                            "SPREAD",
-                            _fmt_pld_1d(spread),
-                        ),
-                        unsafe_allow_html=True,
-                    )
-
-        # --- Construir gráfico ---
-        fig = go.Figure()
-
-        series_plot = list(submercados_selecionados)
-        if mostrar_media:
-            series_plot.append("Média BR")
-
-        for col in series_plot:
-            if col not in pivot.columns:
-                continue
-            is_media = col == "Média BR"
-            cor_linha = CORES_SUBMERCADO[col]
-            sigla_label = col if col != "Média BR" else "SIN"
-            # Com fonte monoespaçada, padronizar todas as siglas em 3 chars
-            # (SIN ocupa 3; SE/NE ganham 1 espaço, S/N ganham 2 espaços ao
-            # final). Garante que "R$" comece na mesma coluna em todas as
-            # linhas do hover unified.
-            sigla_fix = sigla_label.ljust(3)
-            fig.add_trace(
-                go.Scatter(
-                    x=pivot.index,
-                    y=pivot[col],
-                    name=("SIN" if col == "Média BR" else col),
-                    mode="lines",
-                    line=dict(
-                        color=cor_linha,
-                        width=4 if is_media else 2.5,
-                        dash="dot" if is_media else "solid",
+            with kpi_cols[1]:
+                st.markdown(
+                    _render_kpi_pld_1d(
+                        "PLD MÉDIO DIA",
+                        _fmt_pld_1d(pld_medio_dia),
                     ),
-                    # Hover com fonte monoespaçada: &nbsp; tem largura fixa,
-                    # garantindo que "R$" comece na mesma coluna em todas as linhas.
-                    hovertemplate=(
-                        f'<span style="color:{cor_linha}; font-weight:700;">'
-                        f'{sigla_fix}</span>'
-                        '&nbsp;&nbsp;&nbsp;&nbsp;'
-                        '<span style="color:#1A1A1A;">R$ %{y:.0f}/MWh</span>'
-                        '<extra></extra>'
-                    ),
+                    unsafe_allow_html=True,
                 )
-            )
+            with kpi_cols[2]:
+                st.markdown(
+                    _render_kpi_pld_1d(
+                        "MÁXIMO",
+                        _fmt_pld_1d(max_val),
+                        meta_right=max_ts.strftime("%H:00"),
+                    ),
+                    unsafe_allow_html=True,
+                )
+            with kpi_cols[3]:
+                st.markdown(
+                    _render_kpi_pld_1d(
+                        "MÍNIMO",
+                        _fmt_pld_1d(min_val),
+                        meta_right=min_ts.strftime("%H:00"),
+                    ),
+                    unsafe_allow_html=True,
+                )
+            with kpi_cols[4]:
+                st.markdown(
+                    _render_kpi_pld_1d(
+                        "SPREAD",
+                        _fmt_pld_1d(spread),
+                    ),
+                    unsafe_allow_html=True,
+                )
 
-        # Layout Bauhaus — papel creme, tipografia impactante, geometria
-        fig.update_layout(
-            height=290,  # reduzido ~10% (era 320) para caber melhor em tela 100%
-            margin=dict(l=20, r=20, t=30, b=20),
-            paper_bgcolor=BAUHAUS_CREAM,
-            plot_bgcolor=BAUHAUS_CREAM,
-            hovermode="x unified",  # tooltip único com todas as séries + data no topo
-            hoverlabel=dict(
-                bgcolor=BAUHAUS_CREAM,
-                bordercolor=BAUHAUS_BLACK,
-                font=dict(
-                    # IBM Plex Mono: monoespaçada (permite alinhamento) mas com
-                    # desenho consistente com Inter (usada no resto do dashboard).
-                    family="'IBM Plex Mono', 'Courier New', monospace",
-                    size=12,
-                    color=BAUHAUS_BLACK,
+    # --- Construir gráfico ---
+    fig = go.Figure()
+
+    series_plot = list(SUBMERCADOS_ORD)
+
+    for col in series_plot:
+        if col not in pivot.columns:
+            continue
+        cor_linha = CORES_SUBMERCADO[col]
+        # Com fonte monoespaçada, padronizar todas as siglas em 3 chars
+        # (SE/NE ganham 1 espaço, S/N ganham 2 espaços ao final).
+        # Garante que "R$" comece na mesma coluna em todas as linhas
+        # do hover unified.
+        sigla_fix = col.ljust(3)
+        fig.add_trace(
+            go.Scatter(
+                x=pivot.index,
+                y=pivot[col],
+                name=col,
+                mode="lines",
+                line=dict(
+                    color=cor_linha,
+                    width=2.5,
+                    dash="solid",
                 ),
+                # Hover com fonte monoespaçada: &nbsp; tem largura fixa,
+                # garantindo que "R$" comece na mesma coluna em todas as linhas.
+                hovertemplate=(
+                    f'<span style="color:{cor_linha}; font-weight:700;">'
+                    f'{sigla_fix}</span>'
+                    '&nbsp;&nbsp;&nbsp;&nbsp;'
+                    '<span style="color:#1A1A1A;">R$ %{y:.0f}/MWh</span>'
+                    '<extra></extra>'
+                ),
+            )
+        )
+
+    # Ghost trace pra mostrar "Semana: DD/MM a DD/MM/YYYY" no hover unified
+    # (modo semanal). Pattern de trace invisível com customdata — análogo
+    # ao TOTAL no hover da aba Capacidade (Commit G).
+    # CCEE publica só data início da semana (ver _normalize_semanal);
+    # computamos data_fim no render via timedelta(days=6).
+    if granularidade == "semanal":
+        range_strs = [
+            f"{ts.strftime('%d/%m')} a "
+            f"{(ts + pd.Timedelta(days=6)).strftime('%d/%m/%Y')}"
+            for ts in pivot.index
+        ]
+        fig.add_trace(
+            go.Scatter(
+                x=pivot.index,
+                y=[0] * len(pivot.index),
+                mode="markers",
+                marker=dict(opacity=0),
+                showlegend=False,
+                customdata=[[s] for s in range_strs],
+                hovertemplate='<b>Semana: %{customdata[0]}</b><extra></extra>',
+            )
+        )
+
+    # Layout Bauhaus — papel creme, tipografia impactante, geometria
+    fig.update_layout(
+        height=290,  # reduzido ~10% (era 320) para caber melhor em tela 100%
+        margin=dict(l=20, r=20, t=30, b=20),
+        paper_bgcolor=BAUHAUS_CREAM,
+        plot_bgcolor=BAUHAUS_CREAM,
+        hovermode="x unified",  # tooltip único com todas as séries + data no topo
+        hoverlabel=dict(
+            bgcolor=BAUHAUS_CREAM,
+            bordercolor=BAUHAUS_BLACK,
+            font=dict(
+                # IBM Plex Mono: monoespaçada (permite alinhamento) mas com
+                # desenho consistente com Inter (usada no resto do dashboard).
+                family="'IBM Plex Mono', 'Courier New', monospace",
+                size=12,
+                color=BAUHAUS_BLACK,
             ),
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="left",
-                x=0,
-                bgcolor="rgba(0,0,0,0)",
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="left",
+            x=0,
+            bgcolor="rgba(0,0,0,0)",
+            font=dict(
+                family="Bebas Neue, sans-serif",
+                size=17,
+                color=BAUHAUS_BLACK,
+            ),
+        ),
+        xaxis=dict(
+            title=None,
+            showgrid=False,
+            showline=True,
+            linewidth=2,
+            linecolor=BAUHAUS_BLACK,
+            ticks="outside",
+            tickcolor=BAUHAUS_BLACK,
+            tickfont=dict(
+                family="Inter, sans-serif",
+                size=13,
+                color=BAUHAUS_BLACK,
+            ),
+            # Formato do header do tooltip (hovermode="x unified").
+            # Em horário + single-day (data_ini == data_fim), só
+            # `HH:MM` no hover — a data é redundante porque o
+            # gráfico mostra 24h de UM dia. Range > 1 dia mantém
+            # data + hora pra desambiguar entre dias.
+            hoverformat=(
+                "%H:%M"
+                if granularidade == "horario" and data_ini == data_fim
+                else {
+                    "horario": "%d/%m/%Y %H:%M",
+                    "diario":  "%d/%m/%Y",
+                    "semanal": "%d/%m/%Y",
+                    "mensal":  "%b %Y",
+                }[granularidade]
+            ),
+        ),
+        yaxis=dict(
+            title=dict(
+                text="R$/MWh",
                 font=dict(
                     family="Bebas Neue, sans-serif",
-                    size=17,
+                    size=16,
                     color=BAUHAUS_BLACK,
                 ),
             ),
-            xaxis=dict(
-                title=None,
-                showgrid=False,
-                showline=True,
-                linewidth=2,
-                linecolor=BAUHAUS_BLACK,
-                ticks="outside",
-                tickcolor=BAUHAUS_BLACK,
-                tickfont=dict(
-                    family="Inter, sans-serif",
-                    size=13,
-                    color=BAUHAUS_BLACK,
-                ),
-                # Formato do header do tooltip (hovermode="x unified").
-                # Em horário + single-day (data_ini == data_fim), só
-                # `HH:MM` no hover — a data é redundante porque o
-                # gráfico mostra 24h de UM dia. Range > 1 dia mantém
-                # data + hora pra desambiguar entre dias.
-                hoverformat=(
-                    "%H:%M"
-                    if granularidade == "horario" and data_ini == data_fim
-                    else {
-                        "horario": "%d/%m/%Y %H:%M",
-                        "diario":  "%d/%m/%Y",
-                        "mensal":  "%b %Y",
-                    }[granularidade]
-                ),
+            showgrid=True,
+            gridcolor=BAUHAUS_LIGHT,
+            gridwidth=1,
+            showline=True,
+            linewidth=2,
+            linecolor=BAUHAUS_BLACK,
+            ticks="outside",
+            tickcolor=BAUHAUS_BLACK,
+            tickfont=dict(
+                family="Inter, sans-serif",
+                size=13,
+                color=BAUHAUS_BLACK,
             ),
-            yaxis=dict(
-                title=dict(
-                    text="R$/MWh",
-                    font=dict(
-                        family="Bebas Neue, sans-serif",
-                        size=16,
-                        color=BAUHAUS_BLACK,
-                    ),
-                ),
-                showgrid=True,
-                gridcolor=BAUHAUS_LIGHT,
-                gridwidth=1,
-                showline=True,
-                linewidth=2,
-                linecolor=BAUHAUS_BLACK,
-                ticks="outside",
-                tickcolor=BAUHAUS_BLACK,
-                tickfont=dict(
-                    family="Inter, sans-serif",
-                    size=13,
-                    color=BAUHAUS_BLACK,
-                ),
-                zeroline=False,
-                tickformat=".0f",
-                hoverformat=".0f",
-            ),
-            font=dict(family="Inter, sans-serif", size=12),
+            zeroline=False,
+            tickformat=".0f",
+            hoverformat=".0f",
+        ),
+        font=dict(family="Inter, sans-serif", size=12),
+    )
+
+    # Caption de performance: horário + período ≥ 180 dias pode
+    # demorar alguns segundos no primeiro render (até ~230k pontos).
+    periodo_dias = (data_fim - data_ini).days
+    if granularidade == "horario" and periodo_dias >= 180:
+        st.caption(
+            "Granularidade horária com período longo — "
+            "renderização pode levar alguns segundos."
         )
 
-        # Caption de performance: horário + período ≥ 180 dias pode
-        # demorar alguns segundos no primeiro render (até ~230k pontos).
-        periodo_dias = (data_fim - data_ini).days
-        if granularidade == "horario" and periodo_dias >= 180:
-            st.caption(
-                "Granularidade horária com período longo — "
-                "renderização pode levar alguns segundos."
-            )
-
-        st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
+    st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
 
     # --- KPIs + tabela de estatísticas: só em diário (Fase 4 adapta pras outras) ---
     if granularidade != "diario":
@@ -2419,7 +2416,6 @@ if aba == "PLD":
     # --- Último dia disponível (KPIs compactos em linha única) ---
     ultima_data = dff["data"].max()
     ultimo_pld = dff[dff["data"] == ultima_data].set_index("submercado")["pld"]
-    media_br_ultimo = ultimo_pld.mean()
 
     # Formata valores BR (vírgula decimal)
     def _fmt_br(v):
@@ -2438,13 +2434,6 @@ if aba == "PLD":
             f'<span class="kpi-value">R$ {_fmt_br(val)}</span>'
             f'</span>'
         )
-    # Adiciona Média BR (SIN) no final — variável interna mantém nome
-    kpi_items.append(
-        f'<span class="kpi-item">'
-        f'<span class="kpi-label" style="background:#6B6B6B;">SIN</span>'
-        f'<span class="kpi-value">R$ {_fmt_br(media_br_ultimo)}</span>'
-        f'</span>'
-    )
 
     _kpi_row_html = f"""
         <style>
