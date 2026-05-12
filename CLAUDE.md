@@ -556,6 +556,22 @@ NOTA RELACIONADA: endpoint paginado datastore_search e endpoint /datastore/dump 
 
 Investigacao completa: docs/B5_findings.md (Commit E 196a427).
 
+### 4.12 Cache disk orfao sobrevive ao fix de convencao do loader
+
+SINTOMA: apos fix de bug que muda CONVENCAO do retorno do loader (index, schema, formato de campo), proximo load ainda retorna dados buggados. Sanity test re-roda e reproduz o bug original — diagnostico inicial sugere que o fix nao funcionou, mas funcionou; esta sendo mascarado pelo cache.
+
+CAUSA: loaders com cache disk (parquet local + mtime TTL) permanecem validos APOS o codigo do loader mudar. mtime ainda dentro do TTL, parquet ainda eh leitor valido. `@st.cache_data` em RAM tambem pode estar quente. Resultado: `load_X()` retorna cache antigo com schema/convencao antiga em vez de re-executar o fluxo corrigido.
+
+CASO CONCRETO (Sub-sessao G fases G.4 e G.5.a): `load_mmgd_anual` original retornava index com fim de mes (2024-12-31). Fix re-indexa pra 1o do mes (2024-12-01) pra bater com convencao SIGA. Apos aplicar o fix, sanity test continuava mostrando 5/5 NaN no merge porque `cache/mmgd_sql/anual.parquet` ainda tinha o index antigo — `_carregar_de_cache_disk` retornava early com Series buggada antes do codigo novo executar.
+
+WORKAROUND: `rm cache/<loader_name>/*.parquet` antes de re-testar pos-fix de convencao. Em cliente real, equivalentes: botao "Atualizar" da sidebar (se `clear_cache` cobrir o loader — decisao 4.10 lista as funcoes nao cobertas) OU redeploy do container Streamlit Cloud (sempre comeca com cache vazio).
+
+SOLUCAO DE FUNDO: pattern decisao 5.34 (Cache versionado). Path do cache carrega sufixo de versao (`cache/mmgd_sql_v2/` em vez de `cache/mmgd_sql/`). Toda mudanca em schema ou convencao do retorno bump da versao. Cache antigo vira orfao no disco mas nao eh consumido. NAO implementado no `data_loader_aneel_mmgd_sql.py` hoje — manutencao manual eh a regra.
+
+NOTA RELACIONADA: especifico a caches DISK persistentes. Cache so em RAM (`@st.cache_data` sem parquet overlay) some no restart do processo e o problema nao se manifesta — tradeoff de performance vs invalidacao automatica.
+
+Detectado em: Sub-sessao G (Commit G 22403c5), fases G.4 e G.5.a. Mascarou validacao por 1 ciclo de teste em cada caso.
+
 ---
 
 ## 5. Decisões Arquiteturais
@@ -4206,6 +4222,62 @@ Implicações arquiteturais (não implementadas hoje, registradas pra próxima s
 3. Anchors INFERIDOS 2022/2023 (20.000/28.000 MW) eram otimistas: reais ~18.100/26.600 MW
 
 Não implementar mudança nos anchors sem nova validação com release PDGD ~abr/2027 (próximo gold standard).
+
+### 5.67 Loader MMGD dinâmico via SQL CKAN com fallback hardcoded coexistindo
+
+**Decisão (Sub-sessão G, Commit G 22403c5):** capacidade MMGD passa a ser carregada dinamicamente via ANEEL CKAN `datastore_search_sql` (workaround §4.11), com fallback automático pros anchor points hardcoded de `data_loader_aneel_mmgd.py` quando >50% das queries falham. Os 2 loaders **coexistem** — não há substituição/remoção do hardcoded.
+
+**Arquitetura em 3 camadas:**
+
+1. **`data_loaders/data_loader_aneel_mmgd_sql.py`** (NOVO): loader primary com queries paralelas via `ThreadPoolExecutor(max_workers=12)`, `timeout=60s`/query. Cache 2 camadas — `@st.cache_data(ttl=30d)` RAM + parquet local em `cache/mmgd_sql/`. Convenção de index: 1º do mês (igual SIGA — cutoffs de query usam fim de mês pra capturar todos os cadastros, INDEX retornado normaliza pra 1º). Expõe `attrs['source'] = 'sql_live'` quando query funciona.
+
+2. **`data_loaders/data_loader_aneel_mmgd.py`** (PRESERVADO): anchor points hardcoded EPE PDGD. Função `load_mmgd_anual()` continua exportada. O loader SQL importa essa função como `load_mmgd_anual_fallback`. Expõe `attrs['source'] = 'fallback_anchors'` quando acionado.
+
+3. **`components/tab_capacidade.py`** (consumer): chama `load_mmgd_anual()` do módulo SQL. Lê `serie.attrs['source']` pra escolher mini-nota visual (texto preto "ANEEL CKAN (live)" vs cinza "anchors hardcoded (ANEEL indisponível)"). Modo Mensal usa o mesmo padrão com `load_mmgd_mensal()` — quando `unavailable`, omite a 6ª trace MMGD do stack.
+
+**Razão pra preservar o hardcoded como fallback:**
+
+- ANEEL CKAN é flaky — sessão G observou 1 ciclo onde 5/5 queries retornaram HTTP 502/timeout (degradação completa transitória). Sem fallback, aba quebraria.
+- Anchors do hardcoded são valores OFICIAIS publicados pela EPE PDGD (dez/2024: 36.200; dez/2025: 45.000) — não são estimativas internas. Servem como ground truth conservador.
+- Custo de manter coexistência é baixo: ~94 linhas de loader hardcoded, atualizado anualmente (PDGD release abr/AAAA). O SQL loader importa e chama numa linha.
+
+**Threshold de fallback `_MAX_FALHA_PCT = 0.5`:**
+
+Se >50% das N queries paralelas falham, `_query_series_paralela()` retorna `None` e cai pro fallback. Razão: 1-2 falhas em 5 queries (≤40%) ainda é recuperável com warning em stderr; >50% indica degradação sistêmica do endpoint, não flakiness pontual.
+
+**Convenção de cutoffs:**
+
+- **Anual:** `dez/2022, dez/2023, dez/2024, dez/2025` (fixos, cobrem regime Lei 14.300/2022 + 2 anos com gold standard PDGD) + 5º cutoff = **último mês fechado** (não `today()`). Em hoje=2026-05-12, query usa `2026-04-30` e index retorna `2026-04-01`. Razão: mês corrente é parcial e bate com a última linha SIGA (também `2026-04-01`).
+- **Mensal:** 12 cutoffs = 12 últimos meses fechados (exclui mês corrente). Mesmo padrão de re-indexação.
+
+**Validação empírica (G.2 + G.4 + G.5.a):**
+
+| Cutoff | SQL real | Anchor hardcoded | Δ |
+|---|---|---|---|
+| dez/2022 | 18.122 MW | 20.000 (INFERIDO) | −9,4% |
+| dez/2023 | 26.633 MW | 28.000 (INFERIDO) | −4,9% |
+| dez/2024 | 36.885 MW | 36.200 (CONFIRMADO PDGD) | +1,9% ✓ |
+| dez/2025 | 46.061 MW | 45.000 (CONFIRMADO PDGD) | +2,4% ✓ |
+| abr/2026 | 48.032 MW | 45.000 (carry-forward) | +6,7% |
+
+SQL real bate com PDGD oficial dentro do viés ~2% documentado em §5.66. Anchors INFERIDOS 2022/2023 estavam otimistas (−5 a −10%) e carry-forward abr/2026 estava subestimado (+7%) — predições da §5.66 confirmadas empiricamente.
+
+**O que esta decisão NÃO faz:**
+
+- **Não remove** o hardcoded. Permanece como rede de segurança.
+- **Não atualiza** os valores dos anchors com base no SQL real (substituir 20.000 → 18.122 etc). Pendência registrada em §5.66, dependente do próximo release PDGD (~abr/2027).
+- **Não introduz** versionamento de cache (pattern §5.34). Cache disk atual é `cache/mmgd_sql/` simples; §4.12 documenta o risco de cache órfão pós-fix de convenção.
+
+**Quando aplicar este padrão em outros loaders:**
+
+Loaders que dependem de endpoint externo flaky com fonte fallback estática (sempre verdadeira mas potencialmente desatualizada) podem replicar:
+
+- Primary: HTTP/SQL dinâmico com cache 2 camadas.
+- Fallback: dataset estático curado manualmente.
+- Sinalização: `attrs['source']` propagado pro consumer escolher UX (mini-nota cinza vs preta).
+- Threshold de fallback: ≥50% falhas (configurável).
+
+Candidatos futuros se surgir flakiness: CCEE PLD (tem cascade interno mas sem fallback estático), ENA ONS, carga ONS (caso S3 fique flaky).
 
 ---
 
