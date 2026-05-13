@@ -12,6 +12,7 @@ https://dadosabertos.ccee.org.br/dataset/pld_media_diaria
 
 import base64
 from pathlib import Path
+from typing import Callable
 
 import streamlit as st
 import pandas as pd
@@ -36,6 +37,7 @@ from data_loader import (
     load_ena,
     load_balanco_subsistema,
     is_balanco_cache_fresh,
+    is_pld_horaria_cache_fresh,
     clear_cache,
 )
 from components.tab_curtailment import render_aba_curtailment
@@ -752,7 +754,9 @@ def _render_period_controls(
     key_prefix,               # str: prefixo dos keys dos botões (ex: "btn_" ou "btn_res_")
     min_d,
     max_d,
-    single_day_preset_label=None,  # str|None: label do preset que ativa modo single-day (decisão 5.28)
+    single_day_preset_label: str | None = None,  # decisão 5.28
+    max_help_text_override: str | None = None,   # custom tooltip pro Máx (Frente 3)
+    on_max_click_override: Callable[[], None] | None = None,  # custom handler pro Máx
 ):
     """Renderiza atalhos + 2 date_inputs numa linha, com botão "primary"
     amarelo pro preset ativo. Reset de mudança de dataset é responsabilidade
@@ -764,6 +768,17 @@ def _render_period_controls(
     quando o modo single-day está ativo, os 2 date_inputs (data inicial/
     final) são substituídos por **1 date_input "Dia"** + **1 botão
     "Último dia"** — mesmo espaço, mesmas larguras de coluna.
+
+    `max_help_text_override` (Frente 3): se passado, substitui o tooltip
+    default do botão "Máx" (`Máx — desde dd/mm/yyyy`). Usado pelo PLD
+    horário em modo recente pra avisar que o Máx vai disparar modal e
+    HTTP cold (~1-2 min). Outros callers ignoram (default None).
+
+    `on_max_click_override` (Frente 3): se passado, executa o callback
+    no clique do "Máx" em vez do default (set data_ini=min_d + rerun).
+    Callback é responsável por seu próprio rerun. Usado pelo PLD horário
+    pra disparar modal de confirmação antes de carregar histórico
+    completo. Outros callers ignoram (default None).
     """
     data_ini_atual = st.session_state[session_key_ini]
     data_fim_atual = st.session_state[session_key_fim]
@@ -807,29 +822,41 @@ def _render_period_controls(
             # (varia conforme estado de gen_historico_completo nas abas
             # Carga/Geração: sem histórico ~2012, com histórico 2000).
             # Decisão 5.27. Outros presets (5A/10A) são autoexplicativos.
-            help_text = (
-                f"Máx — desde {min_d.strftime('%d/%m/%Y')}"
-                if is_max else None
-            )
+            # Frente 3: caller pode passar max_help_text_override pra
+            # substituir o default no botão Máx.
+            if is_max:
+                help_text = (
+                    max_help_text_override
+                    if max_help_text_override is not None
+                    else f"Máx — desde {min_d.strftime('%d/%m/%Y')}"
+                )
+            else:
+                help_text = None
             if st.button(
                 label, use_container_width=True,
                 key=f"{key_prefix}{label}", type=tipo,
                 help=help_text,
             ):
-                if is_max:
-                    st.session_state[session_key_ini] = min_d
+                if is_max and on_max_click_override is not None:
+                    # Frente 3: caller assume controle do clique no Máx
+                    # (ex: PLD horário dispara modal de confirmação).
+                    # Callback é responsável por seu próprio rerun.
+                    on_max_click_override()
                 else:
-                    # Defesa em profundidade: clamp em min_d caso preset
-                    # exceda o range disponível. 15A foi removido por
-                    # degenerar pra Máx no dataset padrão ~14a (decisão
-                    # 5.27), mas o clamp permanece — protege qualquer
-                    # preset futuro contra StreamlitAPIException quando
-                    # date_input é re-instanciado com value < min_value.
-                    st.session_state[session_key_ini] = max(
-                        min_d, max_d - timedelta(days=delta)
-                    )
-                st.session_state[session_key_fim] = max_d
-                st.rerun()
+                    if is_max:
+                        st.session_state[session_key_ini] = min_d
+                    else:
+                        # Defesa em profundidade: clamp em min_d caso preset
+                        # exceda o range disponível. 15A foi removido por
+                        # degenerar pra Máx no dataset padrão ~14a (decisão
+                        # 5.27), mas o clamp permanece — protege qualquer
+                        # preset futuro contra StreamlitAPIException quando
+                        # date_input é re-instanciado com value < min_value.
+                        st.session_state[session_key_ini] = max(
+                            min_d, max_d - timedelta(days=delta)
+                        )
+                    st.session_state[session_key_fim] = max_d
+                    st.rerun()
 
     if is_single_day_active:
         # Callback de sincronização: quando o user muda o date_input
@@ -1092,6 +1119,29 @@ def _confirmar_historico_completo_gen():
         "Carregar", type="primary", use_container_width=True,
     ):
         st.session_state["gen_historico_completo"] = True
+        st.rerun()
+
+
+@st.dialog("Carregar histórico completo (desde 01/01/2021)?")
+def _confirmar_historico_completo_pld_horario():
+    """Modal de confirmação pra expandir o range do dataset PLD horário
+    de 2 anos (recente) pra completo (2021-presente).
+    """
+    st.markdown(
+        "Adicionar dados de **2021-2024** ao range disponível (4 anos extras)?  \n"
+        "1 a 2 minutos na primeira vez (segundos nas próximas)."
+    )
+    st.caption(
+        "Útil pra análises de período longo (5+ anos). Para uso típico "
+        "(análise recente), o default de 2 anos é mais rápido."
+    )
+    col1, col2 = st.columns(2)
+    if col1.button("Cancelar", use_container_width=True):
+        st.rerun()
+    if col2.button(
+        "Carregar", type="primary", use_container_width=True,
+    ):
+        st.session_state["pld_horaria_historico_completo"] = True
         st.rerun()
 
 
@@ -1755,17 +1805,58 @@ if aba == "PLD":
     st.session_state.setdefault("granularidade", "diario")
     granularidade = st.session_state["granularidade"]
     st.session_state[_PLD_GRAN_BACKUP] = granularidade
-    with st.spinner("Carregando dados da CCEE…"):
-        try:
-            df = get_pld_df(granularidade)
-        except Exception as e:
-            st.error(f"Falha ao carregar dados da CCEE: {e}")
-            debug = st.session_state.get("_debug_erros", [])
-            if debug:
-                st.subheader("Detalhes técnicos do erro")
-                for d in debug[:20]:
-                    st.code(d)
-            st.stop()
+
+    # Frente 3: modo do PLD horário (False=recente 2 anos, True=completo 6 anos).
+    # Persistente em session_state; reset pelo clear_cache.
+    pld_horaria_historico_completo = st.session_state.get(
+        "pld_horaria_historico_completo", False
+    )
+
+    # Frente 3: consome flag intermediária e dispara modal antes do load.
+    # pop com default False garante que flag não persiste entre reruns.
+    if st.session_state.pop("_pld_horaria_pending_modal", False):
+        _confirmar_historico_completo_pld_horario()
+
+    # Frente 3: branch específico pro horário com spinner dinâmico + flag.
+    # Outras granularidades mantêm o comportamento atual (get_pld_df puro).
+    if granularidade == "horario":
+        if is_pld_horaria_cache_fresh(pld_horaria_historico_completo):
+            spinner_msg = "Carregando dados de PLD horário..."
+        elif pld_horaria_historico_completo:
+            spinner_msg = (
+                "Baixando histórico completo de PLD horário (desde 2021)... "
+                "pode levar 1 a 2 min na primeira vez."
+            )
+        else:
+            spinner_msg = (
+                "Baixando últimos 2 anos de PLD horário... "
+                "pode levar ~30s na primeira vez."
+            )
+        with st.spinner(spinner_msg):
+            try:
+                df = load_pld_horaria(
+                    incluir_historico_completo=pld_horaria_historico_completo,
+                )
+            except Exception as e:
+                st.error(f"Falha ao carregar dados da CCEE: {e}")
+                debug = st.session_state.get("_debug_erros", [])
+                if debug:
+                    st.subheader("Detalhes técnicos do erro")
+                    for d in debug[:20]:
+                        st.code(d)
+                st.stop()
+    else:
+        with st.spinner("Carregando dados da CCEE…"):
+            try:
+                df = get_pld_df(granularidade)
+            except Exception as e:
+                st.error(f"Falha ao carregar dados da CCEE: {e}")
+                debug = st.session_state.get("_debug_erros", [])
+                if debug:
+                    st.subheader("Detalhes técnicos do erro")
+                    for d in debug[:20]:
+                        st.code(d)
+                st.stop()
 
     if df.empty:
         st.warning("Nenhum dado disponível.")
@@ -1875,6 +1966,13 @@ if aba == "PLD":
         st.warning("Sem dados no intervalo selecionado.")
         st.stop()
 
+    # Callback do clique no Máx em modo recente (Frente 3). Seta flag
+    # intermediária pro modal abrir no próximo render. Pattern espelha
+    # _on_expansion_request_curt do tab_curtailment.py.
+    def _on_max_pld_horario_request():
+        st.session_state["_pld_horaria_pending_modal"] = True
+        st.rerun()
+
     # --- Período (atalhos + date_inputs) — via helper reusado ---
     # Granularidade horária ganha preset "1D" (decisão 5.28) que ativa
     # modo single-day no helper: 2 date_inputs viram 1 + botão "Último
@@ -1894,6 +1992,16 @@ if aba == "PLD":
             min_d=min_d,
             max_d=max_d,
             single_day_preset_label="1D",
+            # Frente 3: em modo recente, Máx dispara modal de confirmação;
+            # em modo completo, Máx é puro filtro (dataset já tem 2021+).
+            max_help_text_override=(
+                None if pld_horaria_historico_completo
+                else "Carregar histórico completo (desde 01/01/2021) — 1 a 2 min na 1ª vez"
+            ),
+            on_max_click_override=(
+                None if pld_horaria_historico_completo
+                else _on_max_pld_horario_request
+            ),
         )
     else:
         _render_period_controls(

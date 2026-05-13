@@ -221,7 +221,10 @@ def _calcular_spread(granularidade: str) -> pd.DataFrame:
 
     # --- PLD horário (cobertura: 2021+, horário, 4 submercados) ---
     # ATENÇÃO: coluna de timestamp do PLD horário é 'data' (com hora dentro).
-    df_pld = load_pld_horaria()
+    # incluir_historico_completo=True pra ter o range desde 2021 — Modulação
+    # computa spread em janelas longas (12M/24M/5A) que precisam do histórico
+    # cheio. Default False do loader (Frente 3) traz só 2 anos recentes.
+    df_pld = load_pld_horaria(incluir_historico_completo=True)
     df_pld = df_pld[
         (df_pld["data"] >= CUTOFF_DATA)
         & (df_pld["submercado"].isin(ORDEM_SUBMERCADOS))

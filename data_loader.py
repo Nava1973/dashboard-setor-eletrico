@@ -750,6 +750,7 @@ def _load_dataset(
     dataset: str,
     normalizer: Callable[[pd.DataFrame], pd.DataFrame],
     dedup_keys: tuple[str, ...] = ("data", "submercado"),
+    anos_override: list[int] | None = None,
 ) -> pd.DataFrame:
     """
     Download + normalização + concat para um dataset inteiro.
@@ -759,11 +760,19 @@ def _load_dataset(
     Os demais datasets escrevem em chaves namespaced
     (`_fontes_por_ano_{dataset}`, `_erros_carga_{dataset}`) pra não
     colidir com o estado do diário.
+
+    Se `anos_override` é passado, itera apenas esses anos (em vez de
+    DATASET_YEARS_AVAILABLE[dataset] inteiro). Usado pra modo recente
+    do PLD horário (Frente 3).
     """
     # Reset debug a cada chamada (comportamento original do diário)
     st.session_state["_debug_erros"] = []
 
-    years = DATASET_YEARS_AVAILABLE[dataset]
+    years = (
+        anos_override
+        if anos_override is not None
+        else DATASET_YEARS_AVAILABLE[dataset]
+    )
     frames = []
     fontes_por_ano = {}
     erros = []
@@ -853,26 +862,56 @@ def load_pld_media_diaria() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
-def load_pld_horaria() -> pd.DataFrame:
+def load_pld_horaria(incluir_historico_completo: bool = False) -> pd.DataFrame:
     """Baixa e consolida PLD horário de todos os anos (2021+).
 
     Retorna DataFrame: (data=datetime, submercado, pld).
 
     Cache em camadas:
       - @st.cache_data externo: TTL 12h, em-memória (load_pld_horaria).
-      - Disk-cache do dataset inteiro: parquet consolidado (TTL 6h).
+      - Disk-cache do dataset inteiro (TTL 6h):
+        - Modo recente (incluir_historico_completo=False, default):
+          pld_horaria_recente.parquet, ~2 anos (ano corrente + anterior).
+        - Modo completo (incluir_historico_completo=True):
+          pld_horaria.parquet, anos 2021+.
       - Disk-cache por ano fechado (Frente 2): 1 parquet por ano via
-        _download_year_pld_historico (TTL 30d). Cold load pós-restart
-        reduzido de ~67s para ~15s — anos fechados vêm do disco, só ano
-        corrente paga HTTP.
+        _download_year_pld_historico (TTL 30d). Anos fechados vêm do
+        disco, só ano corrente paga HTTP.
+
+    Frente 3 (lazy loading): default carrega só 2 anos recentes (~30s
+    cold). Clicar "Máx" no UI dispara modal e chama com
+    incluir_historico_completo=True (~1-2 min cold).
     """
-    df_disk = _try_read_pld_horaria()
+    # Despacho de helpers conforme variante
+    if incluir_historico_completo:
+        try_read = _try_read_pld_horaria
+        try_write = _try_write_pld_horaria
+    else:
+        try_read = _try_read_pld_horaria_recente
+        try_write = _try_write_pld_horaria_recente
+
+    # Tentativa disk-cache
+    df_disk = try_read()
     if df_disk is not None:
         st.session_state["_debug_erros"] = []
         return df_disk
 
-    df = _load_dataset("horaria", _normalize_horaria)
-    _try_write_pld_horaria(df)
+    # Range de anos conforme variante
+    if incluir_historico_completo:
+        anos = DATASET_YEARS_AVAILABLE["horaria"]
+    else:
+        ano_corrente = datetime.now().year
+        anos = [ano_corrente - 1, ano_corrente]
+
+    # Carga via _load_dataset com anos_override
+    df = _load_dataset(
+        "horaria",
+        _normalize_horaria,
+        anos_override=anos,
+    )
+
+    # Persiste no disco
+    try_write(df)
     return df
 
 
@@ -1635,12 +1674,28 @@ def _make_disk_cache_helpers(
 # (anos fechados via disk) → ~33ms warm-disk consolidado. Speedup ~4.3×
 # no cenário recorrente. Diário não foi medido empiricamente nesta
 # sub-sessão — mesma mecânica, speedup análogo esperado.
+#
+# HORÁRIO ganhou MODO RECENTE como default na Frente 3 pós-ff5d700:
+# load_pld_horaria(incluir_historico_completo=False) carrega só 2 anos
+# (ano corrente + anterior) em pld_horaria_recente.parquet (TTL 6h);
+# True preserva o behavior anterior em pld_horaria.parquet. UI dispara
+# True via modal de confirmação no botão Máx quando user está em modo
+# recente (pattern híbrido @st.dialog da Geração + flag intermediária
+# do Curtailment). State pld_horaria_historico_completo em session_state,
+# resetado por clear_cache.
 (
     _get_pld_horaria_path,
     _is_pld_horaria_cache_fresh,
     _try_read_pld_horaria,
     _try_write_pld_horaria,
 ) = _make_disk_cache_helpers("pld_horaria")
+
+(
+    _get_pld_horaria_recente_path,
+    _is_pld_horaria_recente_cache_fresh,
+    _try_read_pld_horaria_recente,
+    _try_write_pld_horaria_recente,
+) = _make_disk_cache_helpers("pld_horaria_recente")
 
 (
     _get_pld_diaria_path,
@@ -1697,6 +1752,14 @@ def is_reservatorios_cache_fresh() -> bool:
 def is_ena_cache_fresh() -> bool:
     """Helper PÚBLICO. True se o disk-cache do ENA existe e tem <6h."""
     return _is_ena_cache_fresh()
+
+
+def is_pld_horaria_cache_fresh(incluir_historico_completo: bool = False) -> bool:
+    """Helper PÚBLICO pra UI escolher mensagem de spinner antes do load.
+    Despacha pra is_fresh do cache recente ou completo conforme a flag."""
+    if incluir_historico_completo:
+        return _is_pld_horaria_cache_fresh()
+    return _is_pld_horaria_recente_cache_fresh()
 
 
 def _normalize_balanco(df: pd.DataFrame) -> pd.DataFrame:
@@ -1914,7 +1977,7 @@ def clear_cache() -> None:
     reservatórios (ONS EAR), ENA (ONS) e balanço de energia (ONS geração).
 
     Também unlinks os disk-caches consolidados + por-ano dos PLDs
-    (horário/diário): 8 parquets consolidados (Sessão 1.5b + Frente 1
+    (horário/diário): 9 parquets consolidados (Sessão 1.5b + Frente 1
     pós-e152458) + N parquets por ano fechado do PLD horário/diário
     (Frente 2 pós-883acec, 1 por (ano, dataset)) — garante que
     "Atualizar" sempre força download fresh em todos os datasets, não
@@ -1939,6 +2002,7 @@ def clear_cache() -> None:
         _get_reservatorios_path,
         _get_ena_path,
         _get_pld_horaria_path,
+        _get_pld_horaria_recente_path,
         _get_pld_diaria_path,
         _get_pld_media_semanal_path,
         _get_pld_media_mensal_path,
@@ -1972,6 +2036,12 @@ def clear_cache() -> None:
     # Reset da preferência de janela ampla da aba Curtailment (Sessão H).
     # Mesma semântica da gen_historico_completo: "Atualizar" começa do zero.
     st.session_state.pop("curt_janela_modo", None)
+
+    # Reset da preferência de histórico completo da aba PLD horário
+    # (Frente 3). Mesma semântica: "Atualizar" volta ao modo recente default.
+    # Flag intermediária do modal também limpa, evita modal pendente após reset.
+    st.session_state.pop("pld_horaria_historico_completo", None)
+    st.session_state.pop("_pld_horaria_pending_modal", None)
 
     # Sinaliza pro reset block da aba Geração aplicar default da
     # granularidade atual (decisão 5.20). Cobre o caso "Atualizar sem

@@ -4370,6 +4370,26 @@ Total horário: ~1,4 MB em disco. Diário **não foi medido empiricamente** nest
 - **Cache RAM 30d removido** de `_download_year_pld_historico`: análise pré-implementação concluiu que era redundante (RAM externo de `load_pld_horaria` já cobre o cenário de múltiplas chamadas mid-session). Caso a análise esteja errada e o ganho do RAM 30d seja relevante em algum cenário não antecipado, o fix é trivial (re-adicionar o decorator), mas aumentaria consumo de RAM.
 - **Deprecation warnings observadas durante medições** (`st.components.v1.html` removal pós-2026-06-01; `use_container_width` → `width`): registradas em memória do projeto. Fora do escopo desta decisão.
 
+### 5.71 Lazy loading do PLD horário via modal de confirmação (Frente 3 da sub-sessão pós-ff5d700)
+
+**Decisão (Frente 3 da sub-sessão pós-ff5d700):** `load_pld_horaria` ganhou parâmetro `incluir_historico_completo: bool = False`, criando 2 variantes do dataset com disk-caches consolidados separados: `pld_horaria_recente.parquet` (default, ~2 anos = ano corrente + anterior, TTL 6h) e `pld_horaria.parquet` (canônico preservado, anos 2021+ completos, TTL 6h). UI da aba PLD horário dispara modal de confirmação `@st.dialog` antes de carregar histórico completo — botão "Máx" em modo recente abre o modal `_confirmar_historico_completo_pld_horario` em vez de filtrar o dataset diretamente. State `pld_horaria_historico_completo: bool` persiste a escolha em `session_state`; flag intermediária `_pld_horaria_pending_modal` desacopla helper compartilhado `_render_period_controls` do modal. Helper recebeu 2 params opcionais (`max_help_text_override` + `on_max_click_override`, defaults `None` preservam comportamento dos 5 outros callers existentes). `tab_modulacao.py:224` ajustado pra passar `incluir_historico_completo=True` explícito — preserva comportamento da aba Modulação que precisa do histórico completo pra computar spread em janelas longas. `clear_cache()` estendido pra cobrir as 2 novas keys de session_state + o parquet recente (tupla cresceu de 8 pra 9 disk-caches consolidados).
+
+**Motivação:** o commit `ff5d700` (decisão 5.70) reduziu o cold load do horário de ~75s pra ~15s no cenário recorrente via disk-cache por ano fechado. Mas sintoma reportado no Cloud free tier: primeira chamada de `load_pld_horaria` após restart do container ainda atinge ~80s — pior caso onde container reiniciou (parquets por ano apagados) E latência CCEE Akamai é alta. UX dolorosa pra usuário que só queria ver o PLD horário do mês corrente. Análise: a grande maioria das navegações pra aba PLD horário consulta dados recentes (último mês, último trimestre); histórico completo é caso de uso minoritário (research, análises longas). Conclusão: torna default carregar só 2 anos recentes (~30s pior caso) e deixa o histórico completo como ação explícita do usuário, com modal de confirmação avisando do custo (~1-2 min na 1ª vez). Trade-off: usuário que quer todo o histórico paga 1 clique extra; usuário típico ganha rapidez na navegação default.
+
+**Pattern e escolhas técnicas:**
+
+- **Estrutura híbrida modal:** interna 1:1 com `_confirmar_historico_completo_gen` da Geração (`@st.dialog` + markdown bold + caption + 2 botões Cancelar/Carregar). Disparo via flag intermediária replicado do Curtailment (`_on_max_pld_horario_request` seta `_pld_horaria_pending_modal=True` + rerun; consumo no próximo render com `state.pop(...)` + dispatch do modal). Razão pra híbrido: helper compartilhado `_render_period_controls` não pode chamar `@st.dialog` direto sem complicar sua API genérica — flag desacopla.
+- **State naming:** `pld_horaria_historico_completo` espelha `gen_historico_completo` da Geração (mesma semântica: bool sticky em session_state, default `False`, reset por `clear_cache`). Flag intermediária `_pld_horaria_pending_modal` com underscore inicial diferencia de state persistente.
+- **Naming dos disk-caches:** `pld_horaria.parquet` mantido como canônico (modo completo = behavior anterior preservado, zero invalidação de cache existente); variante recente sufixada como `pld_horaria_recente.parquet`. Assimetria intencional pelo naming: variante completa = nome canônico, variante recente = sufixo descritivo. Considerado renomear pra `pld_horaria_completo.parquet` (simetria) mas rejeitado pra evitar lixo invisível em caches Cloud + localhost.
+- **Range de anos:** modo recente = `[ano_corrente - 1, ano_corrente]` (2 anos calendário). Modo completo = `DATASET_YEARS_AVAILABLE["horaria"]` (lista discreta atual: 2021-2026). Range completo usa lista derivada de `RESOURCE_IDS_BY_DATASET`, atualiza automaticamente quando CCEE publicar 2027.
+- **Parametrização de `_load_dataset`:** adicionado `anos_override: list[int] | None = None` (backward-compat, default cai pra `DATASET_YEARS_AVAILABLE[dataset]` se omitido). Permite `load_pld_horaria` reusar `_load_dataset` em vez de duplicar o loop por ano. 3 callers existentes (diária/semanal/mensal) não passam o param → comportamento inalterado.
+- **Spinner dinâmico:** branch `granularidade == "horario"` em `app.py` com 3 textos baseados em `is_pld_horaria_cache_fresh(modo)` + `pld_horaria_historico_completo`: cache fresh → `"Carregando dados de PLD horário..."`; cold modo completo → `"Baixando histórico completo... 1 a 2 min na primeira vez."`; cold modo recente → `"Baixando últimos 2 anos... ~30s na primeira vez."`. Outras granularidades preservam o spinner genérico `"Carregando dados da CCEE…"`.
+- **Tooltip do Máx em modo recente:** `"Carregar histórico completo (desde 01/01/2021) — 1 a 2 min na 1ª vez"`. Sem este override, tooltip default `f"Máx — desde {min_d.strftime(...)}"` seria enganoso em modo recente (mostraria 01/01/2025, sugerindo que Máx volta só até 2025 quando na verdade abre modal pra carregar 2021+).
+
+**Validação empírica + trade-offs:**
+
+Smoke test runtime durante o desenvolvimento confirmou backward compat dos 3 outros loaders PLD: `load_pld_media_diaria/semanal/mensal` retornam datasets completos sem mudança (`anos_override=None` default preserva comportamento). Smoke test do `load_pld_horaria(False)` retornou 47.808 linhas com `[2025, 2026]`; `load_pld_horaria(True)` retornou 188.064 linhas com `[2021-2026]`. Smoke test estático dos 6 callers do `_render_period_controls` confirmou que apenas o caller do PLD horário em modo recente passa os 2 params novos (Reservatórios, ENA, Geração, Carga, PLD não-horário, PLD horário em modo completo: todos preservam defaults `None`). Validação visual via Streamlit local em 7 cenários (modo recente cold/warm-disk/warm-RAM + modal com Carregar/Cancelar + modo completo cold/warm-disk/warm-RAM) reproduziu Cenário B da Frente 2 (~15s cold modo completo com parquets por ano populados). **Fora de escopo:** diário/semanal/mensal não migrados pra lazy loading (cold de ~5-30s não justifica complexidade adicional; default é histórico completo nos 3). **Pendência registrada como Frente 3.1 (separada):** adicionar linha horizontal + texto do range de datas à direita acima da linha na aba PLD, espelhando o padrão visual usado em outras abas (Reservatórios, ENA, Geração, Carga, Curtailment). Pendência identificada como UI consistency, sem relação técnica com lazy loading. Pendência cosmética identificada na validação visual: texto do spinner dinâmico aparece com cor pouco visível (registrada em memória do projeto, sessão futura). Aba Modulação pode futuramente ganhar lazy loading análogo (registrada em memória do projeto, sessão futura).
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
@@ -5042,6 +5062,25 @@ baseadas no relatório.
     warm-disk consolidado ~33ms. Speedup B vs A: ~4,3×. Diário não foi
     medido empiricamente — mesma mecânica, speedup análogo esperado.
     Detalhes em §5.70.
+
+33. **Lazy loading do PLD horário via modal de confirmação (13/05/2026)** —
+    Frente 3 da sub-sessão pós-ff5d700. Sintoma reportado: primeira chamada
+    de `load_pld_horaria` após restart do container do Cloud free tier ainda
+    atinge ~80s mesmo pós-Frente 2. Refactor: `load_pld_horaria` ganhou
+    `incluir_historico_completo: bool = False` — modo recente default (2
+    anos, `pld_horaria_recente.parquet`) vs modo completo (anos 2021+,
+    `pld_horaria.parquet` canônico). UI: modal `@st.dialog` disparado pelo
+    botão "Máx" em modo recente, pattern híbrido (estrutura interna da
+    Geração + flag intermediária `_pld_horaria_pending_modal` do Curtailment).
+    `_render_period_controls` ganhou 2 params opcionais com defaults `None`
+    (preservam 5 callers existentes). State `pld_horaria_historico_completo`
+    em session_state, reset por `clear_cache`. `tab_modulacao.py:224` ajustado
+    com flag explícita (Modulação precisa histórico completo). `clear_cache`
+    estendido (2 pops novos + parquet recente, 9 consolidados ao total).
+    Validação: smoke tests retornaram 47.808 linhas (recente) / 188.064
+    (completo) + 7 cenários visuais aprovados localmente. Diário/semanal/mensal
+    não migrados (cold ~5-30s, sem ganho). Frente 3.1 separada pendente
+    (linha + range de datas na aba PLD, UI consistency). Detalhes em §5.71.
 
 ---
 
