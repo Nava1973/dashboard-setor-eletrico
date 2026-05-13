@@ -4301,6 +4301,31 @@ Candidatos futuros se surgir flakiness: CCEE PLD (tem cascade interno mas sem fa
 - **Não atualiza** a docstring desatualizada de `_normalize_semanal` (`data_loader.py:865-868`) — registrada como débito técnico em §9.1.
 - **Não introduz** disk-cache pro semanal — decisão preservada (`data_loader.py:1593-1594`: "semanal/mensal NÃO recebem disk-cache").
 
+### 5.69 Disk-cache pro PLD semanal e mensal (Frente 1 da sub-sessão pós-e152458)
+
+**Decisão (Frente 1 da sub-sessão pós-e152458):** `load_pld_media_semanal` e `load_pld_media_mensal` ganharam disk-cache via `_make_disk_cache_helpers` (decisão 5.15), revisando o comentário de `data_loader.py:1593-1594` que excluía explicitamente as 2 granularidades. Pattern idêntico ao do diário/horário PLD: 1 parquet consolidado por loader em `~/.cache/dashboard-setor-eletrico/`, `try_read` no topo da função com early-return + reset de `_debug_erros`, `try_write` após cold load. Zero breaking change — assinatura e schema públicos preservados. `clear_cache()` estendido pra unlinkar os 2 novos parquets (tupla cresceu de 6 pra 8 disk-caches), mantendo a promessa "Atualizar = começar do zero" da docstring. Docstring desatualizada do semanal corrigida no mesmo commit (resolve caminho mínimo do §9.1).
+
+**Motivação:** o commit `e152458` (decisão 5.68) reativou a granularidade semanal no dropdown PLD após meses fora da UI. Uso real revelou cold load de poucos segundos visível na UI — o comentário antigo ("datasets menores, dor menor") tinha sido escrito quando o semanal estava fora da UI; premissa mudou. Smoke test pós-implementação do semanal descobriu que o mensal sofria do mesmo problema (cold ~1.9s, não medido antes desta sub-sessão), justificando expansão de escopo dentro da mesma Frente 1. Horário ficou fora — Frente 2 separada, pattern estruturalmente diferente (já tem disk-cache desde a Sessão 1.5b, gargalo é ambíguo e requer diagnóstico antes de otimização).
+
+**Pattern e escolhas técnicas:** replicação mecânica do pattern do diário (`data_loader.py:832-839`). Helpers criados via `_make_disk_cache_helpers("pld_media_semanal", ttl_sec=60 * 60 * 24)` e `_make_disk_cache_helpers("pld_media_mensal", ttl_sec=60 * 60 * 24)` no mesmo bloco dos 2 disk-caches PLD pré-existentes. TTL 24h alinhado com a frequência semanal de publicação CCEE (ciclo natural de atualização do semanal); pro mensal fica conservadoramente coberto pela mesma janela (re-baixar dataset de ~10KB a cada 24h é custo trivial, e mantém consistência arquitetural entre os 2 loaders). Estilo `60 * 60 * <horas>` segue o padrão dominante do projeto (`_DEFAULT_DISK_CACHE_TTL_SEC`, `@st.cache_data(ttl=60 * 60 * X)` etc.). Pendência colateral identificada: durante a redação inicial desta decisão, foi detectado que `clear_cache()` (`data_loader.py:1870`) não cobria os 2 novos parquets — fix incluído no mesmo commit por escopo natural (tupla de unlinks cresceu de 6 pra 8 elementos, docstring e comentário inline atualizados pra "8 disk-caches" / "8 parquets").
+
+**Números empíricos medidos durante a sub-sessão:**
+
+| Cenário | Semanal | Mensal |
+|---|---|---|
+| Baseline (pré-fix) | 4.013s | 1.856s |
+| Cold pós-fix (cache vazio) | 3.004s | 1.654s |
+| Warm-disk (RAM zerada) | 0.011s (~365×) | 0.020s (~92×) |
+| Warm-RAM (mesma sessão) | sem print (cache intercepta) | sem print |
+
+Tamanhos finais dos parquets: semanal ~33 KB (~5.200 linhas), mensal ~11 KB (~1.200 linhas). Paths reais: `~/.cache/dashboard-setor-eletrico/pld_media_semanal.parquet` e `pld_media_mensal.parquet`.
+
+**Fora de escopo / trade-offs:**
+
+- **TTL conservador pro mensal:** 24h é agressivo em relação à frequência de publicação mensal (1× por mês), mas evita debate sobre fronteira correta (12h? 7 dias?) — escolha de consistência com o semanal, custo trivial.
+- **Horário do PLD** fica pra Frente 2 separada. JÁ tem disk-cache (decisão 5.15 aplicada na Sessão 1.5b); o gargalo de cold load não foi mensurado nesta sub-sessão.
+- **Alternativo do §9.1** (adicionar coluna `data_fim` no `_normalize_semanal`): caminho mínimo aplicado (docstring corrigida), mas a coluna em si não foi adicionada. Comentário interno em `_normalize_semanal:551` mantém a decisão original ("pra evitar guardar coluna derivada"); reavaliar se houver consumidor adicional além do hover do PLD semanal de §5.68.
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
@@ -4941,6 +4966,21 @@ baseadas no relatório.
     registrado em §9.1 (docstring desatualizada de
     `_normalize_semanal`).
 
+31. **Disk-cache pro PLD semanal e mensal (13/05/2026)** — Frente 1 da
+    sub-sessão pós-e152458. `load_pld_media_semanal` e
+    `load_pld_media_mensal` ganharam disk-cache via `_make_disk_cache_helpers`
+    (TTL 24h), revisando a decisão antiga (`data_loader.py:1593-1594`) que
+    excluía as 2 granularidades. Motivação: uso real do semanal pós-
+    reativação (decisão 5.68) revelou cold load de poucos segundos
+    incômodo; smoke test descobriu dor análoga no mensal. Pattern idêntico
+    ao do diário/horário PLD, zero breaking change. `clear_cache()`
+    estendido pra cobrir os 2 novos parquets (tupla cresceu de 6 pra 8
+    disk-caches) — gap identificado durante a redação inicial da decisão.
+    Números: semanal 4.013s → 0.011s (~365×), mensal 1.856s → 0.020s
+    (~92×). Docstring desatualizada do semanal corrigida no mesmo commit
+    (resolve caminho mínimo do §9.1). Detalhes em §5.69. Horário fica
+    pra Frente 2 separada (já tem disk-cache, gargalo ambíguo).
+
 ---
 
 ## 8. Referências Cruzadas
@@ -4984,25 +5024,19 @@ baseadas no relatório.
 
 ## 9. Débitos Técnicos Pendentes
 
-### 9.1 Docstring de load_pld_media_semanal desatualizada
+### 9.1 Docstring de load_pld_media_semanal — caminho mínimo resolvido
 
-`data_loader.py:865-868` declara que `load_pld_media_semanal()` retorna
-`(data=ini-semana, data_fim=fim-semana, submercado, pld)`, mas
-`_normalize_semanal` (`data_loader.py:540-553`) explicitamente **não
-produz `data_fim`** — comentário interno recomenda calcular no
-consumidor via `data + timedelta(days=6)`. A redação atual é enganosa
-pra quem lê a API do loader. Adiada na sub-sessão do refactor PLD pra
-evitar mistura de escopos no commit; pendência registrada aqui pra
-próxima revisão de `data_loader.py`.
+**Resolvido na Frente 1 da sub-sessão pós-e152458 (decisão 5.69):**
+docstring de `load_pld_media_semanal` corrigida de
+`(data=ini-semana, data_fim=fim-semana, submercado, pld)` para
+`(data=ini-semana, submercado, pld)` — reflete o schema real produzido
+por `_normalize_semanal`.
 
-**Caminhos de resolução:**
-
-- **Mínimo:** atualizar docstring pra refletir realidade
-  `(data=ini-semana, submercado, pld)`. Custo: 1 linha. Sem mudança
-  de comportamento.
-- **Alternativo:** adicionar coluna `data_fim` no `_normalize_semanal`
-  (custo: ~1 linha; benefício: alinha código e docstring, simplifica
-  consumidores que precisem do fim da semana — ex: hover do PLD
-  semanal computado em §5.68 via `pd.Timedelta(days=6)` no render).
-  Rompe decisão original do comentário interno ("pra evitar guardar
-  coluna derivada") — reavaliar se o trade-off ainda faz sentido.
+**Caminho alternativo segue pendente:** adicionar coluna `data_fim`
+no `_normalize_semanal` (custo: ~1 linha; benefício: alinha código e
+docstring, simplifica consumidores que precisem do fim da semana —
+ex: hover do PLD semanal computado em §5.68 via `pd.Timedelta(days=6)`
+no render). Rompe decisão original do comentário interno em
+`_normalize_semanal:551` ("pra evitar guardar coluna derivada") —
+reavaliar se o trade-off ainda faz sentido quando houver consumidor
+adicional além do hover.

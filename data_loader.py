@@ -865,11 +865,18 @@ def load_pld_horaria() -> pd.DataFrame:
 def load_pld_media_semanal() -> pd.DataFrame:
     """Baixa e consolida PLD semanal (histórico 2001+).
 
-    Retorna DataFrame: (data=ini-semana, data_fim=fim-semana, submercado, pld).
+    Retorna DataFrame: (data=ini-semana, submercado, pld).
     """
-    return _load_dataset(
+    df_disk = _try_read_pld_media_semanal()
+    if df_disk is not None:
+        st.session_state["_debug_erros"] = []
+        return df_disk
+
+    df = _load_dataset(
         "semanal", _normalize_semanal, dedup_keys=("data", "submercado"),
     )
+    _try_write_pld_media_semanal(df)
+    return df
 
 
 @st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
@@ -878,7 +885,14 @@ def load_pld_media_mensal() -> pd.DataFrame:
 
     Retorna DataFrame: (data=1º dia do mês, submercado, pld).
     """
-    return _load_dataset("mensal", _normalize_mensal)
+    df_disk = _try_read_pld_media_mensal()
+    if df_disk is not None:
+        st.session_state["_debug_erros"] = []
+        return df_disk
+
+    df = _load_dataset("mensal", _normalize_mensal)
+    _try_write_pld_media_mensal(df)
+    return df
 
 
 # =============================================================================
@@ -1587,11 +1601,15 @@ def _make_disk_cache_helpers(
     _try_write_ena,
 ) = _make_disk_cache_helpers("ena")
 
-# PLD HORÁRIO e DIÁRIO (CCEE). Cold load horário ~60s antes do disk-cache:
-# CCEE é Akamai-protegido, cada ano = 1 request CKAN paginada (~500k linhas
-# pro horário, ~2-3s/ano × 5 anos = ~12s + parse + concat). Disk-cache reduz
-# pra ~1-2s. Semanal/mensal NÃO recebem disk-cache por enquanto (decisão
-# do usuário — datasets menores, dor menor).
+# PLD HORÁRIO, DIÁRIO, SEMANAL e MENSAL (CCEE). Cold load horário ~60s
+# antes do disk-cache: CCEE é Akamai-protegido, cada ano = 1 request CKAN
+# paginada (~500k linhas pro horário, ~2-3s/ano × 5 anos = ~12s + parse +
+# concat). Disk-cache reduz pra ~1-2s. Semanal e Mensal ganharam disk-cache
+# na sub-sessão pós-e152458 (uso real após reativação do semanal revelou
+# cold load de poucos segundos incômodo na UI; smoke test descobriu dor
+# análoga no mensal). TTL 24h em ambos — alinhado com a frequência semanal
+# de publicação CCEE; mensal fica conservadoramente coberto pela mesma
+# janela (custo trivial dado o tamanho pequeno do dataset).
 (
     _get_pld_horaria_path,
     _is_pld_horaria_cache_fresh,
@@ -1605,6 +1623,20 @@ def _make_disk_cache_helpers(
     _try_read_pld_diaria,
     _try_write_pld_diaria,
 ) = _make_disk_cache_helpers("pld_diaria")
+
+(
+    _get_pld_media_semanal_path,
+    _is_pld_media_semanal_cache_fresh,
+    _try_read_pld_media_semanal,
+    _try_write_pld_media_semanal,
+) = _make_disk_cache_helpers("pld_media_semanal", ttl_sec=60 * 60 * 24)
+
+(
+    _get_pld_media_mensal_path,
+    _is_pld_media_mensal_cache_fresh,
+    _try_read_pld_media_mensal,
+    _try_write_pld_media_mensal,
+) = _make_disk_cache_helpers("pld_media_mensal", ttl_sec=60 * 60 * 24)
 
 
 def is_balanco_cache_fresh(historico_completo: bool = False) -> bool:
@@ -1839,10 +1871,11 @@ def clear_cache() -> None:
     """Força reload no próximo acesso — limpa cache de PLD (4 granularidades),
     reservatórios (ONS EAR), ENA (ONS) e balanço de energia (ONS geração).
 
-    Também unlinks os 4 disk-caches (Sessão 1.5b: balanco_15anos,
-    balanco_completo, reservatorios, ena) — garante que "Atualizar" sempre
-    força download fresh em todos os datasets, não só invalida cache em-
-    memória do Streamlit.
+    Também unlinks os 8 disk-caches (Sessão 1.5b: balanco_15anos,
+    balanco_completo, reservatorios, ena; PLDs horária/diária/semanal/mensal
+    adicionados depois) — garante que "Atualizar" sempre força download
+    fresh em todos os datasets, não só invalida cache em-memória do
+    Streamlit.
 
     Reseta também `gen_historico_completo` (preferência da aba Geração):
     "Atualizar" semanticamente significa começar do zero, não preservar
@@ -1856,7 +1889,7 @@ def clear_cache() -> None:
     load_ena.clear()
     load_balanco_subsistema.clear()
 
-    # Disk-caches: best-effort delete dos 6 parquets
+    # Disk-caches: best-effort delete dos 8 parquets
     for get_path in (
         _get_balanco_15a_path,
         _get_balanco_completo_path,
@@ -1864,6 +1897,8 @@ def clear_cache() -> None:
         _get_ena_path,
         _get_pld_horaria_path,
         _get_pld_diaria_path,
+        _get_pld_media_semanal_path,
+        _get_pld_media_mensal_path,
     ):
         try:
             p = get_path()
