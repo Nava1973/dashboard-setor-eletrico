@@ -2052,7 +2052,6 @@ if aba == "PLD":
         }
         [data-testid="stSelectbox"] [data-baseweb="select"] > div {
             border: none !important;
-            border-bottom: 2px solid #1A1A1A !important;
             border-radius: 0 !important;
             background: transparent !important;
             font-family: 'Bebas Neue', sans-serif !important;
@@ -2084,14 +2083,45 @@ if aba == "PLD":
     )
 
     opcoes_ordem = ["horario", "diario", "semanal", "mensal"]
-    st.selectbox(
-        "Granularidade do PLD",
-        options=opcoes_ordem,
-        index=opcoes_ordem.index(st.session_state["granularidade"]),
-        format_func=lambda k: LABELS_GRAN[k],
-        label_visibility="collapsed",
-        key="selectbox_granularidade",
-        on_change=_on_granularidade_change,
+
+    # Frente 3.1 polish: selectbox + range em st.columns pra alinhamento
+    # horizontal perfeito (Estratégia B). Linha horizontal renderizada
+    # como <div> separado abaixo, fora do flexbox de Reservatórios/ENA.
+    if data_ini == data_fim:
+        _pld_range_txt = data_ini.strftime("%d/%m/%Y")
+    else:
+        _pld_range_txt = (
+            f"{data_ini.strftime('%d/%m/%Y')} — "
+            f"{data_fim.strftime('%d/%m/%Y')}"
+        )
+
+    col_label, col_range = st.columns([3, 2])
+    with col_label:
+        st.selectbox(
+            "Granularidade do PLD",
+            options=opcoes_ordem,
+            index=opcoes_ordem.index(st.session_state["granularidade"]),
+            format_func=lambda k: LABELS_GRAN[k],
+            label_visibility="collapsed",
+            key="selectbox_granularidade",
+            on_change=_on_granularidade_change,
+        )
+    with col_range:
+        st.markdown(
+            f'<div style="text-align:right; '
+            f'font-family:\'Bebas Neue\', sans-serif; '
+            f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
+            f'padding-top:8px;">'
+            f'{_pld_range_txt}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # Linha horizontal separada abaixo
+    st.markdown(
+        '<div style="border-bottom: 2px solid #1A1A1A; '
+        'margin: 0 0 0.3rem 0;"></div>',
+        unsafe_allow_html=True,
     )
 
     # --- Preparar dados ---
@@ -2120,7 +2150,7 @@ if aba == "PLD":
             <style>
             .pld1d-kpi-card {
                 background: #F5F1E8;
-                border: 2px solid #1A1A1A;
+                border: 2px solid #CCCCCC;
                 padding: 16px;
                 border-radius: 0;
             }
@@ -2183,7 +2213,7 @@ if aba == "PLD":
                borda, Inter 14px, chevron empurrado pra direita). */
             .st-key-kpi_submercado_detalhe {
                 background: #F5F1E8;
-                border: 2px solid #1A1A1A;
+                border: 2px solid #CCCCCC;
                 border-radius: 0;
                 padding: 16px;
                 min-height: 76px;
@@ -2275,18 +2305,6 @@ if aba == "PLD":
                 f'<span class="pld1d-kpi-currency">R$</span>'
                 f'<span class="pld1d-kpi-amount">{n}</span>'
             )
-
-        # Subtítulo (largura cheia — descreve toda a régua de 5
-        # colunas abaixo: dropdown de submercado + 4 KPIs).
-        st.markdown(
-            f'<div style="font-family:\'Inter\', sans-serif; '
-            f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-            f'margin:0.6rem 0 0.4rem 0;">'
-            f'Indicadores do dia '
-            f'{data_ini.strftime("%d/%m/%Y")}.'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
 
         # Régua: dropdown de submercado (col 0) + 4 KPIs (cols 1-4).
         opcoes_sub_kpi = ["SE", "S", "NE", "N"]

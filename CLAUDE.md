@@ -4388,7 +4388,7 @@ Total horário: ~1,4 MB em disco. Diário **não foi medido empiricamente** nest
 
 **Validação empírica + trade-offs:**
 
-Smoke test runtime durante o desenvolvimento confirmou backward compat dos 3 outros loaders PLD: `load_pld_media_diaria/semanal/mensal` retornam datasets completos sem mudança (`anos_override=None` default preserva comportamento). Smoke test do `load_pld_horaria(False)` retornou 47.808 linhas com `[2025, 2026]`; `load_pld_horaria(True)` retornou 188.064 linhas com `[2021-2026]`. Smoke test estático dos 6 callers do `_render_period_controls` confirmou que apenas o caller do PLD horário em modo recente passa os 2 params novos (Reservatórios, ENA, Geração, Carga, PLD não-horário, PLD horário em modo completo: todos preservam defaults `None`). Validação visual via Streamlit local em 7 cenários (modo recente cold/warm-disk/warm-RAM + modal com Carregar/Cancelar + modo completo cold/warm-disk/warm-RAM) reproduziu Cenário B da Frente 2 (~15s cold modo completo com parquets por ano populados). **Fora de escopo:** diário/semanal/mensal não migrados pra lazy loading (cold de ~5-30s não justifica complexidade adicional; default é histórico completo nos 3). **Pendência registrada como Frente 3.1 (separada):** adicionar linha horizontal + texto do range de datas à direita acima da linha na aba PLD, espelhando o padrão visual usado em outras abas (Reservatórios, ENA, Geração, Carga, Curtailment). Pendência identificada como UI consistency, sem relação técnica com lazy loading. Pendência cosmética identificada na validação visual: texto do spinner dinâmico aparece com cor pouco visível (registrada em memória do projeto, sessão futura). Aba Modulação pode futuramente ganhar lazy loading análogo (registrada em memória do projeto, sessão futura).
+Smoke test runtime durante o desenvolvimento confirmou backward compat dos 3 outros loaders PLD: `load_pld_media_diaria/semanal/mensal` retornam datasets completos sem mudança (`anos_override=None` default preserva comportamento). Smoke test do `load_pld_horaria(False)` retornou 47.808 linhas com `[2025, 2026]`; `load_pld_horaria(True)` retornou 188.064 linhas com `[2021-2026]`. Smoke test estático dos 6 callers do `_render_period_controls` confirmou que apenas o caller do PLD horário em modo recente passa os 2 params novos (Reservatórios, ENA, Geração, Carga, PLD não-horário, PLD horário em modo completo: todos preservam defaults `None`). Validação visual via Streamlit local em 7 cenários (modo recente cold/warm-disk/warm-RAM + modal com Carregar/Cancelar + modo completo cold/warm-disk/warm-RAM) reproduziu Cenário B da Frente 2 (~15s cold modo completo com parquets por ano populados). **Fora de escopo:** diário/semanal/mensal não migrados pra lazy loading (cold de ~5-30s não justifica complexidade adicional; default é histórico completo nos 3). **Frente 3.1 aplicada na sequência (mesma sub-sessão pós-ff5d700):** adicionou linha horizontal + range de datas à direita na aba PLD, espelhando padrão visual de outras abas (Reservatórios, ENA, Geração, Carga, Curtailment). Pattern inicial (flexbox com 2 spans, análogo às outras abas) deu desalinhamento visual — selectbox e range em rows verticais separadas pelo fluxo Streamlit. Migrou pra Estratégia B (st.columns([3, 2]) + 2 widgets separados + linha horizontal como `<div>` isolado abaixo) que garantiu alinhamento horizontal real. 3 polish edits cosméticos adicionais: removeu border-bottom do CSS do selectbox, removeu texto 'Indicadores do dia DD/MM/YYYY' (duplicava o range), borda da régua KPIs single-day mudou de #1A1A1A → #CCCCCC (régua coerente com 4 cards + dropdown). Pendência cosmética identificada na validação visual: texto do spinner dinâmico aparece com cor pouco visível (registrada em memória do projeto, sessão futura). Aba Modulação pode futuramente ganhar lazy loading análogo (registrada em memória do projeto, sessão futura).
 
 ---
 
@@ -5081,6 +5081,17 @@ baseadas no relatório.
     (completo) + 7 cenários visuais aprovados localmente. Diário/semanal/mensal
     não migrados (cold ~5-30s, sem ganho). Frente 3.1 separada pendente
     (linha + range de datas na aba PLD, UI consistency). Detalhes em §5.71.
+
+34. **Polish da aba PLD: linha + range de datas (13/05/2026)** —
+    Frente 3.1 da sub-sessão pós-ff5d700 (polish da Frente 3 fechada no
+    commit 8b54f9e). Adicionou linha horizontal + range de datas à direita
+    na aba PLD, espelhando padrão visual de outras abas. Pattern inicial
+    (flexbox com 2 spans, análogo a Reservatórios/ENA) deu desalinhamento
+    visual; migrou pra Estratégia B (st.columns([3, 2]) + 2 widgets
+    separados + linha como `<div>` isolado). 3 polish edits cosméticos
+    adicionais: removeu border-bottom do CSS do selectbox, removeu
+    "Indicadores do dia DD/MM/YYYY" (duplicava o range), borda da régua
+    KPIs single-day #1A1A1A → #CCCCCC (régua coerente). Detalhes em §5.71.
 
 ---
 
