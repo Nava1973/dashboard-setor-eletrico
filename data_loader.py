@@ -316,15 +316,26 @@ def _download_year(ano: int, dataset: str = "diaria") -> tuple[pd.DataFrame | No
     return None, "falhou"
 
 
-@st.cache_data(ttl=60 * 60 * 24 * 30, show_spinner=False)
 def _download_year_pld_historico(
     ano: int, dataset: str
 ) -> tuple[pd.DataFrame | None, str]:
-    """Anos fechados — cache de 30 dias. Mesmo padrão de balanço/EAR/ENA:
-    anos fechados são imutáveis na CCEE (raras reedições). Sem isso, refresh
-    de 12h recarregaria ~25 anos a cada vez. Usado só pelo PLD horário e
-    diário (semanal/mensal mantêm fluxo original por enquanto)."""
-    return _download_year(ano, dataset)
+    """Anos fechados — disk-cache de 30 dias por ano (Frente 2).
+
+    Tenta disk-cache primeiro; se miss, cai pro HTTP via _download_year
+    e persiste no disk. Substitui o @st.cache_data RAM 30d da Sessão 1.5b —
+    disk-cache cobre o caso de cold restart do container (RAM não cobria)."""
+    _, _, try_read, try_write = _get_pld_year_disk_helpers(ano, dataset)
+
+    df = try_read()
+    if df is not None:
+        return df, "disk-cache-ano"
+
+    df, fonte = _download_year(ano, dataset)
+
+    if df is not None:
+        try_write(df)
+
+    return df, fonte
 
 
 # =============================================================================
@@ -823,11 +834,13 @@ def load_pld_media_diaria() -> pd.DataFrame:
 
     Retorna DataFrame: (data, submercado, pld).
 
-    Cache em 3 camadas (Sessão PLD perf):
-      - Disk-cache (1ª tentativa): parquet local. ~1-2s se hit.
-      - @st.cache_data externo: TTL 12h, em-memória.
-      - @st.cache_data interno por ano (TTL 30d pros anos fechados via
-        _download_year_pld_historico): evita re-download HTTP.
+    Cache em camadas:
+      - @st.cache_data externo: TTL 12h, em-memória (load_pld_media_diaria).
+      - Disk-cache do dataset inteiro: parquet consolidado (TTL 6h).
+      - Disk-cache por ano fechado (Frente 2): 1 parquet por ano via
+        _download_year_pld_historico (TTL 30d). Anos fechados vêm do
+        disco, só ano corrente paga HTTP — mesma mecânica do horário,
+        speedup análogo embora não medido empiricamente nesta sub-sessão.
     """
     df_disk = _try_read_pld_diaria()
     if df_disk is not None:
@@ -845,11 +858,13 @@ def load_pld_horaria() -> pd.DataFrame:
 
     Retorna DataFrame: (data=datetime, submercado, pld).
 
-    Cache em 3 camadas (Sessão PLD perf):
-      - Disk-cache (1ª tentativa): parquet local. ~1-2s se hit.
-      - @st.cache_data externo: TTL 12h, em-memória.
-      - @st.cache_data interno por ano (TTL 30d pros anos fechados via
-        _download_year_pld_historico): evita re-download HTTP de ~5 anos.
+    Cache em camadas:
+      - @st.cache_data externo: TTL 12h, em-memória (load_pld_horaria).
+      - Disk-cache do dataset inteiro: parquet consolidado (TTL 6h).
+      - Disk-cache por ano fechado (Frente 2): 1 parquet por ano via
+        _download_year_pld_historico (TTL 30d). Cold load pós-restart
+        reduzido de ~67s para ~15s — anos fechados vêm do disco, só ano
+        corrente paga HTTP.
     """
     df_disk = _try_read_pld_horaria()
     if df_disk is not None:
@@ -1610,6 +1625,16 @@ def _make_disk_cache_helpers(
 # análoga no mensal). TTL 24h em ambos — alinhado com a frequência semanal
 # de publicação CCEE; mensal fica conservadoramente coberto pela mesma
 # janela (custo trivial dado o tamanho pequeno do dataset).
+#
+# HORÁRIO e DIÁRIO ganharam disk-cache POR ANO na Frente 2 pós-883acec:
+# 1 parquet pld_{dataset}_{ano}.parquet por ano fechado (TTL 30d). Lazy
+# via _get_pld_year_disk_helpers. _download_year_pld_historico perdeu o
+# @st.cache_data RAM 30d da Sessão 1.5b — disk-cache substitui (RAM não
+# cobria cold restart do container). Cold load horário medido nos 3
+# cenários: ~67s first-run (parquets por ano vazios) → ~15s recorrente
+# (anos fechados via disk) → ~33ms warm-disk consolidado. Speedup ~4.3×
+# no cenário recorrente. Diário não foi medido empiricamente nesta
+# sub-sessão — mesma mecânica, speedup análogo esperado.
 (
     _get_pld_horaria_path,
     _is_pld_horaria_cache_fresh,
@@ -1637,6 +1662,23 @@ def _make_disk_cache_helpers(
     _try_read_pld_media_mensal,
     _try_write_pld_media_mensal,
 ) = _make_disk_cache_helpers("pld_media_mensal", ttl_sec=60 * 60 * 24)
+
+# Frente 2: disk-cache por ano fechado (horário/diário). Lazy instanciação
+# de _make_disk_cache_helpers por (ano, dataset) — cada par gera 1 parquet
+# pld_{dataset}_{ano}.parquet. TTL 30d (anos fechados imutáveis na CCEE).
+_PLD_YEAR_HELPERS_CACHE: dict[tuple[int, str], tuple] = {}
+
+
+def _get_pld_year_disk_helpers(ano: int, dataset: str):
+    """Retorna (get_path, is_fresh, try_read, try_write) pro disk-cache
+    de (ano, dataset) específico. Lazy + memoizado por chave (ano, dataset)."""
+    key = (ano, dataset)
+    if key not in _PLD_YEAR_HELPERS_CACHE:
+        _PLD_YEAR_HELPERS_CACHE[key] = _make_disk_cache_helpers(
+            f"pld_{dataset}_{ano}",
+            ttl_sec=60 * 60 * 24 * 30,  # 30d — anos fechados imutáveis
+        )
+    return _PLD_YEAR_HELPERS_CACHE[key]
 
 
 def is_balanco_cache_fresh(historico_completo: bool = False) -> bool:
@@ -1871,11 +1913,12 @@ def clear_cache() -> None:
     """Força reload no próximo acesso — limpa cache de PLD (4 granularidades),
     reservatórios (ONS EAR), ENA (ONS) e balanço de energia (ONS geração).
 
-    Também unlinks os 8 disk-caches (Sessão 1.5b: balanco_15anos,
-    balanco_completo, reservatorios, ena; PLDs horária/diária/semanal/mensal
-    adicionados depois) — garante que "Atualizar" sempre força download
-    fresh em todos os datasets, não só invalida cache em-memória do
-    Streamlit.
+    Também unlinks os disk-caches consolidados + por-ano dos PLDs
+    (horário/diário): 8 parquets consolidados (Sessão 1.5b + Frente 1
+    pós-e152458) + N parquets por ano fechado do PLD horário/diário
+    (Frente 2 pós-883acec, 1 por (ano, dataset)) — garante que
+    "Atualizar" sempre força download fresh em todos os datasets, não
+    só invalida cache em-memória do Streamlit.
 
     Reseta também `gen_historico_completo` (preferência da aba Geração):
     "Atualizar" semanticamente significa começar do zero, não preservar
@@ -1889,7 +1932,7 @@ def clear_cache() -> None:
     load_ena.clear()
     load_balanco_subsistema.clear()
 
-    # Disk-caches: best-effort delete dos 8 parquets
+    # Disk-caches: best-effort delete (consolidados + por-ano dos PLDs)
     for get_path in (
         _get_balanco_15a_path,
         _get_balanco_completo_path,
@@ -1906,6 +1949,22 @@ def clear_cache() -> None:
                 p.unlink()
         except Exception:
             pass
+
+    # Disk-caches por ano fechado (Frente 2): pld_{horaria/diaria}_{ano}.parquet
+    # pra cada ano em DATASET_YEARS_AVAILABLE com ano < ano_corrente
+    ano_corrente = datetime.now().year
+    for dataset_pld in ("horaria", "diaria"):
+        for ano in DATASET_YEARS_AVAILABLE[dataset_pld]:
+            if ano < ano_corrente:
+                try:
+                    get_path, _, _, _ = _get_pld_year_disk_helpers(
+                        ano, dataset_pld
+                    )
+                    p = get_path()
+                    if p is not None and p.exists():
+                        p.unlink()
+                except Exception:
+                    pass
 
     # Reset da preferência de histórico completo da aba Geração
     st.session_state.pop("gen_historico_completo", None)

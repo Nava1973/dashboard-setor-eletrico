@@ -4326,6 +4326,50 @@ Tamanhos finais dos parquets: semanal ~33 KB (~5.200 linhas), mensal ~11 KB (~1.
 - **Horário do PLD** fica pra Frente 2 separada. JÁ tem disk-cache (decisão 5.15 aplicada na Sessão 1.5b); o gargalo de cold load não foi mensurado nesta sub-sessão.
 - **Alternativo do §9.1** (adicionar coluna `data_fim` no `_normalize_semanal`): caminho mínimo aplicado (docstring corrigida), mas a coluna em si não foi adicionada. Comentário interno em `_normalize_semanal:551` mantém a decisão original ("pra evitar guardar coluna derivada"); reavaliar se houver consumidor adicional além do hover do PLD semanal de §5.68.
 
+### 5.70 Disk-cache por ano fechado pro PLD horário e diário (Frente 2 da sub-sessão pós-883acec)
+
+**Decisão (Frente 2 da sub-sessão pós-883acec):** `_download_year_pld_historico` (`data_loader.py:319`) refatorado pra usar disk-cache por ano fechado no lugar do `@st.cache_data(ttl=30d)` RAM da Sessão 1.5b. Cada `(ano, dataset)` ganha 1 parquet `pld_{dataset}_{ano}.parquet` em `~/.cache/dashboard-setor-eletrico/`, gerenciado via novo helper lazy `_get_pld_year_disk_helpers(ano, dataset)` (memoizado em dict global `_PLD_YEAR_HELPERS_CACHE`). Aplicado a horário + diário (escopo B-ambos — ambos os loaders compartilham `_download_year_pld_historico`). `clear_cache()` estendido com loop sobre `DATASET_YEARS_AVAILABLE` pra cobrir os parquets por ano fechado. Docstrings de `load_pld_horaria` e `load_pld_media_diaria` reescritas + comentário do bloco PLD (`data_loader.py:1619`) ganhou parágrafo final sobre Frente 2. Zero breaking change na API pública — assinatura e schema preservados.
+
+**Motivação:** a Frente 2 começou após percepção subjetiva de lentidão no Cloud (~2-3s sentidos pelo usuário em rede móvel, classificado como "tolerável, só na primeira navegação" antes de medir empiricamente). O commit `883acec` (decisão 5.69) deixou o horário fora do escopo da Frente 1 explicitamente — "pattern estruturalmente diferente, gargalo ambíguo, requer diagnóstico antes de otimização". Instrumentação calibrada em `load_pld_horaria` (timer wrapper) + `_load_dataset` (acumuladores `download_total`, `normalize_total`, `ram_hits`, `http_calls` ao longo do loop por ano) revelou cold load real entre ~67s e ~76s em 2 medições no mesmo dia (variabilidade da API CCEE), com **~98% do tempo em HTTP** (~65-75s de download em 6 anos = ~11-13s/ano via Akamai). A docstring antiga mencionava "Disk-cache reduz pra ~1-2s", mas esse número era referente ao disk-cache consolidado (TTL 6h) — pós-expiração ou pós-restart do container, cold real reaparecia. Diagnóstico confirmou: as 3 camadas existentes (RAM externo 12h + RAM por ano 30d + disk consolidado 6h) cobriam *refresh dentro do mesmo processo*, mas **não cold restart do container do Streamlit Cloud free tier**. Solução aplicada: persistir os ~150-320 KB/ano em parquets individuais no disco com TTL 30 dias.
+
+**Pattern e escolhas técnicas:**
+
+- **Lazy via dict global** (`_PLD_YEAR_HELPERS_CACHE: dict[tuple[int, str], tuple] = {}`): chave `(ano, dataset)` espelha a ordem de argumentos de `_download_year_pld_historico(ano, dataset)`. Cada entry guarda os 4 callables retornados por `_make_disk_cache_helpers` — `(get_path, is_fresh, try_read, try_write)`. Primeira chamada de `_get_pld_year_disk_helpers(ano, dataset)` cria; chamadas subsequentes reusam.
+- **Reuso da fábrica** `_make_disk_cache_helpers` (decisão 5.15): herda toda a infra de path cascade (`~/.cache/dashboard-setor-eletrico/` → `tempfile.gettempdir()`), write_test idempotente, error handling silencioso em FS read-only.
+- **TTL 30 dias**: anos fechados são imutáveis na CCEE (mesma premissa da decisão 5.15 do balanço ONS). Aceita raras reedições — janela longa minimiza re-download HTTP.
+- **String `"disk-cache-ano"`** retornada por `_download_year_pld_historico` quando disk hit — diferencia de `"disk-cache"` (consolidado) e de `"api"`/`"dump"`/`"pda"`/`"falhou"` (cascata HTTP) na chave `fontes_por_ano_horaria` em session_state debug.
+- **Decorator `@st.cache_data(ttl=30d)` removido** de `_download_year_pld_historico`: tornou-se redundante porque o cache RAM externo de `load_pld_horaria` (TTL 12h) já intercepta múltiplas chamadas dentro de uma sessão. Manter as 2 camadas RAM seria duplicação sem benefício. Análise feita no design da Fase 3 antes da implementação — não foi remoção "casual".
+- **Escopo B-ambos**: horário e diário compartilham `_download_year_pld_historico` — refactor de 1 função cobre ambos sem código duplicado. Decisão tomada na Fase 3 do design.
+
+**Números empíricos** (medidos via instrumentação `[PERF horaria-frente2]` + `[PERF _load_dataset:horaria]` em runtime local Windows, 13/05/2026):
+
+| Cenário | Tempo total | Significado |
+|---|---|---|
+| A — Cold first-run pós-deploy | **~67s** | Parquets por ano vazios; 6 HTTP calls, 0 disk hits |
+| B — Cold pós-fix (parquets populados) | **~15s** | 5 disk-cache-ano (anos fechados) + 1 HTTP (ano corrente) |
+| C — Warm-disk consolidado | **~33ms** | Disk hit do consolidado intercepta antes de `_load_dataset` |
+| D — Warm-RAM (mesma sessão) | **sem print** | `@st.cache_data` externo intercepta antes do wrapper |
+
+Speedup **B vs A: ~4,3×** (cenário recorrente — quando os parquets por ano estão populados, caso típico após primeira chamada de `load_pld_horaria` pós-restart do container). Volume processado: **188.064 linhas** consolidadas (horário pós-2021). Tamanhos dos 5 parquets por ano (horário):
+
+| Ano | Tamanho |
+|---|---|
+| 2021 | ~320 KB |
+| 2022 | ~242 KB |
+| 2023 | ~228 KB |
+| 2024 | ~282 KB |
+| 2025 | ~320 KB |
+
+Total horário: ~1,4 MB em disco. Diário **não foi medido empiricamente** nesta sub-sessão — mesma infra aplicada, mesma mecânica (5 anos fechados + 1 ano corrente), speedup análogo esperado.
+
+**Fora de escopo / trade-offs:**
+
+- **Streamlit Cloud disco efêmero (free tier):** parquets por ano são apagados a cada restart do container. Disk-cache cobre apenas a janela entre restarts. Mitigação real (storage externo tipo S3) está fora do escopo desta sub-sessão. Pra os usuários, a Frente 2 garante que o cold pesado só aconteça na *primeira* chamada de `load_pld_horaria` após cada restart do container do Cloud (deploys ou hibernation por inatividade ~20-30min no free tier) — chamadas subsequentes (dentro do TTL 30d) pegam disk-cache-ano nos parquets populados pela primeira chamada.
+- **Diário não foi medido empiricamente** nesta sub-sessão. Mesma infra aplicada, speedup análogo esperado, mas sem confirmação por números reais. Tarefa futura se relevante.
+- **Semanal/mensal não migrados** pra disk-cache por ano: já cobertos pelo disk-cache consolidado da Frente 1 (decisão 5.69); volume muito menor (~33 KB e ~11 KB consolidados) não justifica complexidade adicional.
+- **Cache RAM 30d removido** de `_download_year_pld_historico`: análise pré-implementação concluiu que era redundante (RAM externo de `load_pld_horaria` já cobre o cenário de múltiplas chamadas mid-session). Caso a análise esteja errada e o ganho do RAM 30d seja relevante em algum cenário não antecipado, o fix é trivial (re-adicionar o decorator), mas aumentaria consumo de RAM.
+- **Deprecation warnings observadas durante medições** (`st.components.v1.html` removal pós-2026-06-01; `use_container_width` → `width`): registradas em memória do projeto. Fora do escopo desta decisão.
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
@@ -4980,6 +5024,24 @@ baseadas no relatório.
     (~92×). Docstring desatualizada do semanal corrigida no mesmo commit
     (resolve caminho mínimo do §9.1). Detalhes em §5.69. Horário fica
     pra Frente 2 separada (já tem disk-cache, gargalo ambíguo).
+
+32. **Disk-cache por ano fechado pro PLD horário e diário (13/05/2026)** —
+    Frente 2 da sub-sessão pós-883acec. `_download_year_pld_historico`
+    refatorado pra usar disk-cache por ano fechado no lugar do
+    `@st.cache_data(ttl=30d)` RAM da Sessão 1.5b — cada `(ano, dataset)`
+    ganha 1 parquet `pld_{dataset}_{ano}.parquet` (TTL 30d, anos fechados
+    imutáveis). Helper lazy `_get_pld_year_disk_helpers(ano, dataset)`
+    com memoização em dict global `_PLD_YEAR_HELPERS_CACHE`. Escopo
+    B-ambos (horário + diário compartilham a função refatorada).
+    `clear_cache()` estendido com loop sobre `DATASET_YEARS_AVAILABLE`
+    pra cobrir parquets por ano fechado. Diagnóstico empírico: cold load
+    horário ~67-76s com 98% do tempo em HTTP CCEE Akamai (6 anos ×
+    ~11-13s/ano). Pós-fix medido em 3 cenários: cold first-run pós-restart
+    do container ~67s (parquets por ano vazios, idêntico ao pré-fix),
+    cold pós-fix ~15s (5 disk-cache-ano + 1 HTTP do ano corrente),
+    warm-disk consolidado ~33ms. Speedup B vs A: ~4,3×. Diário não foi
+    medido empiricamente — mesma mecânica, speedup análogo esperado.
+    Detalhes em §5.70.
 
 ---
 
