@@ -119,17 +119,18 @@ PRESETS_POR_GRANULARIDADE = {
     ],
     "trimestral": [
         ("12M", 4),
-        ("24M", 8),
+        ("Máx", None),
     ],
     "semanal": [
         ("1M", 4),
         ("3M", 13),
+        ("Máx", None),
     ],
 }
 
 DEFAULT_PRESET_POR_GRANULARIDADE = {
     "mensal":     "12M",
-    "trimestral": "24M",
+    "trimestral": "12M",
     "semanal":    "3M",
 }
 
@@ -144,12 +145,17 @@ MESES_PT = {
 }
 
 
-def _fmt_periodo(ts, granularidade: str) -> str:
+def _fmt_periodo(ts, granularidade: str, longo: bool = False) -> str:
     """Formata um Timestamp de início de período conforme granularidade.
 
     mensal     → 'mai/26'
     trimestral → '2T26'
-    semanal    → 'S19/26'  (ISO week + ano ISO)
+    semanal    → '06/01'  (DD/MM do 1º dia da semana); longo=True → '06/01/26'
+
+    `longo` só afeta o semanal — adiciona o ano de 2 dígitos. Usado no
+    título e no hover (que têm espaço e se beneficiam do ano sem
+    ambiguidade); o eixo X usa a forma curta DD/MM pra caber mais barras.
+    Mensal e trimestral já carregam o ano nos dois modos.
     """
     ts = pd.Timestamp(ts)
     if granularidade == "mensal":
@@ -158,25 +164,37 @@ def _fmt_periodo(ts, granularidade: str) -> str:
         q = (ts.month - 1) // 3 + 1
         return f"{q}T{ts.year % 100:02d}"
     if granularidade == "semanal":
-        # ISO week numbering — ano ISO pode divergir do civil em viradas
-        # de ano (S52/S53 vs S01). Usamos isocalendar pra consistência.
-        iso = ts.isocalendar()
-        return f"S{iso.week:02d}/{iso.year % 100:02d}"
+        # Data do 1º dia da semana (freq W → segunda-feira). Mais legível
+        # que a numeração ISO de semana, que exige contar semanas de cabeça.
+        return ts.strftime("%d/%m/%y") if longo else ts.strftime("%d/%m")
     raise ValueError(f"Granularidade desconhecida: {granularidade!r}")
 
 
 # =============================================================================
-# Disk cache — 1 helper por granularidade, TTL 24h.
+# Disk cache — 6 parquets, TTL 24h: variante "recente" (default, ~2 anos de
+# PLD horário — caminho rápido da Frente 3) + variante "completo" (desde 2022),
+# uma de cada por granularidade.
+#
 # Schema v2: coluna periodo_inicio (em vez de ano_mes do v1).
-# Arquivos: modulacao_spread_v2_{mensal,trimestral,semanal}.parquet
+# Nome canônico da variante completa preservado (modulacao_spread_v2_{g}) —
+# não invalida parquets já no disco; a recente ganha sufixo descritivo.
+# Espelha o split recente/completo do PLD horário (CLAUDE.md §5.71, Frente 3).
 # Reusa fábrica do data_loader.py (decisão 5.15).
 # =============================================================================
 
-_DISK_CACHE_HELPERS_POR_GRANULARIDADE = {
-    g: _make_disk_cache_helpers(
-        f"modulacao_spread_v2_{g}", ttl_sec=60 * 60 * 24,
+_GRANULARIDADES = ("mensal", "trimestral", "semanal")
+
+_CACHE_PREFIXO_POR_MODO = {
+    "completo": "modulacao_spread_v2_",
+    "recente":  "modulacao_spread_v2_recente_",
+}
+
+_DISK_CACHE_HELPERS = {
+    (modo, g): _make_disk_cache_helpers(
+        f"{prefixo}{g}", ttl_sec=60 * 60 * 24,
     )
-    for g in ["mensal", "trimestral", "semanal"]
+    for modo, prefixo in _CACHE_PREFIXO_POR_MODO.items()
+    for g in _GRANULARIDADES
 }
 
 
@@ -186,12 +204,21 @@ _DISK_CACHE_HELPERS_POR_GRANULARIDADE = {
 
 @st.cache_data(
     ttl=60 * 60 * 24 * 30,
-    show_spinner="Calculando spread de captura...",
+    show_spinner="Calculando spread de modulação...",
 )
-def _calcular_spread(granularidade: str) -> pd.DataFrame:
+def _calcular_spread(
+    granularidade: str, incluir_historico_completo: bool = False,
+) -> pd.DataFrame:
     """Calcula spread por (periodo_inicio, submercado, fonte).
 
     granularidade ∈ {'mensal', 'trimestral', 'semanal'}.
+
+    incluir_historico_completo: se False (default), usa só o PLD horário
+        recente (~2 anos — caminho rápido da Frente 3, CLAUDE.md §5.71).
+        Cobre os presets default de Mensal (12M) e Semanal (3M); Trimestral
+        24M fica parcial até o usuário carregar o histórico completo. Se
+        True, usa o histórico PLD completo (desde 2021), pago sob demanda
+        via modal de confirmação na UI.
 
     Retorno: DataFrame com colunas
         periodo_inicio  datetime64  primeiro dia do mês/trim/semana
@@ -204,9 +231,8 @@ def _calcular_spread(granularidade: str) -> pd.DataFrame:
     if granularidade not in GRANULARIDADE_FREQ:
         raise ValueError(f"Granularidade desconhecida: {granularidade!r}")
 
-    _, _, try_read, try_write = (
-        _DISK_CACHE_HELPERS_POR_GRANULARIDADE[granularidade]
-    )
+    modo = "completo" if incluir_historico_completo else "recente"
+    _, _, try_read, try_write = _DISK_CACHE_HELPERS[(modo, granularidade)]
     df_disk = try_read()
     if df_disk is not None:
         return df_disk
@@ -221,10 +247,12 @@ def _calcular_spread(granularidade: str) -> pd.DataFrame:
 
     # --- PLD horário (cobertura: 2021+, horário, 4 submercados) ---
     # ATENÇÃO: coluna de timestamp do PLD horário é 'data' (com hora dentro).
-    # incluir_historico_completo=True pra ter o range desde 2021 — Modulação
-    # computa spread em janelas longas (12M/24M/5A) que precisam do histórico
-    # cheio. Default False do loader (Frente 3) traz só 2 anos recentes.
-    df_pld = load_pld_horaria(incluir_historico_completo=True)
+    # O modo (recente ~2 anos / completo desde 2021) é repassado pro loader:
+    # recente é o caminho rápido (Frente 3) e cobre os presets default; o
+    # completo é pago sob demanda via modal na UI da aba.
+    df_pld = load_pld_horaria(
+        incluir_historico_completo=incluir_historico_completo
+    )
     df_pld = df_pld[
         (df_pld["data"] >= CUTOFF_DATA)
         & (df_pld["submercado"].isin(ORDEM_SUBMERCADOS))
@@ -258,8 +286,17 @@ def _calcular_spread(granularidade: str) -> pd.DataFrame:
     )
     g["spread_rs_mwh"] = g["pld_pond"] - g["pld_flat"]
 
-    # Drop períodos parciais.
-    g = g[g["n_horas"] >= GRANULARIDADE_MIN_HORAS[granularidade]].copy()
+    # Drop períodos parciais — EXCETO o último (período corrente): ele é
+    # exibido com a média parcial acumulada até a última hora disponível
+    # (ex.: mensal = média de 01/mai até o último dia com dado). Os demais
+    # períodos parciais (gaps históricos, raros — dados são horário-estrito)
+    # continuam dropados pra não exibir spread ruidoso no meio da série.
+    min_horas = GRANULARIDADE_MIN_HORAS[granularidade]
+    ultimo_periodo = g["periodo_inicio"].max()
+    g = g[
+        (g["n_horas"] >= min_horas)
+        | (g["periodo_inicio"] == ultimo_periodo)
+    ].copy()
 
     out = g[
         ["periodo_inicio", "submercado", "fonte", "spread_rs_mwh",
@@ -270,6 +307,31 @@ def _calcular_spread(granularidade: str) -> pd.DataFrame:
 
     try_write(out)
     return out
+
+
+def clear_modulacao_disk_cache() -> None:
+    """Limpa o cache da aba Modulação: RAM (`_calcular_spread`) + os 6
+    parquets de disk-cache (recente + completo × 3 granularidades) + a
+    preferência `mod_historico_completo` em session_state.
+
+    Chamado pelo botão "Atualizar" da sidebar (app.py), junto com o
+    `clear_cache()` do data_loader — mantém a promessa "Atualizar =
+    começar do zero" também pra esta aba, e devolve o usuário ao modo
+    recente (rápido) por default.
+    """
+    _calcular_spread.clear()
+    for get_path, _, _, _ in _DISK_CACHE_HELPERS.values():
+        try:
+            p = get_path()
+            if p is not None and p.exists():
+                p.unlink()
+        except Exception:
+            pass
+    for k in (
+        "mod_historico_completo", "mod_data_ini", "mod_data_fim",
+        "mod_periodo_preset", "_mod_pending_modal", "_mod_pending_max",
+    ):
+        st.session_state.pop(k, None)
 
 
 # =============================================================================
@@ -301,6 +363,24 @@ def _resolver_janela(df_spread: pd.DataFrame, preset_label: str,
     return pd.Timestamp(periodos_unicos[idx_ini]), max_d
 
 
+def _preset_ativo(df_spread: pd.DataFrame, granularidade: str,
+                  data_ini, data_fim):
+    """Qual preset (se algum) corresponde exatamente à janela (data_ini,
+    data_fim) atual — usado pra destacar o botão como "primary".
+
+    Retorna None quando o usuário escolheu uma janela custom pelos
+    date_inputs (nenhum preset bate). data_ini/data_fim são datetime.date.
+    """
+    for label, _ in PRESETS_POR_GRANULARIDADE[granularidade]:
+        di, dfim = _resolver_janela(df_spread, label, granularidade)
+        if pd.isna(di) or pd.isna(dfim):
+            continue
+        if (pd.Timestamp(di).date() == data_ini
+                and pd.Timestamp(dfim).date() == data_fim):
+            return label
+    return None
+
+
 # =============================================================================
 # Render de UM gráfico (chamado 4× — uma vez por submercado)
 # =============================================================================
@@ -315,11 +395,13 @@ def _render_grafico_submercado(
     df_periodo = df_periodo.sort_values("periodo_inicio").copy()
 
     # --- Título Bauhaus (padrão tab_curtailment.py:636) ---
+    # longo=True: no semanal o título mostra DD/MM/AA (tem espaço e o ano
+    # evita ambiguidade); mensal/trimestral já trazem o ano.
     periodo_min = _fmt_periodo(
-        df_periodo["periodo_inicio"].min(), granularidade,
+        df_periodo["periodo_inicio"].min(), granularidade, longo=True,
     )
     periodo_max = _fmt_periodo(
-        df_periodo["periodo_inicio"].max(), granularidade,
+        df_periodo["periodo_inicio"].max(), granularidade, longo=True,
     )
     periodo_str = (
         periodo_min if periodo_min == periodo_max
@@ -357,6 +439,31 @@ def _render_grafico_submercado(
     )
 
     fig = go.Figure()
+
+    # Hover semanal: trace fantasma com a data + ano (DD/MM/AA). O eixo X
+    # usa DD/MM (compacto); esta linha extra no hover unified mostra a
+    # semana com ano, sem ambiguidade. Pattern do PLD semanal (§5.68):
+    # go.Scatter invisível com customdata 2D pré-computada. Adicionado
+    # antes das barras → aparece como 1ª linha do hover.
+    if granularidade == "semanal":
+        periodos = (
+            df_periodo[["periodo_inicio", "x_label"]]
+            .drop_duplicates()
+            .sort_values("periodo_inicio")
+        )
+        fig.add_trace(go.Scatter(
+            x=periodos["x_label"],
+            y=[0] * len(periodos),
+            mode="markers",
+            marker=dict(opacity=0),
+            showlegend=False,
+            hovertemplate="Semana de %{customdata[0]}<extra></extra>",
+            customdata=[
+                [_fmt_periodo(ts, "semanal", longo=True)]
+                for ts in periodos["periodo_inicio"]
+            ],
+        ))
+
     for fonte in FONTES_ALVO:
         sub = df_periodo[df_periodo["fonte"] == fonte]
         if sub.empty:
@@ -463,6 +570,36 @@ def _render_grafico_submercado(
 
 
 # =============================================================================
+# Modal de confirmação — lazy loading do histórico completo (Frente 3)
+# =============================================================================
+
+@st.dialog("Carregar histórico completo (desde 2022)?")
+def _confirmar_historico_completo_modulacao() -> None:
+    """Modal disparado pelo botão "Máx" em modo recente. Confirma a troca
+    pro histórico de spread completo (desde 2022) antes de pagar o load
+    pesado do PLD horário completo. Espelha
+    `_confirmar_historico_completo_pld_horario` do app.py (CLAUDE.md §5.71).
+    """
+    st.markdown(
+        "Calcular o spread sobre o **histórico completo** (desde 2022)?  \n"
+        "Pode levar 1 a 2 minutos na primeira vez (segundos nas próximas)."
+    )
+    st.caption(
+        "Para uso típico (análise recente), o default de ~2 anos é mais "
+        "rápido e cobre os períodos padrão de Mensal e Semanal."
+    )
+    col1, col2 = st.columns(2)
+    if col1.button("Cancelar", use_container_width=True):
+        st.rerun()
+    if col2.button("Carregar", type="primary", use_container_width=True):
+        st.session_state["mod_historico_completo"] = True
+        # Consumida no próximo render: aplica a janela "Máx" sobre o
+        # dataset completo recém-carregado.
+        st.session_state["_mod_pending_max"] = True
+        st.rerun()
+
+
+# =============================================================================
 # Wrappers principais (padrão tab_curtailment.py / tab_geracao_grupo.py)
 # =============================================================================
 
@@ -481,88 +618,162 @@ def render_aba_modulacao() -> None:
 
 
 def _render_aba_modulacao_impl() -> None:
-    """Renderiza a aba Modulação: selectbox de granularidade + 2 presets de
-    período + 4 gráficos empilhados (SE/S/NE/N)."""
+    """Renderiza a aba Modulação: numa linha só, o selectbox de
+    granularidade + botões de preset + date_inputs início/fim (à direita,
+    padrão das outras abas); abaixo, 4 gráficos empilhados (SE/S/NE/N).
+
+    As datas (`mod_data_ini`/`mod_data_fim` em session_state) são a fonte
+    de verdade do recorte; os presets são atalhos que as setam. O destaque
+    "primary" do botão é derivado das datas (None = janela custom)."""
     # Título h1 (mesmo padrão das outras abas)
     st.markdown("# MODULAÇÃO")
 
-    # Caption explicativa (Inter italic cinza)
+    # Caption explicativa (Inter italic cinza).
+    # margin-bottom generosa (2rem): a linha de controles logo abaixo tem
+    # date_inputs com label visível ("Data inicial"/"Data final") que sobem
+    # acima do campo — sem essa folga, o label encavala no texto da caption.
     st.markdown(
         '<div style="font-family:\'Inter\', sans-serif; '
         'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-        'margin:0 0 0.8rem 0;">'
-        'Spread de captura (R$/MWh) = PLD médio ponderado pela geração '
+        'margin:0 0 2rem 0;">'
+        'Spread de modulação (R$/MWh) = PLD médio ponderado pela geração '
         '<strong>menos</strong> PLD médio flat. Positivo = fonte gera mais nas '
         'horas caras. Negativo = gera mais nas horas baratas.'
         '</div>',
         unsafe_allow_html=True,
     )
 
-    # --- Controles: selectbox granularidade + 2 botões preset (1 linha) ---
+    # --- Frente 3 (lazy loading): modo recente (default) vs completo ---
+    # `mod_historico_completo` persiste a escolha em session_state; só volta
+    # a False via "Atualizar" (clear_modulacao_disk_cache). Antes de tudo,
+    # consome a flag intermediária e abre o modal de confirmação se pendente.
+    historico_completo = st.session_state.setdefault(
+        "mod_historico_completo", False
+    )
+    if st.session_state.pop("_mod_pending_modal", False):
+        _confirmar_historico_completo_modulacao()
+
+    # --- Controles numa linha: granularidade | presets | datas início/fim ---
+    # Layout FIXO de 7 colunas (independe da granularidade): dropdown | 3
+    # slots de preset | spacer | data inicial | data final. Datas ancoradas
+    # à direita (padrão das outras abas). Granularidades com 2 presets
+    # deixam o 3º slot vazio — a largura total (13.2) e o espaçamento
+    # visual ficam idênticos pros casos de 2 e 3 presets.
+    #
+    # Layout fixo é proposital: NÃO há mais st.rerun() na troca de
+    # granularidade. Um rerun explícito ali interrompia o script antes dos
+    # date_inputs renderizarem, e o Streamlit limpava as keys de widget não
+    # renderizado (mod_data_ini/mod_data_fim) — fazendo as datas resetarem
+    # ao trocar de granularidade. Sem rerun, os date_inputs renderizam todo
+    # run e as datas (que são de calendário, portáveis entre granularidades)
+    # persistem; o clamp em [min_d, max_d] cobre as diferenças de range.
     st.session_state.setdefault("mod_granularidade", "mensal")
-
     gran_opts = ["mensal", "trimestral", "semanal"]
+    cols = st.columns([2, 1, 1, 1, 5.2, 1.5, 1.5])
 
-    # Layout: selectbox à esquerda (col 0), spacer (col 1), 2 botões à direita.
-    cols_ctrl = st.columns([2, 4, 1, 1])
-
-    with cols_ctrl[0]:
-        nova_gran = st.selectbox(
+    with cols[0]:
+        granularidade = st.selectbox(
             "Granularidade",
             options=gran_opts,
             format_func=lambda g: LABELS_GRANULARIDADE[g],
-            key="mod_granularidade_widget",
-            index=gran_opts.index(st.session_state["mod_granularidade"]),
+            key="mod_granularidade",
             label_visibility="collapsed",
         )
 
-    # Detecta troca de granularidade → reseta preset pro default da nova gran.
-    if nova_gran != st.session_state["mod_granularidade"]:
-        st.session_state["mod_granularidade"] = nova_gran
-        st.session_state["mod_periodo_preset"] = (
-            DEFAULT_PRESET_POR_GRANULARIDADE[nova_gran]
-        )
-        st.rerun()
-
-    granularidade = st.session_state["mod_granularidade"]
-
-    # --- Resolver preset atual (com fallback defensivo se label inválido) ---
     presets = PRESETS_POR_GRANULARIDADE[granularidade]
-    labels_validos = [p[0] for p in presets]
-    default_preset = DEFAULT_PRESET_POR_GRANULARIDADE[granularidade]
 
-    preset_atual = st.session_state.get("mod_periodo_preset", default_preset)
-    if preset_atual not in labels_validos:
-        preset_atual = default_preset
-        st.session_state["mod_periodo_preset"] = default_preset
-
-    # --- 2 botões de preset (cols 2 e 3) ---
-    for i, (label, _) in enumerate(presets):
-        with cols_ctrl[i + 2]:
-            tipo = "primary" if label == preset_atual else "secondary"
-            if st.button(
-                label, key=f"btn_mod_{label}",
-                type=tipo, use_container_width=True,
-            ):
-                st.session_state["mod_periodo_preset"] = label
-                st.rerun()
-
-    # --- Cálculo do spread (cache 2-layer) ---
-    df_spread = _calcular_spread(granularidade)
+    # --- Cálculo do spread (cache 2-layer) — necessário já aqui pra resolver
+    #     os presets em datas e definir os limites dos date_inputs. ---
+    df_spread = _calcular_spread(granularidade, historico_completo)
     if df_spread.empty:
         st.warning("Sem dados de spread disponíveis no momento.")
         return
 
-    data_ini, data_fim = _resolver_janela(
-        df_spread, preset_atual, granularidade,
+    min_d = pd.Timestamp(df_spread["periodo_inicio"].min()).date()
+    max_d = pd.Timestamp(df_spread["periodo_inicio"].max()).date()
+
+    # Inicializa as datas (1ª carga ou pós-"Atualizar") com a janela do
+    # preset default da granularidade.
+    if ("mod_data_ini" not in st.session_state
+            or "mod_data_fim" not in st.session_state):
+        di, dfim = _resolver_janela(
+            df_spread, DEFAULT_PRESET_POR_GRANULARIDADE[granularidade],
+            granularidade,
+        )
+        st.session_state["mod_data_ini"] = pd.Timestamp(di).date()
+        st.session_state["mod_data_fim"] = pd.Timestamp(dfim).date()
+
+    # Pós-modal de confirmação: aplica a janela "Máx" sobre o dataset
+    # completo recém-carregado (flag setada no modal, consumida aqui).
+    if st.session_state.pop("_mod_pending_max", False):
+        st.session_state["mod_data_ini"] = min_d
+        st.session_state["mod_data_fim"] = max_d
+
+    # Clamp defensivo: se o dataset encolheu (ex.: completo → recente via
+    # "Atualizar"), datas fora do range novo dariam StreamlitAPIException
+    # ao re-instanciar o date_input.
+    st.session_state["mod_data_ini"] = min(
+        max(st.session_state["mod_data_ini"], min_d), max_d
     )
-    if pd.isna(data_ini) or pd.isna(data_fim):
-        st.warning("Sem dados no período selecionado.")
+    st.session_state["mod_data_fim"] = min(
+        max(st.session_state["mod_data_fim"], min_d), max_d
+    )
+
+    # Preset ativo (destaque "primary") derivado das datas atuais — None
+    # quando o usuário escolheu uma janela custom pelos date_inputs.
+    preset_atual = _preset_ativo(
+        df_spread, granularidade,
+        st.session_state["mod_data_ini"], st.session_state["mod_data_fim"],
+    )
+
+    # --- Botões de preset (cols 1..3; 3º slot fica vazio se só há 2) ---
+    # Frente 3: "Máx" em modo recente não filtra direto — abre o modal de
+    # confirmação antes de pagar o load do histórico completo. Em modo
+    # completo, "Máx" é filtro puro (janela inteira do dataset).
+    for i, (label, _) in enumerate(presets):
+        with cols[i + 1]:
+            tipo = "primary" if label == preset_atual else "secondary"
+            eh_max_lazy = label == "Máx" and not historico_completo
+            if st.button(
+                label, key=f"btn_mod_{label}",
+                type=tipo, use_container_width=True,
+                help=(
+                    "Carregar histórico completo (desde 2022) — "
+                    "1 a 2 min na 1ª vez"
+                    if eh_max_lazy else None
+                ),
+            ):
+                if eh_max_lazy:
+                    st.session_state["_mod_pending_modal"] = True
+                else:
+                    di, dfim = _resolver_janela(
+                        df_spread, label, granularidade,
+                    )
+                    st.session_state["mod_data_ini"] = pd.Timestamp(di).date()
+                    st.session_state["mod_data_fim"] = pd.Timestamp(dfim).date()
+                st.rerun()
+
+    # --- Date inputs início/fim (cols 5 e 6, à direita — índices fixos) ---
+    with cols[5]:
+        st.date_input(
+            "Data inicial", min_value=min_d, max_value=max_d,
+            key="mod_data_ini", format="DD/MM/YYYY",
+        )
+    with cols[6]:
+        st.date_input(
+            "Data final", min_value=min_d, max_value=max_d,
+            key="mod_data_fim", format="DD/MM/YYYY",
+        )
+
+    data_ini = st.session_state["mod_data_ini"]
+    data_fim = st.session_state["mod_data_fim"]
+    if data_ini > data_fim:
+        st.warning("Data inicial posterior à data final.")
         return
 
     df_filtrado = df_spread[
-        (df_spread["periodo_inicio"] >= data_ini)
-        & (df_spread["periodo_inicio"] <= data_fim)
+        (df_spread["periodo_inicio"] >= pd.Timestamp(data_ini))
+        & (df_spread["periodo_inicio"] <= pd.Timestamp(data_fim))
     ]
     if df_filtrado.empty:
         st.warning("Sem dados no período selecionado.")

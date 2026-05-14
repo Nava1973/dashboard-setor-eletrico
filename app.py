@@ -41,7 +41,10 @@ from data_loader import (
     clear_cache,
 )
 from components.tab_curtailment import render_aba_curtailment
-from components.tab_modulacao import render_aba_modulacao
+from components.tab_modulacao import (
+    render_aba_modulacao,
+    clear_modulacao_disk_cache,
+)
 from components.tab_capacidade import render_aba_capacidade
 from utils.cores_fontes import (
     COR_FONTE_SOLAR,
@@ -1755,6 +1758,7 @@ with st.sidebar:
     st.divider()
     if st.button("Atualizar", use_container_width=True):
         clear_cache()
+        clear_modulacao_disk_cache()
         st.rerun()
 
     st.caption(
