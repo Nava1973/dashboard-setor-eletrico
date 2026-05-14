@@ -1401,11 +1401,15 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
     st.markdown(
-        '<div class="sidebar-title">Dashboard Setor Elétrico</div>',
+        '<div class="sidebar-title">Setor Elétrico · Brasil</div>',
         unsafe_allow_html=True,
     )
     st.markdown(
-        f'<div class="sidebar-username">{user}</div>',
+        f'<div class="sidebar-username">'
+        f'<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" '
+        f'aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 '
+        f'1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>'
+        f'</svg><span>{user}</span></div>',
         unsafe_allow_html=True,
     )
 
@@ -1512,6 +1516,11 @@ with st.sidebar:
             font-weight: 600 !important;
             color: #A0A0A0 !important;
             margin: 0.8rem 0 0 0 !important;
+            /* flex: ícone de usuário (SVG, herda a cor via currentColor)
+               + nome alinhados verticalmente, com um gap pequeno. */
+            display: flex !important;
+            align-items: center !important;
+            gap: 0.4rem !important;
         }
 
         /* Cabeçalho da seção de autores — Bebas Neue amarelo. font-size
@@ -1769,7 +1778,7 @@ with st.sidebar:
     # Divider nativo cria a separação visual coerente com o resto da sidebar.
     st.divider()
     st.markdown(
-        '<div class="sidebar-authors-label">BBI Utilities Team:</div>'
+        '<div class="sidebar-authors-label">BBI Utilities Team</div>'
         '<div class="sidebar-authors">'
         'Navarrete<br>Fagundes<br>Caruso'
         '</div>',
@@ -2072,14 +2081,17 @@ if aba == "PLD":
         [data-testid="stSelectbox"] [data-baseweb="select"] svg {
             display: none !important;
         }
-        /* ▾ preta sempre visível, colada no texto */
+        /* ▾ preta sempre visível, colada no texto. position/top desce a
+           seta pra alinhar com a base do texto do título. */
         [data-testid="stSelectbox"] [data-baseweb="select"] > div::after {
             content: "▾";
             color: #1A1A1A;
-            font-size: 1.7em;
+            font-size: 1.85em;
             margin-left: 0.3em;
             pointer-events: none;
             line-height: 1;
+            position: relative;
+            top: 0.06em;
         }
         </style>
         """,
@@ -2121,10 +2133,11 @@ if aba == "PLD":
             unsafe_allow_html=True,
         )
 
-    # Linha horizontal separada abaixo
+    # Linha horizontal separada abaixo. Margens negativas aproximam a
+    # linha (e o gráfico) da fileira de controles acima — pedido de UX.
     st.markdown(
         '<div style="border-bottom: 2px solid #1A1A1A; '
-        'margin: 0 0 0.3rem 0;"></div>',
+        'margin: -1.1rem 0 -0.8rem 0;"></div>',
         unsafe_allow_html=True,
     )
 
@@ -2438,8 +2451,12 @@ if aba == "PLD":
 
     # Layout Bauhaus — papel creme, tipografia impactante, geometria
     fig.update_layout(
-        height=290,  # reduzido ~10% (era 320) para caber melhor em tela 100%
-        margin=dict(l=20, r=20, t=30, b=20),
+        # height 312 + t=52: a margem superior maior abre espaço pra
+        # legenda subir (y=1.12) e ocupar de forma equilibrada o vão
+        # entre a linha de controles e o gráfico. Área de plot fica
+        # ~240px (312-52-20), igual ao layout anterior (290-30-20).
+        height=312,
+        margin=dict(l=20, r=20, t=52, b=20),
         paper_bgcolor=BAUHAUS_CREAM,
         plot_bgcolor=BAUHAUS_CREAM,
         hovermode="x unified",  # tooltip único com todas as séries + data no topo
@@ -2457,13 +2474,13 @@ if aba == "PLD":
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=1.02,
+            y=1.12,
             xanchor="left",
             x=0,
             bgcolor="rgba(0,0,0,0)",
             font=dict(
                 family="Bebas Neue, sans-serif",
-                size=17,
+                size=22,
                 color=BAUHAUS_BLACK,
             ),
         ),
@@ -2574,13 +2591,13 @@ if aba == "PLD":
             justify-content: space-between;  /* distribui items uniformemente */
             margin: 0.8rem 0 0.3rem 0;
             padding: 0.4rem 0.9rem;
-            border: 2px solid #1A1A1A;
+            border: 2px solid #CCCCCC;
             background: #F5F1E8;
             gap: 0.4rem;
         }}
         .kpi-ultimo-header {{
             font-family: 'Inter', sans-serif;
-            font-size: 0.62rem;
+            font-size: 0.72rem;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.08em;
@@ -2590,7 +2607,7 @@ if aba == "PLD":
         }}
         .kpi-ultimo-data {{
             font-family: 'Inter', sans-serif;
-            font-size: 0.72rem;
+            font-size: 0.82rem;
             color: #1A1A1A;
             font-weight: 600;
             white-space: nowrap;
@@ -2605,7 +2622,7 @@ if aba == "PLD":
             display: inline-block;
             padding: 0.1rem 0.35rem;
             font-family: 'Inter', sans-serif;
-            font-size: 0.6rem;
+            font-size: 0.68rem;
             font-weight: 700;
             letter-spacing: 0.08em;
             color: #FFFFFF;
@@ -2613,7 +2630,7 @@ if aba == "PLD":
         }}
         .kpi-value {{
             font-family: 'Bebas Neue', sans-serif;
-            font-size: 1rem;
+            font-size: 1.15rem;
             color: #1A1A1A;
             letter-spacing: 0.02em;
             white-space: nowrap;
@@ -2629,11 +2646,16 @@ if aba == "PLD":
         st.markdown(_kpi_row_html, unsafe_allow_html=True)
 
     # --- Estatísticas do período (tabela) ---
+    # Label + datas numa linha só (sem <h3> → sem a border-bottom global
+    # do h3); margin-bottom curto aproxima a tabela do rótulo — pedido UX.
     _stats_header_html = (
-        f'<h3 style="margin-bottom:0.3rem;">Estatísticas do período</h3>'
-        f'<div style="font-family:\'Inter\', sans-serif; font-weight:500; '
-        f'font-size:0.95rem; color:#2E2E2E; margin-bottom:0.8rem;">'
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:1rem; font-weight:600; letter-spacing:0.05em; '
+        f'color:#1A1A1A; margin: 1.8rem 0 0 0;">'
+        f'Estatísticas do período: '
+        f'<span style="font-weight:500; color:#2E2E2E;">'
         f'{data_ini.strftime("%d/%m/%Y")} — {data_fim.strftime("%d/%m/%Y")}'
+        f'</span>'
         f'</div>'
     )
     if granularidade == "diario":
@@ -2657,7 +2679,10 @@ if aba == "PLD":
             width: 100%;
             border-collapse: collapse;
             font-family: 'Inter', sans-serif;
-            margin: 0.5rem 0 1.5rem 0;
+            /* margin-top negativo cola a tabela no rótulo "Estatísticas
+               do período" logo acima (compensa o gap nativo do Streamlit
+               entre elementos) — pedido de UX. */
+            margin: -0.5rem 0 1.5rem 0;
             border: 2px solid {BAUHAUS_BLACK};
         }}
         .bauhaus-table thead tr {{

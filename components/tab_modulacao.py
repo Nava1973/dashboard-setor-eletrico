@@ -330,6 +330,7 @@ def clear_modulacao_disk_cache() -> None:
     for k in (
         "mod_historico_completo", "mod_data_ini", "mod_data_fim",
         "mod_periodo_preset", "_mod_pending_modal", "_mod_pending_max",
+        "mod_datas_custom", "mod_granularidade_anterior",
     ):
         st.session_state.pop(k, None)
 
@@ -379,6 +380,18 @@ def _preset_ativo(df_spread: pd.DataFrame, granularidade: str,
                 and pd.Timestamp(dfim).date() == data_fim):
             return label
     return None
+
+
+def _marcar_datas_custom() -> None:
+    """on_change dos date_inputs: marca que o usuário mexeu manualmente
+    nas datas.
+
+    Enquanto `mod_datas_custom` é False, trocar de granularidade re-deriva
+    a janela pro preset default da nova granularidade — assim cada
+    granularidade sempre abre mostrando até o último período disponível.
+    Quando True, a janela custom do usuário persiste entre granularidades.
+    """
+    st.session_state["mod_datas_custom"] = True
 
 
 # =============================================================================
@@ -663,11 +676,17 @@ def _render_aba_modulacao_impl() -> None:
     # Layout fixo é proposital: NÃO há mais st.rerun() na troca de
     # granularidade. Um rerun explícito ali interrompia o script antes dos
     # date_inputs renderizarem, e o Streamlit limpava as keys de widget não
-    # renderizado (mod_data_ini/mod_data_fim) — fazendo as datas resetarem
-    # ao trocar de granularidade. Sem rerun, os date_inputs renderizam todo
-    # run e as datas (que são de calendário, portáveis entre granularidades)
-    # persistem; o clamp em [min_d, max_d] cobre as diferenças de range.
+    # renderizado (mod_data_ini/mod_data_fim). Sem rerun, os date_inputs
+    # renderizam todo run e as keys sobrevivem.
+    #
+    # Comportamento das datas na troca de granularidade:
+    #   - datas NÃO custom (mod_datas_custom=False) → re-derivam pro preset
+    #     default da nova granularidade (sempre mostra até o último período
+    #     disponível — vide bloco mais abaixo);
+    #   - datas custom (usuário mexeu nos date_inputs) → persistem; o clamp
+    #     em [min_d, max_d] cobre as diferenças de range entre granularidades.
     st.session_state.setdefault("mod_granularidade", "mensal")
+    st.session_state.setdefault("mod_datas_custom", False)
     gran_opts = ["mensal", "trimestral", "semanal"]
     cols = st.columns([2, 1, 1, 1, 5.2, 1.5, 1.5])
 
@@ -703,11 +722,29 @@ def _render_aba_modulacao_impl() -> None:
         st.session_state["mod_data_ini"] = pd.Timestamp(di).date()
         st.session_state["mod_data_fim"] = pd.Timestamp(dfim).date()
 
+    # Troca de granularidade SEM datas custom → re-deriva a janela pro
+    # preset default da nova granularidade. Sem isso, o clamp entre
+    # granularidades (que têm max_d diferentes: mensal 01/mai, trimestral
+    # 01/abr, semanal a última segunda) "prendia" data_fim no menor max_d
+    # já visto e a aba abria sem o período corrente. Re-derivar garante
+    # que cada granularidade abre mostrando até o último período disponível.
+    _gran_anterior = st.session_state.get("mod_granularidade_anterior")
+    if (_gran_anterior is not None and _gran_anterior != granularidade
+            and not st.session_state["mod_datas_custom"]):
+        di, dfim = _resolver_janela(
+            df_spread, DEFAULT_PRESET_POR_GRANULARIDADE[granularidade],
+            granularidade,
+        )
+        st.session_state["mod_data_ini"] = pd.Timestamp(di).date()
+        st.session_state["mod_data_fim"] = pd.Timestamp(dfim).date()
+    st.session_state["mod_granularidade_anterior"] = granularidade
+
     # Pós-modal de confirmação: aplica a janela "Máx" sobre o dataset
     # completo recém-carregado (flag setada no modal, consumida aqui).
     if st.session_state.pop("_mod_pending_max", False):
         st.session_state["mod_data_ini"] = min_d
         st.session_state["mod_data_fim"] = max_d
+        st.session_state["mod_datas_custom"] = False
 
     # Clamp defensivo: se o dataset encolheu (ex.: completo → recente via
     # "Atualizar"), datas fora do range novo dariam StreamlitAPIException
@@ -751,6 +788,9 @@ def _render_aba_modulacao_impl() -> None:
                     )
                     st.session_state["mod_data_ini"] = pd.Timestamp(di).date()
                     st.session_state["mod_data_fim"] = pd.Timestamp(dfim).date()
+                    # Clique de preset = seleção "gerida", não custom —
+                    # trocar de granularidade depois volta a re-derivar.
+                    st.session_state["mod_datas_custom"] = False
                 st.rerun()
 
     # --- Date inputs início/fim (cols 5 e 6, à direita — índices fixos) ---
@@ -758,11 +798,13 @@ def _render_aba_modulacao_impl() -> None:
         st.date_input(
             "Data inicial", min_value=min_d, max_value=max_d,
             key="mod_data_ini", format="DD/MM/YYYY",
+            on_change=_marcar_datas_custom,
         )
     with cols[6]:
         st.date_input(
             "Data final", min_value=min_d, max_value=max_d,
             key="mod_data_fim", format="DD/MM/YYYY",
+            on_change=_marcar_datas_custom,
         )
 
     data_ini = st.session_state["mod_data_ini"]
