@@ -42,3 +42,7 @@ desktop.ini
 
 # Cache disk dos loaders SQL (mmgd_sql etc) — regenerável via primeira execução
 cache/
+
+# Premissas por usuário da aba Receita por Empresa — estado de runtime
+# (placeholders + inputs do usuário), não versionado.
+data/premissas_receita_modulacao.json

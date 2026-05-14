@@ -4424,6 +4424,32 @@ Sub-sessão de ajustes visuais (sidebar + aba PLD) e um fix de UX na aba Modula�
 
 **Validação:** compile-check OK em `app.py` + `components/tab_modulacao.py`; app sobe HTTP 200; smoke test do round-trip preset→`_resolver_janela` confirma que o default de cada granularidade alcança o último período. Ajustes visuais do PLD confirmados pelo usuário por inspeção no Streamlit local.
 
+### 5.74 Sub-aba "Receita por Empresa" da Modulação
+
+**Decisão:** a aba Modulação virou um container de 2 sub-views (padrão das sub-views da Geração — §5.37): **"Por Submercado/Fonte"** (a aba original, `tab_modulacao.py`) e **"Receita por Empresa"** (nova, `components/tab_receita_modulacao.py`). Estima a receita de modulação por empresa de geração, por trimestre do ano corrente, em R$mn.
+
+**Wiring (`app.py`):** import de `render_aba_receita_modulacao` no topo; sub-nav na sidebar dentro do loop de abas (`if _aba_opcao == "Modulação" and _is_active:` — state `modulacao_subview`, espelha o bloco da Geração); dispatch `elif aba == "Modulação":` ramifica por `modulacao_subview`.
+
+**Modelo de cálculo:** `receita = (ACL + Spot, MWmed→MWh) × spread_ponderado × horas / 1e6`, onde `spread_ponderado = Σ_fonte (aloc%_fonte × spread_fonte)` — o spread de modulação de cada fonte (hidro/eólica/solar) do(s) submercado(s) da empresa, ponderado pelo mix de fontes da empresa. Vem do `_calcular_spread("trimestral")` da aba Modulação (lido pras 3 fontes, não só hidro). **A receita pode ser negativa** (empresa muito exposta a solar → spread negativo → perda). Trimestre fechado: trimestre cheio; trimestre corrente: pró-rata via `n_horas` + estimativa do cheio; trimestres futuros: estimativa com o spread ponderado corrente carregado pra frente.
+
+**Empresas (`EMPRESAS_SUBMERCADO`):** Auren (SE), Cemig (SE), Engie (S), Copel (S), EQTL (NE) — 1 submercado cada; **Axia** é caso especial (ACL = média do spread de N+NE+SE+S; Spot = média de N+NE). Ordem alfabética case-insensitive.
+
+**Duas tabelas editáveis (`st.data_editor` em blocos lado a lado — padrão da §5.73 Follow-up B):** (1) **Premissas — Vendas ACL e Spot (MWmed) + Spread**: ACL/Spot editáveis; coluna Spread read-only nos trimestres reais (spread ponderado apurado) e editável nos futuros (default = spread ponderado corrente). (2) **Alocação entre fontes da capacidade firme total (%)**: Hidro/Eólica/Solar editáveis por empresa×trimestre, default 100% hidro. Validação com aviso se uma linha não soma 100% (o `st.data_editor` não força a soma — célula-residual auto não atualiza de forma confiável no widget, mesma família de limitações do canvas/tema global já registradas).
+
+**Ordem de render (containers):** a tabela 2 (alocação) é processada ANTES da tabela 1 no código (a tabela 1 precisa da alocação pra computar o spread ponderado), mas posicionada visualmente DEPOIS via `st.container()` reservado. O gráfico também usa container reservado no topo.
+
+**Spread dos trimestres futuros — "None = auto, valor = override":** o default segue a alocação via `_spreads_auto` (spread ponderado do último trimestre real, **recalculado a cada render**). É editável. Ao salvar, `_para_salvar` grava `None` quando o valor bate com o auto (continua seguindo a alocação no reload) e o valor só quando é override manual. **Armadilha resolvida:** a 1ª versão pré-preenchia o spread futuro uma vez só (congelava no default hidro); a correção foi não pré-preencher + base do editor = `spreads_auto` recalculado. Mais: saves antigos (schema sem alocação) tinham spreads futuros congelados — resolvido com **versionamento** (`_PREMISSAS_VERSAO`): JSON de versão anterior é ignorado no load; chave de sessão versionada (`receita_premissas_base_v2`) força reload no schema novo.
+
+**Persistência:** premissas (ACL/Spot/spread-override + alocação) salvas por usuário em `data/premissas_receita_modulacao.json` (gitignored — estado de runtime). Botão "Salvar premissas" usa `st.toast` (notificação transitória — some sozinha, evita a impressão de salvamento automático). No Streamlit Cloud o disco é efêmero (persiste só entre restarts — mesma ressalva do disk-cache).
+
+**Gráfico:** barras trimestrais empilhadas por empresa (toggle de empresa via botões primary/secondary), **cor única vermelho Bauhaus** (`#D62828`) — "Realizado" sólido, "Estimativa" no vermelho esmaecido (`_blend` com o creme, tom sólido pra legenda casar). `barmode="relative"` + `zeroline` pra suportar barras negativas. Cada número vive na sua trace (some/volta junto no toggle da legenda). Nota explicativa do cálculo abaixo do gráfico.
+
+**Defaults placeholder:** ACL 200 / Spot 50 MWmed, alocação 100% hidro — ilustrativos, o usuário substitui pelos reais e salva.
+
+**Validação:** compile-check OK; smoke tests do cálculo (100% hidro = contínuo com o modelo hidro-puro anterior; 100% solar → receita negativa; EQTL/NE; `spreads_auto` segue a alocação; round-trip `_para_salvar`); app sobe HTTP 200. Iterações de UX (cores, layout das tabelas em blocos, alinhamento, toast, negativos) ajustadas com o usuário no Streamlit local — browser-automation indisponível nesta sessão.
+
+**Limitações conhecidas do `st.data_editor` (registradas ao longo da sub-sessão):** não dá pra re-tematizar (canvas + tema global escuro), nem centralizar valores, nem cabeçalho de 2 níveis, nem célula-residual auto-atualizável. Contornos aplicados: blocos lado a lado pro efeito de cabeçalho-de-grupo + separação de trimestres; "Empresa" como coluna normal (não índice) pra legibilidade; CSS escopado pra gap mínimo + cantos quadrados; validação-com-aviso no lugar da célula-residual.
+
 ---
 
 ## 6. Fluxo de Desenvolvimento

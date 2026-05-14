@@ -45,6 +45,7 @@ from components.tab_modulacao import (
     render_aba_modulacao,
     clear_modulacao_disk_cache,
 )
+from components.tab_receita_modulacao import render_aba_receita_modulacao
 from components.tab_capacidade import render_aba_capacidade
 from utils.cores_fontes import (
     COR_FONTE_SOLAR,
@@ -1760,6 +1761,31 @@ with st.sidebar:
                     use_container_width=True,
                 ):
                     st.session_state["geracao_subview"] = _valor
+                    st.rerun()
+
+        # Sub-itens condicionais embaixo de "Modulação": spread por
+        # submercado/fonte (aba original) + receita de modulação por empresa.
+        if _aba_opcao == "Modulação" and _is_active:
+            if "modulacao_subview" not in st.session_state:
+                st.session_state["modulacao_subview"] = "Submercado"
+            _subviews_mod = [
+                ("Por Submercado/Fonte", "Submercado"),
+                ("Receita por Empresa", "Receita"),
+            ]
+            for _label, _valor in _subviews_mod:
+                _is_sub_active = (
+                    st.session_state["modulacao_subview"] == _valor
+                )
+                _label_display = (
+                    f"│ {_label}" if _is_sub_active else _label
+                )
+                if st.button(
+                    _label_display,
+                    key=f"nav_sub_mod_{_valor}",
+                    type="primary" if _is_sub_active else "secondary",
+                    use_container_width=True,
+                ):
+                    st.session_state["modulacao_subview"] = _valor
                     st.rerun()
 
     aba = st.session_state["aba_selecionada"]
@@ -8029,7 +8055,10 @@ elif aba == "Curtailment":
     render_aba_curtailment()
 
 elif aba == "Modulação":
-    render_aba_modulacao()
+    if st.session_state.get("modulacao_subview", "Submercado") == "Receita":
+        render_aba_receita_modulacao(user)
+    else:
+        render_aba_modulacao()
 
 elif aba == "Capacidade":
     render_aba_capacidade()
