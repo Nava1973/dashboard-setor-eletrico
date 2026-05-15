@@ -1843,51 +1843,6 @@ with st.sidebar:
 # Assim a página ganha espaço vertical e a topbar nativa do Streamlit (3 pontos)
 # não compete com elementos customizados.
 if aba == "PLD":
-    # TESTE de design (PLD apenas): paleta "Bradesco New" (lida do
-    # cores.xlsx, tema xl/theme/theme1.xml). Reescreve CORES_SUBMERCADO
-    # localmente — vale só pra esta render run, sem impacto nas outras abas.
-    # Mapeamento mantendo a distinção visual das 4 linhas:
-    #   SE → #CC092F (accent1, vermelho — mantém SE como vermelho)
-    #   S  → #19416E (hlink, azul-marinho — mantém S como azul)
-    #   NE → #B3B3B3 (accent3, cinza — substitui o amarelo)
-    #   N  → #313131 (folHlink, cinza-quase-preto — substitui o preto)
-    CORES_SUBMERCADO = {
-        "SE": "#CC092F",
-        "S":  "#19416E",
-        "NE": "#B3B3B3",
-        "N":  "#313131",
-        "Média BR": BAUHAUS_GRAY,
-    }
-
-    # CSS scoped à área main: troca o accent amarelo do primary button
-    # pelo mesmo vermelho da paleta nova. Escopado em [data-testid="stMain"]
-    # → não afeta a sidebar (que tem o próprio amarelo dos botões de
-    # navegação). O CSS é injetado só nesta branch, então só aparece
-    # enquanto a aba PLD está ativa.
-    st.markdown(
-        """
-        <style>
-        [data-testid="stMain"] button[kind="primary"],
-        [data-testid="stMain"] [data-testid="stBaseButton-primary"] {
-            background-color: #CC092F !important;
-            border-color: #CC092F !important;
-            color: #FFFFFF !important;
-        }
-        [data-testid="stMain"] button[kind="primary"] *,
-        [data-testid="stMain"] [data-testid="stBaseButton-primary"] * {
-            color: #FFFFFF !important;
-        }
-        [data-testid="stMain"] button[kind="primary"]:hover,
-        [data-testid="stMain"] [data-testid="stBaseButton-primary"]:hover {
-            background-color: #A1071F !important;
-            border-color: #A1071F !important;
-            color: #FFFFFF !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
     # Título principal da aba, em destaque Bauhaus (barra vermelha lateral)
     st.markdown("# PLD")
     # Linha separadora preta abaixo do título — margem muito negativa puxa Período pra cima
