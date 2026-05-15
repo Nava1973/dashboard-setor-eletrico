@@ -1,10 +1,10 @@
 [theme]
-base = "dark"
-primaryColor = "#e8b923"
-backgroundColor = "#0a0d10"
-secondaryBackgroundColor = "#141a1f"
-textColor = "#f2f2f2"
-font = "monospace"
+base = "light"
+primaryColor = "#CC092F"           # vermelho Bradesco
+backgroundColor = "#FFFFFF"        # branco
+secondaryBackgroundColor = "#F5F5F5"  # cinza claro
+textColor = "#313131"              # quase-preto Bradesco
+font = "sans serif"
 
 [server]
 headless = true
