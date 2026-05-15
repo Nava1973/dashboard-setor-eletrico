@@ -455,17 +455,39 @@ st.markdown(
     [data-testid="stHeader"] p {{
         color: {COR_SIDEBAR_TEXTO} !important;
     }}
-    /* Força fill: currentColor em <path> e <circle> dentro do header,
-       EXCETO os que declaram fill="none" (ícones em outline/stroke, raros).
-       Pinta o glifo via herança de `color` (branco acima) cobrindo tanto
-       SVGs que já usam `fill="currentColor"` (Streamlit local) quanto os
-       que têm fill explícito escuro (ícones extras do Streamlit Cloud:
-       Stop, Share, GitHub, etc. — invisíveis sobre o header escuro sem
-       esta regra). NÃO inclui <rect>: alguns ícones têm rect de fundo
-       que NÃO deve ser repintado (evita o bug do quadrado branco). */
+    /* Força fill: currentColor em TODAS as primitivas SVG dentro do header,
+       exceto as que declaram fill="none" (essas usam stroke). Cobre:
+       - <path>/<circle>: glifos padrão (Streamlit local + Cloud)
+       - <polygon>/<polyline>/<ellipse>/<line>/<g>: shapes alternativas que
+         alguns ícones do Cloud usam (Share, GitHub, Manage app, kebab)
+       NÃO inclui <rect>: ícones têm rect de fundo que NÃO deve ser repintado
+       (evita o bug do quadrado branco que já tivemos). */
     [data-testid="stHeader"] svg path:not([fill="none"]),
-    [data-testid="stHeader"] svg circle:not([fill="none"]) {{
+    [data-testid="stHeader"] svg circle:not([fill="none"]),
+    [data-testid="stHeader"] svg polygon:not([fill="none"]),
+    [data-testid="stHeader"] svg polyline:not([fill="none"]),
+    [data-testid="stHeader"] svg ellipse:not([fill="none"]),
+    [data-testid="stHeader"] svg line:not([fill="none"]),
+    [data-testid="stHeader"] svg g:not([fill="none"]) {{
         fill: currentColor !important;
+    }}
+    /* Ícones em OUTLINE: paths com fill="none" + stroke (ex: ícone Share do
+       Cloud é geralmente desenhado em outline, não preenchido). Força o
+       traço a herdar a cor branca via currentColor. */
+    [data-testid="stHeader"] svg path[fill="none"],
+    [data-testid="stHeader"] svg circle[fill="none"],
+    [data-testid="stHeader"] svg line,
+    [data-testid="stHeader"] svg polyline[fill="none"] {{
+        stroke: currentColor !important;
+    }}
+    /* Alguns ícones do Cloud (GitHub, Manage app) são <img> com src SVG/PNG
+       escuro — não tem como repintar via CSS color/fill. `filter: brightness(0)
+       invert(1)` força qualquer imagem (independente da cor original) a ficar
+       branca. Seguro aqui: o header NÃO tem logo Bradesco (logo fica na
+       sidebar), então inverter todas as imagens do header só afeta ícones
+       de UI do Streamlit Cloud — que é exatamente o que queremos. */
+    [data-testid="stHeader"] img {{
+        filter: brightness(0) invert(1) !important;
     }}
     /* Remove background branco indevido dos botões/containers internos
        do header. O tema light do Streamlit pinta o botão Deploy, menu
