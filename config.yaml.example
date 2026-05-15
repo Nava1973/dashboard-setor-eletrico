@@ -19,7 +19,7 @@ credentials:
 cookie:
   name: dashboard_setor_eletrico
   key: TROCAR_POR_STRING_ALEATORIA_LONGA_E_SECRETA
-  expiry_days: 30
+  expiry_days: 1   # 24h — sessão expira automaticamente após 1 dia
 preauthorized:
   emails:
     - seu_email@example.com

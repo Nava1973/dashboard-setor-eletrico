@@ -4450,6 +4450,18 @@ Sub-sessão de ajustes visuais (sidebar + aba PLD) e um fix de UX na aba Modula�
 
 **Limitações conhecidas do `st.data_editor` (registradas ao longo da sub-sessão):** não dá pra re-tematizar (canvas + tema global escuro), nem centralizar valores, nem cabeçalho de 2 níveis, nem célula-residual auto-atualizável. Contornos aplicados: blocos lado a lado pro efeito de cabeçalho-de-grupo + separação de trimestres; "Empresa" como coluna normal (não índice) pra legibilidade; CSS escopado pra gap mínimo + cantos quadrados; validação-com-aviso no lugar da célula-residual.
 
+### 5.75 Fix do "desloga rapidamente" — cookie de re-autenticação + sessão de 24h
+
+**Sintoma reportado:** usuário logava no dashboard e era deslogado rapidamente (na próxima reconexão de WebSocket ou refresh, voltava pra tela de login).
+
+**Diagnóstico (streamlit-authenticator 0.4.2, lendo o source da lib):** dois fatores combinados em `auth.py`. (1) **`Authenticate(...)` era criado a cada rerun** dentro de `require_login()`. A streamlit-authenticator instancia o `extra_streamlit_components.CookieManager` dentro do `CookieModel.__init__`, então recriar `Authenticate` a cada rerun churna o componente de cookie (fonte conhecida de instabilidade). (2) **`Authenticate` recebia o dict de credenciais** (não um caminho de arquivo) → `self.path = None`. O `login()` da lib só dispara o `st.rerun()` pós-login quando `self.path` está setado (`if self.path and self.cookie_controller.get_cookie(): st.rerun()`); sem esse rerun, o cookie não tem ciclo de render limpo pra flushar no navegador. Combinado, a auth ficava vivendo **só no `st.session_state`**; qualquer reconexão de WebSocket / refresh / timeout zerava o session_state e o `st.context.cookies` (que a lib usa pra ler, frozen na conexão) não tinha o cookie de volta → tela de login.
+
+**Fix em `auth.py`:** novo helper `_get_authenticator()` que cria `stauth.Authenticate(...)` **uma vez por sessão** (cacheado em `st.session_state["_authenticator"]`) e reutiliza nos reruns. Adicionado `st.rerun()` explícito no `require_login()` na transição "estava-deslogado → acabou-de-logar" (`auth_status is True and auth_status_before is not True`), suprindo o rerun interno que a 0.4.2 só faz com `self.path` setado.
+
+**Duração da sessão:** `cookie.expiry_days` reduzido de `30` → `1` (=24h) em `config.yaml` e `config.yaml.example` — decisão do usuário (re-autenticação diária por padrão). No Streamlit Cloud, `cookie.expiry_days` vem de `st.secrets["auth_config"]["yaml_content"]` (não do `config.yaml` local) — o ajuste lá é manual via painel.
+
+**Validação:** compile-check OK; app sobe HTTP 200; smoke teste de login na sessão local confirmou que a auth persiste entre refreshes/reconexões (antes do fix, refresh derrubava).
+
 ---
 
 ## 6. Fluxo de Desenvolvimento

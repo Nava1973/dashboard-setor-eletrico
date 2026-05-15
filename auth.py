@@ -267,25 +267,39 @@ def _inject_login_css():
     )
 
 
-def require_login() -> str | None:
-    """
-    Exibe tela de login. Retorna o username se autenticado, None caso contrário.
-    """
-    config = _load_config()
+def _get_authenticator():
+    """Cria o Authenticate UMA VEZ por sessão e reutiliza nos reruns.
 
-    authenticator = stauth.Authenticate(
+    Recriar a cada rerun churna o `extra_streamlit_components.CookieManager`
+    por baixo (`CookieModel.__init__` instancia um novo a cada vez), o que é
+    fonte conhecida de instabilidade do cookie de re-autenticação.
+    """
+    auth = st.session_state.get("_authenticator")
+    if auth is not None:
+        return auth
+    config = _load_config()
+    auth = stauth.Authenticate(
         config["credentials"],
         config["cookie"]["name"],
         config["cookie"]["key"],
         config["cookie"]["expiry_days"],
     )
-    # Guarda no session_state pra que logout_button() possa usar depois
-    st.session_state["_authenticator"] = authenticator
+    st.session_state["_authenticator"] = auth
+    return auth
 
-    auth_status = st.session_state.get("authentication_status")
+
+def require_login() -> str | None:
+    """
+    Exibe tela de login. Retorna o username se autenticado, None caso contrário.
+    """
+    authenticator = _get_authenticator()
+
+    # Captura o status ANTES de chamar login() — pra detectar a transição
+    # "acabou de logar" e disparar um rerun (vide nota mais abaixo).
+    auth_status_before = st.session_state.get("authentication_status")
 
     # Se não está logado, injetar CSS e cabeçalho (logo + título + autores)
-    if auth_status is not True:
+    if auth_status_before is not True:
         _inject_login_css()
         if _LOGO_RED_B64:
             st.markdown(
@@ -312,6 +326,16 @@ def require_login() -> str | None:
     auth_status = st.session_state.get("authentication_status")
     name = st.session_state.get("name")
     username = st.session_state.get("username")
+
+    # Transição "acabou de logar agora": força um st.rerun() pra dar um ciclo
+    # limpo de render ao CookieManager flushar o cookie no navegador antes
+    # do app prosseguir. A streamlit-authenticator 0.4.2 só faz esse rerun
+    # interno quando `Authenticate(...)` recebe um caminho de config (path),
+    # o que não é o caso aqui (passamos o dict de credenciais). Sem este
+    # rerun, o cookie pode não ser persistido de forma confiável → na
+    # próxima reconexão/refresh o usuário "desloga".
+    if auth_status is True and auth_status_before is not True:
+        st.rerun()
 
     if auth_status is False:
         st.markdown(
