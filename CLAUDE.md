@@ -4462,6 +4462,50 @@ Sub-sessão de ajustes visuais (sidebar + aba PLD) e um fix de UX na aba Modula�
 
 **Validação:** compile-check OK; app sobe HTTP 200; smoke teste de login na sessão local confirmou que a auth persiste entre refreshes/reconexões (antes do fix, refresh derrubava).
 
+### 5.76 Migração Bauhaus → Bradesco (paleta institucional)
+
+**Decisão:** trocar a paleta Bauhaus (vermelho cádmio + amarelo cromo + creme + preto Bauhaus) que vigorou até 2026-05-15 pela paleta institucional **Bradesco** (vermelho `#CC092F` + branco + cinza-quase-preto), refletindo a identidade da casa. Migração tocou todos os arquivos com cor — `app.py`, `auth.py`, todos os `components/tab_*.py` e o `.streamlit/config.toml` —, sumarizada por uma sequência de commits no branch `feature/paleta-bradesco` (mergeado em `main` via fast-forward).
+
+**Single source of truth — `utils/paleta_bradesco.py` (novo):** arquivo puramente declarativo (zero imports do projeto, fica como folha do grafo de imports — sem risco de ciclo) com 4 layers:
+1. **Estrutural (UI):** `COR_FUNDO #FFFFFF`, `COR_TEXTO #313131` (quase-preto Bradesco, contraste 12.6:1 WCAG AAA com fundo), `COR_GRID #E0E0E0`, sidebar `#313131` fundo + `#FFFFFF` texto.
+2. **Semântico:** `COR_DESTAQUE #CC092F` (vermelho Bradesco — accent principal, antes era `BAUHAUS_RED`), `COR_ACCENT #0078B7` (azul Bradesco — accent secundário).
+3. **Submercados:** SE `#CC092F` (vermelho), S `#0078B7` (azul), **NE `#560CAB` (roxo — substitui o amarelo Bauhaus)**, N `#313131` (quase-preto, linha **contínua** agora — antes era preto Bauhaus tracejado pra distinção B&W; com a nova paleta as 4 linhas são contínuas porque a distinção já se faz pela cor).
+4. **Fontes de geração:** hidro azul, eólica verde, térmica laranja, solar amarelo, MMGD amarelo-claro — mantém o canônico do `utils/cores_fontes.py` (que vira fachada que re-exporta deste arquivo). Há também `CORES_MOTIVOS_TERMICO` consolidando o dict que vivia inline duplicado em 3 lugares (`app.py:4529, 5489, 5670`).
+
+Aliases de compat (`BAUHAUS_BLACK = COR_TEXTO`, `BAUHAUS_CREAM = COR_FUNDO`, `BAUHAUS_LIGHT = COR_GRID`, `BAUHAUS_RED = COR_DESTAQUE`) ficam por enquanto nos consumidores pra não exigir rename simultâneo de ~26 usos por arquivo — rename pra `COR_*` fica como TODO no roadmap.
+
+**Streamlit base `dark` → `light` (`.streamlit/config.toml`):** o tema base passou de escuro pra claro, com `primaryColor #CC092F`, `backgroundColor #FFFFFF`, `secondaryBackgroundColor #F5F5F5`, `textColor #313131`. Implicações:
+- O `st.data_editor` (canvas) agora segue o tema light — fundo branco em vez do escuro registrado na §5.74 (algumas limitações daquela sub-sessão foram naturalmente resolvidas pela mudança de tema).
+- O **header do Streamlit** (top-bar) com o tema light fica branco com texto escuro — fica visualmente solto sobre a sidebar escura. Decisão: forçar o header a ficar **escuro** (`COR_SIDEBAR_FUNDO #313131`) pra "fechar" o topo da página com a sidebar, e CSS pra clarear os ícones nativos do Streamlit (Deploy, menu kebab, status widget Running) que herdariam cor escura do tema light e ficariam ilegíveis.
+
+**Armadilha do header — quadradinhos brancos:** a primeira tentativa do CSS do header forçava `fill: branco !important` em **todo `<svg>` e `<path>`** do `[data-testid="stHeader"]`. Os ícones modernos do Streamlit 1.56 usam SVGs com `<rect>` de fundo + `<path>`/`<circle>` do glifo — forçar fill em tudo pintava o rect E o glifo de branco, transformando o ícone num **quadradinho branco sólido sobre o header escuro**. Fix final: remover o `fill` blanket, manter só `color: branco` (ícones que usam `fill="currentColor"` herdam por cascata) + uma regra cirúrgica `fill: currentColor !important` SÓ pra elementos que já declaram `fill="currentColor"` — preserva o desenho de SVGs com fills explícitos.
+
+**Sidebar:** botão ativo no vermelho Bradesco (`#CC092F`); inativo transparente sobre fundo escuro com texto branco; hover replica o ativo (feedback). A separação visual da barra vermelha do "PLD" (na sidebar) ficou perceptível.
+
+**Linha do Norte:** removida a propriedade `dash` (antes tracejada pra distinguir do SE em monitores B&W) — paleta Bradesco distingue as 4 linhas só por cor (vermelho/azul/roxo/quase-preto), todas contínuas agora.
+
+**Sequência de commits (`feature/paleta-bradesco` → `main` via fast-forward):**
+
+| Hash | Mensagem |
+|---|---|
+| `a2d304e` | feat(paleta): adiciona utils/paleta_bradesco.py + fachada cores_fontes |
+| `3602716` | refactor(paleta): substitui Bauhaus por Bradesco em código de produção |
+| `c130146` | fix(paleta): balanceia cores de motivos térmicos pra distinção em barras empilhadas |
+| `1f78e0b` | feat(theme): migra Streamlit base dark para light com cores Bradesco |
+| `a86eca9` | fix(theme): restaura header escuro pós tema light pra coerência com sidebar |
+| `6322859` | fix(pld): remove override legado de CORES_SUBMERCADO que pintava NE de cinza |
+| `a8f8b79` | fix(theme): força ícones e texto claros no header escuro pra legibilidade |
+| `1d00b00` | fix(theme): remove background branco indevido dos botões do header |
+| `2e60c02` | fix(theme): catch-all transparente nos containers do header (resolve quadrado branco residual) |
+| `2866920` | fix(theme): ícones do header sumindo como quadrados brancos (regra `fill` SVG/path agressiva demais) |
+
+**Contraste WCAG (validado em `paleta_bradesco.py`):** `COR_TEXTO #313131` sobre `COR_FUNDO #FFFFFF` = 12.6:1 (AAA); `COR_DESTAQUE #CC092F` sobre branco = 7.1:1 (AAA); `COR_ACCENT #0078B7` sobre branco = 5.2:1 (AA, AAA pra texto grande); `COR_NE #560CAB` sobre branco = 9.9:1 (AAA); branco sobre `COR_SIDEBAR_FUNDO #313131` = 12.6:1 (AAA).
+
+**Fora de escopo (registrado pra futuro):**
+- Rename dos consumidores de `BAUHAUS_*` → `COR_*` (aliases de compat seguram por enquanto).
+- Refator dos 3 dicts inline de motivos térmicos pra USAR `CORES_MOTIVOS_TERMICO` do `paleta_bradesco.py`.
+- O secret `cookie.expiry_days` no Streamlit Cloud (`st.secrets["auth_config"]["yaml_content"]`) continua precisando ser ajustado manualmente pra refletir mudanças do `config.yaml.example` (não há sincronização automática).
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
