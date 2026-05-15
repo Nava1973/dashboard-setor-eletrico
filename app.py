@@ -439,15 +439,28 @@ st.markdown(
        light e ficam ilegíveis. Seletores por TAG HTML interna (não por
        data-testid específico) — mais robusto a mudanças entre versões
        do Streamlit (vide armadilha §4.1 do CLAUDE.md sobre seletores
-       internos instáveis). */
+       internos instáveis).
+
+       IMPORTANTE: NÃO usar `fill: white !important` em todo svg/path. Os
+       ícones do Streamlit 1.56 (menu kebab, status widget) usam SVGs com
+       um <rect> de fundo + <path>/<circle> do glifo. Forçar fill branco
+       em tudo pinta o rect E o glifo de branco → o ícone vira um
+       quadradinho branco sólido. Em vez disso, definimos só `color`:
+       os paths que usam `fill="currentColor"` herdam automaticamente,
+       e SVGs com fills explícitos preservam o desenho. */
     [data-testid="stHeader"] button,
     [data-testid="stHeader"] svg,
-    [data-testid="stHeader"] path,
     [data-testid="stHeader"] a,
     [data-testid="stHeader"] span,
     [data-testid="stHeader"] p {{
         color: {COR_SIDEBAR_TEXTO} !important;
-        fill: {COR_SIDEBAR_TEXTO} !important;
+    }}
+    /* fill: currentColor SÓ em paths que JÁ têm fill="currentColor" —
+       pinta o glifo via herança de `color` sem quebrar paths com fill
+       explícito ou rects de fundo. */
+    [data-testid="stHeader"] path[fill="currentColor"],
+    [data-testid="stHeader"] svg [fill="currentColor"] {{
+        fill: currentColor !important;
     }}
     /* Remove background branco indevido dos botões/containers internos
        do header. O tema light do Streamlit pinta o botão Deploy, menu
