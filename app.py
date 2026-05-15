@@ -450,20 +450,48 @@ st.markdown(
         fill: {COR_SIDEBAR_TEXTO} !important;
     }}
     /* Remove background branco indevido dos botões/containers internos
-       do header. O tema light do Streamlit pinta o botão do menu (3
-       pontinhos), toolbar, etc. com background branco — sobre o fundo
+       do header. O tema light do Streamlit pinta o botão Deploy, menu
+       3 pontinhos, toolbar, etc. com background branco — sobre o fundo
        escuro COR_SIDEBAR_FUNDO acima, o ícone branco vira invisível
-       dentro do "caixote branco" do botão. Background transparente
-       deixa o pai escuro vazar. Hover sutil (regra abaixo) continua
-       funcionando: especificidade igual, mas vem depois na cascata. */
-    [data-testid="stHeader"] button,
-    [data-testid="stHeader"] [data-testid="stToolbar"],
-    [data-testid="stHeader"] [data-testid="stMainMenu"],
-    [data-testid="stHeader"] [data-testid="stDecoration"] {{
+       dentro do "caixote branco". Background transparente deixa o pai
+       escuro vazar.
+
+       CAMADA 1: ataque cirúrgico ao .stDeployButton (selector class
+       estável documentado em
+       https://discuss.streamlit.io/t/how-to-hide-or-remove-the-deploy-button-...-/55325).
+       O botão Deploy não é <button> HTML puro — é um <a>/<div role="button">
+       BaseWeb, por isso a regra ampla [stHeader] button não pegava. */
+    [data-testid="stHeader"] .stDeployButton,
+    [data-testid="stHeader"] .stDeployButton > *,
+    [data-testid="stHeader"] .stDeployButton button,
+    [data-testid="stHeader"] .stDeployButton div {{
+        background-color: transparent !important;
+        background: transparent !important;
+        color: {COR_SIDEBAR_TEXTO} !important;
+    }}
+
+    /* CAMADA 2: catch-all defensivo. Zera background em TODOS os filhos
+       do header exceto SVGs (que têm próprios fills coloridos por
+       design — ícone do menu, foguete Deploy, etc.).
+
+       Segurança nesta versão (Streamlit 1.56.0): o header é simples —
+       Deploy + menu 3 pontinhos + status widget ("Running"). Nenhum
+       elemento tem background colorido INTENCIONAL que mereça
+       proteção. Logo, zerar tudo é seguro e elimina classes de bugs
+       futuros (novos containers com background herdado do tema light).
+
+       TODO: reavaliar este catch-all em upgrades de Streamlit. Se
+       novo header introduzir elementos com background colorido
+       intencional (badges de notificação, contadores, indicadores
+       coloridos), adicionar exceções via :not([data-testid="..."]). */
+    [data-testid="stHeader"] *:not(svg):not(path) {{
         background-color: transparent !important;
     }}
+
     /* Hover sutil: mantém ícone branco + background transparente claro
-       pra feedback (padrão UX de top bars escuras tipo Slack/GitHub). */
+       pra feedback (padrão UX de top bars escuras tipo Slack/GitHub).
+       Esta regra vem DEPOIS da Camada 2 no CSS → vence na cascata
+       pro estado :hover (especificidade comparável, ordem decide). */
     [data-testid="stHeader"] button:hover {{
         background-color: rgba(255, 255, 255, 0.1) !important;
     }}
