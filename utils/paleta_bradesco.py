@@ -122,11 +122,29 @@ CORES_FONTE_DICT = {
 # 5. DESPACHO TÉRMICO — motivos de geração
 # ─────────────────────────────────────────────────────────────────────
 #
-# Cores semânticas pros 6 motivos de geração térmica reportados pelo ONS.
-# Substitui dicts inline duplicados em app.py (linhas 4513, 5489, 5670)
-# que usavam paleta Bauhaus + #1D3557 cobalto. Cobalto vira azul Bradesco;
-# vermelho/amarelo Bauhaus viram vermelho/roxo Bradesco; cinzas/preto
-# atualizados pra família Bradesco.
+# Cores semânticas pros 7 motivos de geração térmica reportados pelo ONS.
+# Substitui dicts inline duplicados em app.py (linhas 4529, 5489, 5670)
+# que usavam paleta Bauhaus + #1D3557 cobalto.
+#
+# **Critério de escolha das cores: distinção em BARRAS EMPILHADAS**, não
+# identidade institucional pura. Por isso:
+# - "Unit commitment" usa AMARELO (#FFC107) em vez de roxo Bradesco:
+#   azul + roxo se confundem em barras adjacentes quando o stacked tem
+#   transições contínuas entre os 2 motivos. Saindo do espectro frio,
+#   o amarelo destaca claramente entre Ordem de mérito (azul) e Razão
+#   elétrica (cinza).
+# - "Exportação" usa VERDE (#2E7D32) em vez de cinza médio: a versão
+#   antiga tinha 3 tons de cinza (Exportação/GSUB/Razão/Garantia)
+#   indistinguíveis empilhados — verde resolve.
+# - "GSUB" usa LARANJA (#B85C00): mesmo motivo da Exportação.
+#
+# **Conflito intencional com paleta de fontes**: VERDE aqui = Exportação
+# (térmico) também é a cor da Eólica em utils.cores_fontes (aba Geração).
+# Contextos visuais diferentes (gráficos diferentes, legenda explícita),
+# resolução por contexto. AMARELO aqui = Unit commitment também é cor da
+# Solar centralizada em utils.cores_fontes. LARANJA aqui = GSUB também é
+# COR_AVISO. Aceito por design — pra abas Térmico e Geração estarem na
+# mesma tela seria preciso uma terceira paleta dedicada.
 #
 # OBS: refator das 3 cópias inline pra USAR este dict fica fora de escopo
 # desta migração (sinalizado pra futuro refactor).
@@ -134,8 +152,9 @@ CORES_FONTE_DICT = {
 CORES_MOTIVOS_TERMICO = {
     "Inflexibilidade":     "#CC092F",  # vermelho Bradesco
     "Ordem de mérito":     "#0078B7",  # azul Bradesco
-    "Unit commitment":     "#560CAB",  # roxo
-    "Exportação":          "#6B6B6B",  # cinza médio (preservado da paleta antiga)
+    "Unit commitment":     "#FFC107",  # amarelo — fora do espectro frio pra distinguir do azul
+    "Exportação":          "#2E7D32",  # verde — distingue do cinza preservado da Razão elétrica
+    "GSUB":                "#B85C00",  # laranja — distingue do cinza preservado da Razão elétrica
     "Razão elétrica":      "#4A4A4A",  # cinza escuro (preservado da paleta antiga)
     "Garantia energética": "#313131",  # quase-preto Bradesco
 }

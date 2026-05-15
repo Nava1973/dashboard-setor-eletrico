@@ -4533,9 +4533,9 @@ elif aba == "Despacho Térmico":
         PALETA_MOTIVOS_SIS = {
             "val_verifinflexibilidade":    ("#CC092F", "Inflexibilidade"),
             "val_verifordemmerito":        ("#0078B7", "Ordem de mérito"),
-            "val_verifunitcommitment":     ("#560CAB", "Unit commitment"),
-            "val_verifexportacao":         ("#6B6B6B", "Exportação"),
-            "val_verifgsub":               ("#A8A8A8", "GSUB"),
+            "val_verifunitcommitment":     ("#FFC107", "Unit commitment"),
+            "val_verifexportacao":         ("#2E7D32", "Exportação"),
+            "val_verifgsub":               ("#B85C00", "GSUB"),
             "val_verifrazaoeletrica":      ("#4A4A4A", "Razão elétrica"),
             "val_verifgarantiaenergetica": ("#313131", "Garantia energética"),
         }
@@ -5509,9 +5509,9 @@ elif aba == "Despacho Térmico":
         PALETA_MOTIVOS_KPI = {
             "val_verifinflexibilidade":    ("#CC092F", "Inflexibilidade"),
             "val_verifordemmerito":        ("#0078B7", "Ordem de mérito"),
-            "val_verifunitcommitment":     ("#560CAB", "Unit commitment"),
-            "val_verifexportacao":         ("#6B6B6B", "Exportação"),
-            "val_verifgsub":               ("#A8A8A8", "GSUB"),
+            "val_verifunitcommitment":     ("#FFC107", "Unit commitment"),
+            "val_verifexportacao":         ("#2E7D32", "Exportação"),
+            "val_verifgsub":               ("#B85C00", "GSUB"),
             "val_verifrazaoeletrica":      ("#4A4A4A", "Razão elétrica"),
             "val_verifgarantiaenergetica": ("#313131", "Garantia energética"),
         }
@@ -5690,9 +5690,9 @@ elif aba == "Despacho Térmico":
             PALETA_MOTIVOS = {
                 "val_verifinflexibilidade":    "#CC092F",
                 "val_verifordemmerito":        "#0078B7",
-                "val_verifunitcommitment":     "#560CAB",
-                "val_verifexportacao":         "#6B6B6B",
-                "val_verifgsub":               "#A8A8A8",
+                "val_verifunitcommitment":     "#FFC107",
+                "val_verifexportacao":         "#2E7D32",
+                "val_verifgsub":               "#B85C00",
                 "val_verifrazaoeletrica":      "#4A4A4A",
                 "val_verifgarantiaenergetica": "#313131",
             }
