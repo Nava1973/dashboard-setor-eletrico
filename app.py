@@ -425,7 +425,14 @@ st.markdown(
         max-width: 1400px;
         margin: 0 auto;
     }}
-    /* Header Streamlit — deixar padrão */
+    /* Header Streamlit — fundo escuro pra coerência com a sidebar Bradesco.
+       Decisão da migração 2026-05-15: pós tema light, o header padrão fica
+       branco e some visualmente. Mantém preto Bradesco igual à sidebar
+       (COR_SIDEBAR_FUNDO #313131) pra "fechar" o topo da página
+       visualmente. */
+    [data-testid="stHeader"] {{
+        background-color: {COR_SIDEBAR_FUNDO} !important;
+    }}
     /* Remove padding/margin do primeiro elemento da página pra subir tudo */
     .block-container > div:first-child {{
         padding-top: 0 !important;
