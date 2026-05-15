@@ -115,14 +115,14 @@ def _inject_login_css():
             flex: 1 !important;
             width: 100% !important;
         }}
-        /* Botão de olho — amarelo Bauhaus, colado no final, sem margem */
+        /* Botão de olho — vermelho Bradesco com glifo branco, colado no final. */
         [data-testid="stForm"] button[aria-label*="Show password"],
         [data-testid="stForm"] button[aria-label*="Hide password"],
         [data-testid="stForm"] button[kind="iconButton"] {{
-            background: {_YELLOW} !important;
+            background: {_RED} !important;
             border: none !important;
             border-left: 2px solid {_BLACK} !important;
-            color: {_BLACK} !important;
+            color: {_CREAM} !important;
             padding: 0 12px !important;
             margin: 0 !important;
             border-radius: 0 !important;
@@ -135,14 +135,19 @@ def _inject_login_css():
         }}
         [data-testid="stForm"] button[aria-label*="Show password"]:hover,
         [data-testid="stForm"] button[aria-label*="Hide password"]:hover {{
-            background: {_RED} !important;
+            background: {_BLACK} !important;
             color: {_CREAM} !important;
         }}
-        /* Garantir que ícone dentro do botão fique preto (ou creme no hover) */
+        /* Garante que o glifo SVG pegue a cor herdada (branco / branco no hover).
+           `fill="none"` (paths em outline) preservado pra não pintar áreas vazias. */
+        [data-testid="stForm"] button[aria-label*="Show password"] svg path:not([fill="none"]),
+        [data-testid="stForm"] button[aria-label*="Hide password"] svg path:not([fill="none"]),
+        [data-testid="stForm"] button[kind="iconButton"] svg path:not([fill="none"]),
         [data-testid="stForm"] button[aria-label*="Show password"] svg,
         [data-testid="stForm"] button[aria-label*="Hide password"] svg,
         [data-testid="stForm"] button[kind="iconButton"] svg {{
             fill: currentColor !important;
+            color: {_CREAM} !important;
         }}
 
         /* Labels dos inputs */
@@ -157,11 +162,11 @@ def _inject_login_css():
             letter-spacing: 0.08em !important;
         }}
 
-        /* Botão de login */
+        /* Botão de login — vermelho Bradesco com texto branco. */
         [data-testid="stForm"] button[kind="primary"],
         [data-testid="stForm"] button {{
-            background: {_YELLOW} !important;
-            color: {_BLACK} !important;
+            background: {_RED} !important;
+            color: {_CREAM} !important;
             border: 2px solid {_BLACK} !important;
             border-radius: 0 !important;
             font-family: 'Bebas Neue', sans-serif !important;
@@ -170,8 +175,17 @@ def _inject_login_css():
             padding: 10px 20px !important;
             width: auto !important;
         }}
+        /* Força texto branco em qualquer filho do botão (p, span, div) — vence
+           a herança padrão do Streamlit que repinta o label do botão. */
+        [data-testid="stForm"] button[kind="primary"] *,
+        [data-testid="stForm"] button * {{
+            color: {_CREAM} !important;
+        }}
         [data-testid="stForm"] button:hover {{
-            background: {_RED} !important;
+            background: {_BLACK} !important;
+            color: {_CREAM} !important;
+        }}
+        [data-testid="stForm"] button:hover * {{
             color: {_CREAM} !important;
         }}
 
