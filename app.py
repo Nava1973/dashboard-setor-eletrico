@@ -449,6 +449,19 @@ st.markdown(
         color: {COR_SIDEBAR_TEXTO} !important;
         fill: {COR_SIDEBAR_TEXTO} !important;
     }}
+    /* Remove background branco indevido dos botões/containers internos
+       do header. O tema light do Streamlit pinta o botão do menu (3
+       pontinhos), toolbar, etc. com background branco — sobre o fundo
+       escuro COR_SIDEBAR_FUNDO acima, o ícone branco vira invisível
+       dentro do "caixote branco" do botão. Background transparente
+       deixa o pai escuro vazar. Hover sutil (regra abaixo) continua
+       funcionando: especificidade igual, mas vem depois na cascata. */
+    [data-testid="stHeader"] button,
+    [data-testid="stHeader"] [data-testid="stToolbar"],
+    [data-testid="stHeader"] [data-testid="stMainMenu"],
+    [data-testid="stHeader"] [data-testid="stDecoration"] {{
+        background-color: transparent !important;
+    }}
     /* Hover sutil: mantém ícone branco + background transparente claro
        pra feedback (padrão UX de top bars escuras tipo Slack/GitHub). */
     [data-testid="stHeader"] button:hover {{
