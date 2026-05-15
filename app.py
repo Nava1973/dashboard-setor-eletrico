@@ -455,11 +455,16 @@ st.markdown(
     [data-testid="stHeader"] p {{
         color: {COR_SIDEBAR_TEXTO} !important;
     }}
-    /* fill: currentColor SÓ em paths que JÁ têm fill="currentColor" —
-       pinta o glifo via herança de `color` sem quebrar paths com fill
-       explícito ou rects de fundo. */
-    [data-testid="stHeader"] path[fill="currentColor"],
-    [data-testid="stHeader"] svg [fill="currentColor"] {{
+    /* Força fill: currentColor em <path> e <circle> dentro do header,
+       EXCETO os que declaram fill="none" (ícones em outline/stroke, raros).
+       Pinta o glifo via herança de `color` (branco acima) cobrindo tanto
+       SVGs que já usam `fill="currentColor"` (Streamlit local) quanto os
+       que têm fill explícito escuro (ícones extras do Streamlit Cloud:
+       Stop, Share, GitHub, etc. — invisíveis sobre o header escuro sem
+       esta regra). NÃO inclui <rect>: alguns ícones têm rect de fundo
+       que NÃO deve ser repintado (evita o bug do quadrado branco). */
+    [data-testid="stHeader"] svg path:not([fill="none"]),
+    [data-testid="stHeader"] svg circle:not([fill="none"]) {{
         fill: currentColor !important;
     }}
     /* Remove background branco indevido dos botões/containers internos
