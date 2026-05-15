@@ -433,6 +433,27 @@ st.markdown(
     [data-testid="stHeader"] {{
         background-color: {COR_SIDEBAR_FUNDO} !important;
     }}
+    /* Header Streamlit — força ícones/texto em branco pra legibilidade
+       sobre o fundo escuro acima. Sem isso, ícones nativos (Deploy,
+       menu 3 pontinhos, indicador Running) herdam cor escura do tema
+       light e ficam ilegíveis. Seletores por TAG HTML interna (não por
+       data-testid específico) — mais robusto a mudanças entre versões
+       do Streamlit (vide armadilha §4.1 do CLAUDE.md sobre seletores
+       internos instáveis). */
+    [data-testid="stHeader"] button,
+    [data-testid="stHeader"] svg,
+    [data-testid="stHeader"] path,
+    [data-testid="stHeader"] a,
+    [data-testid="stHeader"] span,
+    [data-testid="stHeader"] p {{
+        color: {COR_SIDEBAR_TEXTO} !important;
+        fill: {COR_SIDEBAR_TEXTO} !important;
+    }}
+    /* Hover sutil: mantém ícone branco + background transparente claro
+       pra feedback (padrão UX de top bars escuras tipo Slack/GitHub). */
+    [data-testid="stHeader"] button:hover {{
+        background-color: rgba(255, 255, 255, 0.1) !important;
+    }}
     /* Remove padding/margin do primeiro elemento da página pra subir tudo */
     .block-container > div:first-child {{
         padding-top: 0 !important;
