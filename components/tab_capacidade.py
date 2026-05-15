@@ -60,13 +60,25 @@ from utils.cores_fontes import (
 
 
 # =============================================================================
-# Paleta Bauhaus estrutural (cores de UI — bordas, fundos, texto)
+# Paleta estrutural — migração 2026-05-15 (Bauhaus → Bradesco).
+# Single source of truth em utils/paleta_bradesco.py.
 # =============================================================================
 
-BAUHAUS_BLACK = "#1A1A1A"
-BAUHAUS_CREAM = "#F5F1E8"
-BAUHAUS_LIGHT = "#E8E3D4"
-BAUHAUS_GRAY = "#6B6B6B"
+from utils.paleta_bradesco import (
+    COR_FUNDO,
+    COR_TEXTO,
+    COR_TEXTO_SECUND,
+    COR_GRID,
+)
+
+# Compat aliases — migração 2026-05-15. TODO: rename to COR_* nos consumidores.
+# NOTA: BAUHAUS_GRAY aqui = COR_TEXTO_SECUND (#6B6B6B), diferente dos outros
+# módulos onde mapeia pra COR_SIN (#4A4A4A) — preserva o tom original do
+# arquivo (divergência §5.33 do CLAUDE.md, padronizada nesta migração).
+BAUHAUS_BLACK = COR_TEXTO          # era #1A1A1A → #313131
+BAUHAUS_CREAM = COR_FUNDO          # era #F5F1E8 → #FFFFFF
+BAUHAUS_LIGHT = COR_GRID           # era #E8E3D4 → #E0E0E0
+BAUHAUS_GRAY  = COR_TEXTO_SECUND   # era #6B6B6B (preservado, fix da divergência)
 
 # Configuração das fontes plotadas. Ordem importa pro empilhamento:
 # 1ª trace adicionada fica na base do stack (Hidro embaixo, MMGD em cima).
@@ -89,42 +101,42 @@ _MESES_PT = {
 # CSS scoped (.bauhaus-table — preservado da versão anterior)
 # =============================================================================
 
-_CSS_CAPACIDADE = """
+_CSS_CAPACIDADE = f"""
 <style>
 /* ===== Tabela Bauhaus (referência pra projeto) ===== */
-.bauhaus-table {
+.bauhaus-table {{
     width: 100%;
     border-collapse: collapse;
     font-family: 'Inter', sans-serif;
     font-size: 0.9rem;
     margin-top: 0.5rem;
-}
-.bauhaus-table thead th {
+}}
+.bauhaus-table thead th {{
     font-family: 'Bebas Neue', sans-serif;
     font-size: 1rem;
     letter-spacing: 0.08em;
-    color: #1A1A1A;
-    background: #E8E3D4;
+    color: {COR_TEXTO};
+    background: {COR_GRID};
     padding: 8px 12px;
-    border-bottom: 2px solid #1A1A1A;
+    border-bottom: 2px solid {COR_TEXTO};
     text-align: left;
     font-weight: 400;
-}
-.bauhaus-table tbody td {
+}}
+.bauhaus-table tbody td {{
     padding: 6px 12px;
-    border-bottom: 1px solid #E8E3D4;
-    color: #1A1A1A;
-}
-.bauhaus-table tbody tr:hover {
-    background: #F5F1E8;
-}
-.bauhaus-table td.num {
+    border-bottom: 1px solid {COR_GRID};
+    color: {COR_TEXTO};
+}}
+.bauhaus-table tbody tr:hover {{
+    background: {COR_FUNDO};
+}}
+.bauhaus-table td.num {{
     text-align: right;
     font-variant-numeric: tabular-nums;
-}
-.bauhaus-table th.num {
+}}
+.bauhaus-table th.num {{
     text-align: right;
-}
+}}
 </style>
 """
 

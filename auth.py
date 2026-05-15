@@ -16,11 +16,21 @@ from yaml.loader import SafeLoader
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
 
 # Paleta — importada pro CSS de login (fica consistente com app.py)
-_RED = "#D62828"
-_YELLOW = "#F6BD16"
-_BLUE = "#2A6F97"
-_BLACK = "#1A1A1A"
-_CREAM = "#F5F1E8"
+from utils.paleta_bradesco import (
+    COR_FUNDO,
+    COR_TEXTO,
+    COR_TEXTO_SECUND,
+    COR_DESTAQUE,
+    COR_ACCENT,
+)
+
+# Compat aliases — migração 2026-05-15 (Bauhaus → Bradesco).
+# TODO: rename to COR_* nos consumidores e remover estes aliases.
+_RED    = COR_DESTAQUE   # era #D62828 (vermelho Bauhaus) → #CC092F (Bradesco)
+_YELLOW = COR_DESTAQUE   # era #F6BD16 (amarelo Bauhaus); todos os 3 usos eram destaque → vira vermelho
+_BLUE   = COR_ACCENT     # era #2A6F97 (azul petróleo Bauhaus) → #0078B7 (azul Bradesco)
+_BLACK  = COR_TEXTO      # era #1A1A1A → #313131
+_CREAM  = COR_FUNDO      # era #F5F1E8 (creme) → #FFFFFF (branco)
 
 # Logo BBI vermelho horizontal — lido 1x no nível do módulo
 _LOGO_RED_PATH = Path(__file__).parent / "assets" / "logos" / "bbi_horizontal_red.png"
@@ -165,9 +175,11 @@ def _inject_login_css():
             color: {_CREAM} !important;
         }}
 
-        /* Alerta de instrução — substituir st.info azul por caixa Bauhaus */
+        /* Alerta de instrução — caixa neutra (cinza claro + borda preta).
+           Bauhaus usava amarelo aqui; pós-migração Bradesco passa pra
+           cinza neutro pra não competir com .login-error (vermelho). */
         .login-info {{
-            background: {_YELLOW} !important;
+            background: #F5F5F5 !important;
             border: 2px solid {_BLACK};
             color: {_BLACK};
             font-family: 'Inter', sans-serif;
@@ -255,7 +267,7 @@ def _inject_login_css():
             text-align: center;
             max-width: 600px;
             margin: 0 auto 1.5rem auto;
-            color: #4A4A4A;
+            color: {COR_TEXTO_SECUND};
             font-family: 'Inter', sans-serif;
             font-size: 0.95rem;
             text-transform: uppercase;

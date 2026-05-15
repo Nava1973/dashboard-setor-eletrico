@@ -80,35 +80,54 @@ st.set_page_config(
 )
 
 # =============================================================================
-# PALETA BAUHAUS CLÁSSICA
+# PALETA — migração 2026-05-15 (Bauhaus → Bradesco)
 # =============================================================================
-# Cores mais próximas do Bauhaus histórico (Itten, Albers, Kandinsky).
-BAUHAUS_RED = "#D62828"      # vermelho cádmio — quente, puro
-BAUHAUS_YELLOW = "#F6BD16"   # amarelo cromo — saturado, sem laranjado
-BAUHAUS_BLUE = "#2A6F97"     # azul petróleo — distinto do preto, suave aos olhos
-BAUHAUS_BLACK = "#1A1A1A"    # preto tinteiro, não "puro"
-BAUHAUS_CREAM = "#F5F1E8"    # creme (papel) em vez de branco estéril
-BAUHAUS_GRAY = "#4A4A4A"     # cinza escuro legível sobre creme (antes #6B6B6B ficou fraco)
-BAUHAUS_LIGHT = "#E8E3D4"    # creme mais escuro pra elementos sutis
+# Single source of truth em utils/paleta_bradesco.py. Aliases compat abaixo
+# preservam os ~330 usos de BAUHAUS_* no resto do arquivo (CSS pesado +
+# Plotly + helpers). Refator pra renomear pros nomes Bradesco fica como
+# follow-up.
+from utils.paleta_bradesco import (
+    COR_FUNDO,
+    COR_TEXTO,
+    COR_TEXTO_SECUND,
+    COR_GRID,
+    COR_SIN,
+    COR_DESTAQUE,
+    COR_ACCENT,
+    COR_SE,
+    COR_S,
+    COR_NE,
+    COR_N,
+    COR_PERIODO_UMIDO,
+    COR_SIDEBAR_FUNDO,
+    COR_SIDEBAR_TEXTO,
+    COR_SIDEBAR_TEXTO_MUTED,
+    COR_SIDEBAR_ATIVO_BG,
+    COR_SIDEBAR_ATIVO_TXT,
+    COR_SIDEBAR_HOVER_BG,
+    CORES_MOTIVOS_TERMICO,
+)
 
-# Paleta canônica de fontes de geração — agora importada de
-# utils/cores_fontes.py (decisão 5.33 RESOLVIDA). Aplicada em:
-# aba Geração + aba Carga Viz 2 + aba Capacidade.
-# Os nomes locais COR_FONTE_SOLAR/EOLICA/HIDRO/TERMICA continuam
-# disponíveis via import, então CORES_FONTE_GEN (linha ~6280) +
-# todas as referências subsequentes seguem funcionando inalteradas —
-# só a fonte das constantes mudou.
-# Não confundir com cores Bauhaus estruturais (BAUHAUS_BLUE,
-# BAUHAUS_BLACK) — essas continuam aqui (linhas 75-78) porque
-# regem UI (bordas, texto, eixos), não dados.
+# Compat aliases — migração 2026-05-15. TODO: rename to COR_* nos consumidores.
+# IMPORTANTE: BAUHAUS_YELLOW aqui se torna COR_NE (#560CAB roxo). Os usos
+# textuais que SEMANTICAMENTE eram "destaque" (botão ativo sidebar, hover,
+# tabs selecionadas, etc.) foram substituídos LINHA A LINHA pelos literais
+# Bradesco apropriados (COR_DESTAQUE) — o alias só cobre o uso "submercado NE".
+BAUHAUS_BLACK  = COR_TEXTO      # era #1A1A1A → #313131
+BAUHAUS_CREAM  = COR_FUNDO      # era #F5F1E8 → #FFFFFF
+BAUHAUS_LIGHT  = COR_GRID       # era #E8E3D4 → #E0E0E0
+BAUHAUS_GRAY   = COR_SIN        # era #4A4A4A (preservado — usado como cor de dado SIN)
+BAUHAUS_RED    = COR_SE         # era #D62828 → #CC092F (vermelho Bradesco; usado como cor do SE)
+BAUHAUS_YELLOW = COR_NE         # era #F6BD16 → #560CAB (roxo; usado como cor do NE)
+BAUHAUS_BLUE   = COR_S          # era #2A6F97 → #0078B7 (azul Bradesco; usado como cor do S)
 
-# Atribuição por submercado
+# Atribuição por submercado — agora resolve pras cores Bradesco via aliases.
 CORES_SUBMERCADO = {
-    "SE": BAUHAUS_RED,
-    "S": BAUHAUS_BLUE,
-    "NE": BAUHAUS_YELLOW,
-    "N": BAUHAUS_BLACK,
-    "Média BR": BAUHAUS_GRAY,
+    "SE": COR_SE,
+    "S": COR_S,
+    "NE": COR_NE,
+    "N": COR_N,
+    "Média BR": COR_SIN,
 }
 
 SUBMERCADOS_ORD = ["SE", "S", "NE", "N"]
@@ -172,52 +191,52 @@ st.markdown(
     /* Botão NATIVO de FECHAR/ABRIR sidebar — deixar padrão do Streamlit.
        Customizar esses botões leva a inconsistências entre estados aberto/fechado. */
     [data-testid="stSidebar"] {{
-        background: #1A1A1A !important;
-        border-right: 4px solid {BAUHAUS_YELLOW};
+        background: {COR_SIDEBAR_FUNDO} !important;
+        border-right: 4px solid {COR_DESTAQUE};
     }}
     [data-testid="stSidebar"] * {{
-        color: {BAUHAUS_CREAM} !important;
+        color: {COR_SIDEBAR_TEXTO} !important;
     }}
     [data-testid="stSidebar"] h3 {{
-        color: {BAUHAUS_YELLOW} !important;
-        border-bottom: 2px solid {BAUHAUS_YELLOW};
+        color: {COR_DESTAQUE} !important;
+        border-bottom: 2px solid {COR_DESTAQUE};
     }}
     [data-testid="stSidebar"] hr {{
-        border-top: 1px solid rgba(246, 189, 22, 0.3) !important;
+        border-top: 1px solid rgba(204, 9, 47, 0.3) !important;
     }}
-    /* Botão na sidebar: amarelo com texto preto (contraste garantido) */
+    /* Botão na sidebar: vermelho Bradesco com texto branco (contraste garantido) */
     [data-testid="stSidebar"] .stButton > button {{
-        background: {BAUHAUS_YELLOW} !important;
-        color: {BAUHAUS_BLACK} !important;
-        border: 2px solid {BAUHAUS_YELLOW} !important;
+        background: {COR_SIDEBAR_ATIVO_BG} !important;
+        color: {COR_SIDEBAR_ATIVO_TXT} !important;
+        border: 2px solid {COR_SIDEBAR_ATIVO_BG} !important;
     }}
     [data-testid="stSidebar"] .stButton > button * {{
-        color: {BAUHAUS_BLACK} !important;
+        color: {COR_SIDEBAR_ATIVO_TXT} !important;
     }}
     [data-testid="stSidebar"] .stButton > button:hover {{
-        background: {BAUHAUS_RED} !important;
-        color: {BAUHAUS_CREAM} !important;
-        border-color: {BAUHAUS_RED} !important;
+        background: {COR_SIDEBAR_HOVER_BG} !important;
+        color: {COR_SIDEBAR_ATIVO_TXT} !important;
+        border-color: {COR_SIDEBAR_HOVER_BG} !important;
     }}
     [data-testid="stSidebar"] .stButton > button:hover * {{
-        color: {BAUHAUS_CREAM} !important;
+        color: {COR_SIDEBAR_ATIVO_TXT} !important;
     }}
-    /* Radio da sidebar (navegação) — texto claro sobre fundo azul */
+    /* Radio da sidebar (navegação) — texto claro sobre fundo escuro */
     [data-testid="stSidebar"] [data-testid="stRadio"] label,
     [data-testid="stSidebar"] [data-testid="stRadio"] label p,
     [data-testid="stSidebar"] [data-testid="stRadio"] label span {{
-        color: {BAUHAUS_CREAM} !important;
+        color: {COR_SIDEBAR_TEXTO} !important;
     }}
     /* Se algum elemento tiver fundo claro na sidebar, força texto escuro */
     [data-testid="stSidebar"] input,
     [data-testid="stSidebar"] select,
     [data-testid="stSidebar"] textarea {{
-        background: {BAUHAUS_CREAM} !important;
-        color: {BAUHAUS_BLACK} !important;
+        background: {COR_FUNDO} !important;
+        color: {COR_TEXTO} !important;
     }}
     /* Links na sidebar */
     [data-testid="stSidebar"] a {{
-        color: {BAUHAUS_YELLOW} !important;
+        color: {COR_SIDEBAR_TEXTO} !important;
         text-decoration: underline;
     }}
     /* Caption específica na sidebar — mais legível */
@@ -352,8 +371,8 @@ st.markdown(
         transition: all 0.15s ease !important;
     }}
     .stButton button[kind]:hover {{
-        background: {BAUHAUS_YELLOW} !important;
-        color: {BAUHAUS_BLACK} !important;
+        background: {COR_DESTAQUE} !important;
+        color: {COR_SIDEBAR_ATIVO_TXT} !important;
     }}
 
     /* Inputs de data — mesma altura 2.4rem dos botões */
@@ -506,9 +525,9 @@ st.markdown(
        Mesmo seletor descendente do bloco principal acima — cobre botões
        com help= (Máx) que ganham wrapper stTooltipHoverTarget. */
     .stButton button[kind="primary"] {{
-        background: {BAUHAUS_YELLOW} !important;
-        color: {BAUHAUS_BLACK} !important;
-        border: 2px solid {BAUHAUS_BLACK} !important;
+        background: {COR_DESTAQUE} !important;
+        color: {COR_SIDEBAR_ATIVO_TXT} !important;
+        border: 2px solid {COR_TEXTO} !important;
         font-weight: 700 !important;
     }}
     .stButton button[kind="primary"]:hover {{
@@ -568,11 +587,11 @@ st.markdown(
         flex: 1;
     }}
 
-    /* Botão de download CSV — estilo Bauhaus */
+    /* Botão de download CSV — destaque vermelho Bradesco */
     .stDownloadButton > button {{
-        background: {BAUHAUS_YELLOW} !important;
-        color: {BAUHAUS_BLACK} !important;
-        border: 2px solid {BAUHAUS_BLACK} !important;
+        background: {COR_DESTAQUE} !important;
+        color: {COR_SIDEBAR_ATIVO_TXT} !important;
+        border: 2px solid {COR_TEXTO} !important;
         border-radius: 0 !important;
         font-family: 'Bebas Neue', sans-serif !important;
         letter-spacing: 0.08em !important;
@@ -623,9 +642,9 @@ function fixPlotlyEventsBg() {
             const style = innerDoc.createElement('style');
             style.id = 'bauhaus-bg-override';
             style.textContent = `
-                :root { --background-color: #F5F1E8 !important; }
-                body { background-color: #F5F1E8 !important; }
-                html { background-color: #F5F1E8 !important; }
+                :root { --background-color: #FFFFFF !important; }
+                body { background-color: #FFFFFF !important; }
+                html { background-color: #FFFFFF !important; }
             `;
             innerDoc.head.appendChild(style);
         });
@@ -1414,8 +1433,8 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    # Botões Sair e Atualizar — mesmo estilo: borda amarela fina, fundo transparente,
-    # texto amarelo. JS marca cada um com data-sair/data-atualizar pra CSS atingir.
+    # Botões Sair e Atualizar — mesmo estilo: borda vermelha fina, fundo transparente,
+    # texto vermelho. JS marca cada um com data-sair/data-atualizar pra CSS atingir.
     st.markdown(
         """
         <style>
@@ -1424,8 +1443,8 @@ with st.sidebar:
         [data-testid="stSidebar"] .stButton > button[data-atualizar="true"] {
             background: transparent !important;
             background-color: transparent !important;
-            border: 1px solid rgba(246, 189, 22, 0.6) !important;  /* amarelo 60% opacidade */
-            color: #F6BD16 !important;
+            border: 1px solid rgba(204, 9, 47, 0.6) !important;  /* vermelho Bradesco 60% opacidade */
+            color: #CC092F !important;
             font-family: 'Inter', sans-serif !important;
             font-size: 0.8rem !important;
             font-weight: 400 !important;  /* mais fino (era 500) */
@@ -1440,19 +1459,19 @@ with st.sidebar:
         }
         [data-testid="stSidebar"] .stButton > button[data-sair="true"] *,
         [data-testid="stSidebar"] .stButton > button[data-atualizar="true"] * {
-            color: #F6BD16 !important;
+            color: #CC092F !important;
             font-weight: 400 !important;
         }
         [data-testid="stSidebar"] .stButton > button[data-sair="true"]:hover,
         [data-testid="stSidebar"] .stButton > button[data-atualizar="true"]:hover {
-            background: rgba(246, 189, 22, 0.15) !important;  /* sutil */
-            background-color: rgba(246, 189, 22, 0.15) !important;
-            color: #F6BD16 !important;
-            border: 1px solid #F6BD16 !important;
+            background: rgba(204, 9, 47, 0.15) !important;  /* sutil */
+            background-color: rgba(204, 9, 47, 0.15) !important;
+            color: #CC092F !important;
+            border: 1px solid #CC092F !important;
         }
         [data-testid="stSidebar"] .stButton > button[data-sair="true"]:hover *,
         [data-testid="stSidebar"] .stButton > button[data-atualizar="true"]:hover * {
-            color: #F6BD16 !important;
+            color: #CC092F !important;
         }
         /* Container do botão Sair — largura 100% */
         [data-testid="stSidebar"] .stButton,
@@ -1467,8 +1486,8 @@ with st.sidebar:
             min-height: 2.2rem !important;
             height: 2.2rem !important;
             background: transparent !important;
-            border: 1px solid rgba(246, 189, 22, 0.6) !important;
-            color: #F6BD16 !important;
+            border: 1px solid rgba(204, 9, 47, 0.6) !important;
+            color: #CC092F !important;
             font-family: 'Inter', sans-serif !important;
             font-size: 0.8rem !important;
             font-weight: 400 !important;
@@ -1477,12 +1496,12 @@ with st.sidebar:
             box-shadow: none !important;
         }
         [data-testid="stSidebar"] button[kind="secondary"] * {
-            color: #F6BD16 !important;
+            color: #CC092F !important;
         }
         [data-testid="stSidebar"] button[kind="secondary"]:hover {
-            background: rgba(246, 189, 22, 0.15) !important;
-            border: 1px solid #F6BD16 !important;
-            color: #F6BD16 !important;
+            background: rgba(204, 9, 47, 0.15) !important;
+            border: 1px solid #CC092F !important;
+            color: #CC092F !important;
         }
 
         /* Rebranding BBI — logo branco no topo da sidebar */
@@ -1497,12 +1516,12 @@ with st.sidebar:
         /* Título da sidebar — Bebas Neue, letter-spacing e font-size
            calibrados pra abrir ar entre as letras condensadas e reduzir
            sensação de "socado". Classe própria evita colisão com a regra
-           global de h3 (border-bottom Bauhaus). */
+           global de h3 (border-bottom Bradesco). */
         [data-testid="stSidebar"] .sidebar-title {
             font-family: 'Bebas Neue', 'Inter', sans-serif !important;
             font-size: 1.25rem !important;
             letter-spacing: 0.20em !important;
-            color: #F6BD16 !important;
+            color: #CC092F !important;
             line-height: 1.15 !important;
             margin: 0.4rem 0 0.4rem 0 !important;
         }
@@ -1524,14 +1543,15 @@ with st.sidebar:
             gap: 0.4rem !important;
         }
 
-        /* Cabeçalho da seção de autores — Bebas Neue amarelo. font-size
-           1.2rem (vs nomes em 1rem Inter) compensa visualmente o fato de
-           Bebas ser condensada e parecer menor que Inter no mesmo tamanho. */
+        /* Cabeçalho da seção de autores — Bebas Neue vermelho Bradesco.
+           font-size 1.2rem (vs nomes em 1rem Inter) compensa visualmente
+           o fato de Bebas ser condensada e parecer menor que Inter no
+           mesmo tamanho. */
         [data-testid="stSidebar"] .sidebar-authors-label {
             font-family: 'Bebas Neue', 'Inter', sans-serif !important;
             font-size: 1.2rem !important;
             letter-spacing: 0.15em !important;
-            color: #F6BD16 !important;
+            color: #CC092F !important;
             margin: 0 0 0.15rem 0 !important;
         }
 
@@ -1582,17 +1602,18 @@ with st.sidebar:
             width: 100% !important;
             justify-content: flex-start !important;
         }
-        /* Inativo: texto cream sobre fundo preto (legível) */
+        /* Inativo: texto branco sobre fundo escuro Bradesco (legível) */
         [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button[kind="secondary"],
         [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button[kind="secondary"] * {
             background: transparent !important;
-            color: #F5F1E8 !important;
+            color: #FFFFFF !important;
         }
-        /* Hover em inativo: vira amarelo Bauhaus pra indicar selecionável */
+        /* Hover em inativo: vira vermelho Bradesco pra indicar selecionável
+           (background vermelho + texto branco — combinação CTA padrão da migração) */
         [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button[kind="secondary"]:hover,
         [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button[kind="secondary"]:hover * {
-            background: #F6BD16 !important;
-            color: #1A1A1A !important;
+            background: #CC092F !important;
+            color: #FFFFFF !important;
             opacity: 1 !important;
         }
         /* Forçar alinhamento esquerdo em todos os botões nav (sobrescreve regras do secondary *) */
@@ -1601,11 +1622,11 @@ with st.sidebar:
             text-align: left !important;
             justify-content: flex-start !important;
         }
-        /* Ativo: já tinha primary amarelo - manter */
+        /* Ativo (primary): vermelho Bradesco com texto branco — CTA padrão da migração */
         [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button[kind="primary"],
         [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button[kind="primary"] * {
-            background: #F6BD16 !important;
-            color: #1A1A1A !important;
+            background: #CC092F !important;
+            color: #FFFFFF !important;
         }
         /* Hover em ativo: levemente mais escuro pra feedback */
         [data-testid="stSidebar"] [class*="st-key-nav_aba_"] button[kind="primary"]:hover {
@@ -1650,22 +1671,22 @@ with st.sidebar:
             background: transparent !important;
             color: #999999 !important;
         }
-        /* Sub-item ativo (primary): cream + caractere │ em amarelo */
+        /* Sub-item ativo (primary): texto branco + caractere │ em vermelho Bradesco */
         [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button[kind="primary"],
         [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button[kind="primary"] * {
             background: transparent !important;
-            color: #F5F1E8 !important;
+            color: #FFFFFF !important;
             font-weight: 400 !important;
         }
-        /* Primeira letra (caractere │) em amarelo Bauhaus */
+        /* Primeira letra (caractere │) em vermelho Bradesco */
         [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button[kind="primary"] p::first-letter {
-            color: #F6BD16 !important;
+            color: #CC092F !important;
             font-weight: 700 !important;
         }
-        /* Hover em sub-item: amarelo discreto */
+        /* Hover em sub-item: vermelho Bradesco discreto */
         [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button:hover,
         [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button:hover * {
-            color: #F6BD16 !important;
+            color: #CC092F !important;
             opacity: 1 !important;
         }
         /* Forca alinhamento esquerdo (later rule wins) */
@@ -1815,11 +1836,56 @@ with st.sidebar:
 # Assim a página ganha espaço vertical e a topbar nativa do Streamlit (3 pontos)
 # não compete com elementos customizados.
 if aba == "PLD":
+    # TESTE de design (PLD apenas): paleta "Bradesco New" (lida do
+    # cores.xlsx, tema xl/theme/theme1.xml). Reescreve CORES_SUBMERCADO
+    # localmente — vale só pra esta render run, sem impacto nas outras abas.
+    # Mapeamento mantendo a distinção visual das 4 linhas:
+    #   SE → #CC092F (accent1, vermelho — mantém SE como vermelho)
+    #   S  → #19416E (hlink, azul-marinho — mantém S como azul)
+    #   NE → #B3B3B3 (accent3, cinza — substitui o amarelo)
+    #   N  → #313131 (folHlink, cinza-quase-preto — substitui o preto)
+    CORES_SUBMERCADO = {
+        "SE": "#CC092F",
+        "S":  "#19416E",
+        "NE": "#B3B3B3",
+        "N":  "#313131",
+        "Média BR": BAUHAUS_GRAY,
+    }
+
+    # CSS scoped à área main: troca o accent amarelo do primary button
+    # pelo mesmo vermelho da paleta nova. Escopado em [data-testid="stMain"]
+    # → não afeta a sidebar (que tem o próprio amarelo dos botões de
+    # navegação). O CSS é injetado só nesta branch, então só aparece
+    # enquanto a aba PLD está ativa.
+    st.markdown(
+        """
+        <style>
+        [data-testid="stMain"] button[kind="primary"],
+        [data-testid="stMain"] [data-testid="stBaseButton-primary"] {
+            background-color: #CC092F !important;
+            border-color: #CC092F !important;
+            color: #FFFFFF !important;
+        }
+        [data-testid="stMain"] button[kind="primary"] *,
+        [data-testid="stMain"] [data-testid="stBaseButton-primary"] * {
+            color: #FFFFFF !important;
+        }
+        [data-testid="stMain"] button[kind="primary"]:hover,
+        [data-testid="stMain"] [data-testid="stBaseButton-primary"]:hover {
+            background-color: #A1071F !important;
+            border-color: #A1071F !important;
+            color: #FFFFFF !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     # Título principal da aba, em destaque Bauhaus (barra vermelha lateral)
     st.markdown("# PLD")
     # Linha separadora preta abaixo do título — margem muito negativa puxa Período pra cima
     st.markdown(
-        '<div style="border-bottom: 2px solid #1A1A1A; '
+        '<div style="border-bottom: 2px solid #313131; '
         'margin: 0 0 -1.5rem 0;"></div>',
         unsafe_allow_html=True,
     )
@@ -2096,7 +2162,7 @@ if aba == "PLD":
             font-family: 'Bebas Neue', sans-serif !important;
             font-size: 1.1rem !important;
             letter-spacing: 0.08em !important;
-            color: #1A1A1A !important;
+            color: #313131 !important;
             padding-left: 0 !important;
             min-height: 0 !important;
             cursor: pointer !important;
@@ -2111,7 +2177,7 @@ if aba == "PLD":
            seta pra alinhar com a base do texto do título. */
         [data-testid="stSelectbox"] [data-baseweb="select"] > div::after {
             content: "▾";
-            color: #1A1A1A;
+            color: #313131;
             font-size: 1.85em;
             margin-left: 0.3em;
             pointer-events: none;
@@ -2152,7 +2218,7 @@ if aba == "PLD":
         st.markdown(
             f'<div style="text-align:right; '
             f'font-family:\'Bebas Neue\', sans-serif; '
-            f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
+            f'font-size:1.1rem; letter-spacing:0.08em; color:{COR_TEXTO}; '
             f'padding-top:8px;">'
             f'{_pld_range_txt}'
             f'</div>',
@@ -2162,7 +2228,7 @@ if aba == "PLD":
     # Linha horizontal separada abaixo. Margens negativas aproximam a
     # linha (e o gráfico) da fileira de controles acima — pedido de UX.
     st.markdown(
-        '<div style="border-bottom: 2px solid #1A1A1A; '
+        '<div style="border-bottom: 2px solid #313131; '
         'margin: -1.1rem 0 -0.8rem 0;"></div>',
         unsafe_allow_html=True,
     )
@@ -2192,7 +2258,7 @@ if aba == "PLD":
             """
             <style>
             .pld1d-kpi-card {
-                background: #F5F1E8;
+                background: #FFFFFF;
                 border: 2px solid #CCCCCC;
                 padding: 16px;
                 border-radius: 0;
@@ -2212,7 +2278,7 @@ if aba == "PLD":
                 font-size: 11px;
                 text-transform: uppercase;
                 letter-spacing: 0.08em;
-                color: #1A1A1A;
+                color: #313131;
                 font-weight: 400;
                 line-height: 1.2;
             }
@@ -2240,7 +2306,7 @@ if aba == "PLD":
                 font-family: 'Inter', sans-serif;
                 font-size: 22px;
                 font-weight: 600;
-                color: #1A1A1A;
+                color: #313131;
                 vertical-align: baseline;
                 line-height: 1.1;
             }
@@ -2255,7 +2321,7 @@ if aba == "PLD":
                padding); o selectbox interno fica minimalista (sem
                borda, Inter 14px, chevron empurrado pra direita). */
             .st-key-kpi_submercado_detalhe {
-                background: #F5F1E8;
+                background: #FFFFFF;
                 border: 2px solid #CCCCCC;
                 border-radius: 0;
                 padding: 16px;
@@ -2276,7 +2342,7 @@ if aba == "PLD":
                 font-size: 14px !important;
                 font-weight: 600 !important;
                 letter-spacing: 0 !important;
-                color: #1A1A1A !important;
+                color: #313131 !important;
                 width: 100% !important;
                 max-width: 100% !important;
             }
@@ -2298,7 +2364,7 @@ if aba == "PLD":
                 font-size: 22px !important;
                 font-weight: 600 !important;
                 line-height: 1.1 !important;
-                color: #1A1A1A !important;
+                color: #313131 !important;
             }
             .st-key-kpi_submercado_detalhe [data-testid="stSelectbox"]
             [data-baseweb="select"] > div::after {
@@ -2446,7 +2512,7 @@ if aba == "PLD":
                     f'<span style="color:{cor_linha}; font-weight:700;">'
                     f'{sigla_fix}</span>'
                     '&nbsp;&nbsp;&nbsp;&nbsp;'
-                    '<span style="color:#1A1A1A;">R$ %{y:.0f}/MWh</span>'
+                    '<span style="color:#313131;">R$ %{y:.0f}/MWh</span>'
                     '<extra></extra>'
                 ),
             )
@@ -2600,7 +2666,7 @@ if aba == "PLD":
     kpi_items = []
     for sub in SUBMERCADOS_ORD:
         val = ultimo_pld.get(sub)
-        cor = CORES_SUBMERCADO.get(sub, "#1A1A1A")
+        cor = CORES_SUBMERCADO.get(sub, COR_TEXTO)
         kpi_items.append(
             f'<span class="kpi-item">'
             f'<span class="kpi-label" style="background:{cor};">{sub}</span>'
@@ -2618,7 +2684,7 @@ if aba == "PLD":
             margin: 0.8rem 0 0.3rem 0;
             padding: 0.4rem 0.9rem;
             border: 2px solid #CCCCCC;
-            background: #F5F1E8;
+            background: #FFFFFF;
             gap: 0.4rem;
         }}
         .kpi-ultimo-header {{
@@ -2634,7 +2700,7 @@ if aba == "PLD":
         .kpi-ultimo-data {{
             font-family: 'Inter', sans-serif;
             font-size: 0.82rem;
-            color: #1A1A1A;
+            color: #313131;
             font-weight: 600;
             white-space: nowrap;
         }}
@@ -2657,7 +2723,7 @@ if aba == "PLD":
         .kpi-value {{
             font-family: 'Bebas Neue', sans-serif;
             font-size: 1.15rem;
-            color: #1A1A1A;
+            color: #313131;
             letter-spacing: 0.02em;
             white-space: nowrap;
         }}
@@ -2677,7 +2743,7 @@ if aba == "PLD":
     _stats_header_html = (
         f'<div style="font-family:\'Inter\', sans-serif; '
         f'font-size:1rem; font-weight:600; letter-spacing:0.05em; '
-        f'color:#1A1A1A; margin: 1.8rem 0 0 0;">'
+        f'color:{COR_TEXTO}; margin: 1.8rem 0 0 0;">'
         f'Estatísticas do período: '
         f'<span style="font-weight:500; color:#2E2E2E;">'
         f'{data_ini.strftime("%d/%m/%Y")} — {data_fim.strftime("%d/%m/%Y")}'
@@ -2813,7 +2879,7 @@ if aba == "PLD":
 elif aba == "Reservatórios":
     st.markdown("# RESERVATÓRIOS")
     st.markdown(
-        '<div style="border-bottom: 2px solid #1A1A1A; '
+        '<div style="border-bottom: 2px solid #313131; '
         'margin: 0 0 -1.5rem 0;"></div>',
         unsafe_allow_html=True,
     )
@@ -2955,9 +3021,9 @@ elif aba == "Reservatórios":
             f'<div style="display:flex; justify-content:space-between; '
             f'align-items:baseline; '
             f'font-family:\'Bebas Neue\', sans-serif; '
-            f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
+            f'font-size:1.1rem; letter-spacing:0.08em; color:{COR_TEXTO}; '
             f'margin: 1.2rem 0 0.3rem 0; padding-bottom:3px; '
-            f'border-bottom: 2px solid #1A1A1A;">'
+            f'border-bottom: 2px solid {COR_TEXTO};">'
             f'<span>{label}</span>'
             f'<span>{right_side}</span>'
             f'</div>',
@@ -2982,7 +3048,7 @@ elif aba == "Reservatórios":
                 hovertemplate=(
                     f'<span style="color:{cor}; font-weight:700;">{label}</span>'
                     '&nbsp;&nbsp;'
-                    '<span style="color:#1A1A1A;">EAR %{y:.1f}%</span>'
+                    '<span style="color:#313131;">EAR %{y:.1f}%</span>'
                     '<extra></extra>'
                 ),
             )
@@ -3060,7 +3126,7 @@ elif aba == "Reservatórios":
 elif aba == "ENA/Chuva":
     st.markdown("# ENA/Chuva")
     st.markdown(
-        '<div style="border-bottom: 2px solid #1A1A1A; '
+        '<div style="border-bottom: 2px solid #313131; '
         'margin: 0 0 -1.5rem 0;"></div>',
         unsafe_allow_html=True,
     )
@@ -3215,7 +3281,7 @@ elif aba == "ENA/Chuva":
         .ena-kpi-value {
             font-family: 'Bebas Neue', sans-serif;
             font-size: 1.4rem;
-            color: #1A1A1A;
+            color: #313131;
             letter-spacing: 0.02em;
             line-height: 1.1;
         }
@@ -3259,9 +3325,9 @@ elif aba == "ENA/Chuva":
             f'<div style="display:flex; justify-content:space-between; '
             f'align-items:baseline; '
             f'font-family:\'Bebas Neue\', sans-serif; '
-            f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
+            f'font-size:1.1rem; letter-spacing:0.08em; color:{COR_TEXTO}; '
             f'margin: 1.2rem 0 0.3rem 0; padding-bottom:3px; '
-            f'border-bottom: 2px solid #1A1A1A;">'
+            f'border-bottom: 2px solid {COR_TEXTO};">'
             f'<span>{label}</span>'
             f'<span>{right_side}</span>'
             f'</div>',
@@ -3317,7 +3383,7 @@ elif aba == "ENA/Chuva":
                 hovertemplate=(
                     f'<span style="color:{cor}; font-weight:700;">{label}</span>'
                     '&nbsp;&nbsp;'
-                    '<span style="color:#1A1A1A;">ENA %{y:.0f}% MLT</span>'
+                    '<span style="color:#313131;">ENA %{y:.0f}% MLT</span>'
                     '<extra></extra>'
                 ),
             )
@@ -3420,7 +3486,7 @@ elif aba == "Despacho Térmico":
         _titulo_aba = "Eneva — Despacho Termelétrico"
     st.markdown(f"# {_titulo_aba}")
     st.markdown(
-        '<div style="border-bottom: 2px solid #1A1A1A; '
+        '<div style="border-bottom: 2px solid #313131; '
         'margin: 0 0 -1.5rem 0;"></div>',
         unsafe_allow_html=True,
     )
@@ -3528,7 +3594,7 @@ elif aba == "Despacho Térmico":
             sub_style = (
                 "font-family: 'Inter', sans-serif; "
                 "font-size: 0.9rem; "
-                "color: #1A1A1A; "
+                "color: #313131; "
                 "font-weight: 500; "
                 "letter-spacing: 0.04em; "
                 "margin: 0 0 0.5rem 0;"
@@ -3549,10 +3615,10 @@ elif aba == "Despacho Térmico":
             f'font-family: \'Bebas Neue\', sans-serif; '
             f'font-size: 1.1rem; '
             f'letter-spacing: 0.08em; '
-            f'color: #1A1A1A; '
+            f'color: {COR_TEXTO}; '
             f'margin: 2.6rem 0 0.3rem 0; '
             f'padding-bottom: 3px; '
-            f'border-bottom: 2px solid #1A1A1A;">'
+            f'border-bottom: 2px solid {COR_TEXTO};">'
             f'<span>{sub_label}</span>'
             f'<span>{data_html}</span>'
             f'</div>'
@@ -3773,7 +3839,7 @@ elif aba == "Despacho Térmico":
             hovertemplate = (
                 f'<span style="color:{cor}; font-weight:700;">{label_pad}</span>'
                 f'&nbsp;&nbsp;'
-                f'<span style="color:#1A1A1A;">%{{y:{fmt_hover}}} {sufixo_unidade}</span>'
+                f'<span style="color:{COR_TEXTO};">%{{y:{fmt_hover}}} {sufixo_unidade}</span>'
                 f'<extra></extra>'
             )
             if gran_label == "Horário":
@@ -4465,13 +4531,13 @@ elif aba == "Despacho Térmico":
 
         # Paleta de motivos (cor + label PT-BR)
         PALETA_MOTIVOS_SIS = {
-            "val_verifinflexibilidade":    ("#D62828", "Inflexibilidade"),
-            "val_verifordemmerito":        ("#1D3557", "Ordem de mérito"),
-            "val_verifunitcommitment":     ("#F6BD16", "Unit commitment"),
+            "val_verifinflexibilidade":    ("#CC092F", "Inflexibilidade"),
+            "val_verifordemmerito":        ("#0078B7", "Ordem de mérito"),
+            "val_verifunitcommitment":     ("#560CAB", "Unit commitment"),
             "val_verifexportacao":         ("#6B6B6B", "Exportação"),
             "val_verifgsub":               ("#A8A8A8", "GSUB"),
             "val_verifrazaoeletrica":      ("#4A4A4A", "Razão elétrica"),
-            "val_verifgarantiaenergetica": ("#1A1A1A", "Garantia energética"),
+            "val_verifgarantiaenergetica": ("#313131", "Garantia energética"),
         }
 
         # Agregação por granularidade — extraída pra _agregar_termico_sistema
@@ -4652,9 +4718,9 @@ elif aba == "Despacho Térmico":
                                 font-size: 1.1rem;
                                 font-weight: 600;
                                 letter-spacing: 0.04em;
-                                color: #1A1A1A;
+                                color: #313131;
                                 padding: 0.5rem 0;
-                                border-bottom: 2px solid #1A1A1A;
+                                border-bottom: 2px solid #313131;
                                 margin-bottom: 0.5rem;
                             ">{_caption_dia}</div>
                             ''',
@@ -4717,9 +4783,9 @@ elif aba == "Despacho Térmico":
                                 font-size: 1.1rem;
                                 font-weight: 600;
                                 letter-spacing: 0.04em;
-                                color: #1A1A1A;
+                                color: #313131;
                                 padding: 0.5rem 0;
-                                border-bottom: 2px solid #1A1A1A;
+                                border-bottom: 2px solid #313131;
                                 margin-bottom: 0.5rem;
                             ">{_caption_hora}</div>
                             ''',
@@ -5441,13 +5507,13 @@ elif aba == "Despacho Térmico":
 
         # Paleta de motivos (cor + label PT-BR) — usada nos KPIs e no gráfico.
         PALETA_MOTIVOS_KPI = {
-            "val_verifinflexibilidade":    ("#D62828", "Inflexibilidade"),
-            "val_verifordemmerito":        ("#1D3557", "Ordem de mérito"),
-            "val_verifunitcommitment":     ("#F6BD16", "Unit commitment"),
+            "val_verifinflexibilidade":    ("#CC092F", "Inflexibilidade"),
+            "val_verifordemmerito":        ("#0078B7", "Ordem de mérito"),
+            "val_verifunitcommitment":     ("#560CAB", "Unit commitment"),
             "val_verifexportacao":         ("#6B6B6B", "Exportação"),
             "val_verifgsub":               ("#A8A8A8", "GSUB"),
             "val_verifrazaoeletrica":      ("#4A4A4A", "Razão elétrica"),
-            "val_verifgarantiaenergetica": ("#1A1A1A", "Garantia energética"),
+            "val_verifgarantiaenergetica": ("#313131", "Garantia energética"),
         }
 
         # KPIs removidos na Fase E.6 — gráfico fala por si.
@@ -5622,13 +5688,13 @@ elif aba == "Despacho Térmico":
 
             # 3) Paleta + labels
             PALETA_MOTIVOS = {
-                "val_verifinflexibilidade":    "#D62828",
-                "val_verifordemmerito":        "#1D3557",
-                "val_verifunitcommitment":     "#F6BD16",
+                "val_verifinflexibilidade":    "#CC092F",
+                "val_verifordemmerito":        "#0078B7",
+                "val_verifunitcommitment":     "#560CAB",
                 "val_verifexportacao":         "#6B6B6B",
                 "val_verifgsub":               "#A8A8A8",
                 "val_verifrazaoeletrica":      "#4A4A4A",
-                "val_verifgarantiaenergetica": "#1A1A1A",
+                "val_verifgarantiaenergetica": "#313131",
             }
             LABELS_MOTIVOS = {
                 "val_verifinflexibilidade":    "Inflexibilidade",
@@ -5707,7 +5773,7 @@ elif aba == "Despacho Térmico":
                 hovertemplate = (
                     f'<span style="color:{cor}; font-weight:700;">{label_pad}</span>'
                     f'&nbsp;&nbsp;'
-                    f'<span style="color:#1A1A1A;">%{{y:{fmt_hover}}} {sufixo_unidade}</span>'
+                    f'<span style="color:{COR_TEXTO};">%{{y:{fmt_hover}}} {sufixo_unidade}</span>'
                     f'<extra></extra>'
                 )
                 if gran_atual == "Horário":
@@ -5800,7 +5866,7 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
     # -----------------------------------------------------------------------
     st.markdown("# GERAÇÃO")
     st.markdown(
-        '<div style="border-bottom: 2px solid #1A1A1A; '
+        '<div style="border-bottom: 2px solid #313131; '
         'margin: 0 0 -1.5rem 0;"></div>',
         unsafe_allow_html=True,
     )
@@ -6360,8 +6426,8 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
         """
         <style>
         .gen-kpi-card {
-            background: #F5F1E8;
-            border: 2px solid #1A1A1A;
+            background: #FFFFFF;
+            border: 2px solid #313131;
             padding: 8px 12px;
             border-radius: 0;
         }
@@ -6370,7 +6436,7 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
             font-size: 0.85rem;
             text-transform: uppercase;
             letter-spacing: 0.16em;
-            color: #1A1A1A;
+            color: #313131;
             font-weight: 700;
             line-height: 1.2;
         }
@@ -6382,14 +6448,14 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
         .gen-kpi-value-num {
             font-family: 'Bebas Neue', sans-serif;
             font-size: 1.45rem;
-            color: #1A1A1A;
+            color: #313131;
             letter-spacing: 0.02em;
             line-height: 1.1;
         }
         .gen-kpi-value-unit {
             font-family: 'Inter', sans-serif;
             font-size: 0.85rem;
-            color: #1A1A1A;
+            color: #313131;
             font-weight: 600;
             margin-left: 0.4rem;
         }
@@ -6494,9 +6560,9 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
         f'<div style="display:flex; justify-content:space-between; '
         f'align-items:baseline; '
         f'font-family:\'Bebas Neue\', sans-serif; '
-        f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
+        f'font-size:1.1rem; letter-spacing:0.08em; color:{COR_TEXTO}; '
         f'margin: 2.6rem 0 0.3rem 0; padding-bottom:3px; '
-        f'border-bottom: 2px solid #1A1A1A;">'
+        f'border-bottom: 2px solid {COR_TEXTO};">'
         f'<span>{label_sub}</span>'
         f'<span>{periodo_str_gen}</span>'
         f'</div>',
@@ -6504,7 +6570,7 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
     )
     st.markdown(
         f'<div style="font-family:\'Inter\', sans-serif; '
-        f'font-size:0.9rem; color:#1A1A1A; font-weight:500; '
+        f'font-size:0.9rem; color:{COR_TEXTO}; font-weight:500; '
         f'letter-spacing:0.04em; margin:0 0 0.5rem 0;">'
         f'{tag_granularidade_gen}'
         f'</div>',
@@ -6530,7 +6596,7 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
                     f'<span style="color:{cor}; font-weight:700;">'
                     f'{label_fix}</span>'
                     '&nbsp;&nbsp;'
-                    '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
+                    '<span style="color:#313131;">%{y:,.0f} MWmed</span>'
                     '<extra></extra>'
                 ),
             )
@@ -6548,7 +6614,7 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
                 f'<span style="color:{BAUHAUS_BLACK}; font-weight:700;">'
                 f'{carga_label_fix}</span>'
                 '&nbsp;&nbsp;'
-                '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
+                '<span style="color:#313131;">%{y:,.0f} MWmed</span>'
                 '<extra></extra>'
             ),
         )
@@ -6766,7 +6832,7 @@ elif aba == "Carga":
     # -----------------------------------------------------------------------
     st.markdown("# CARGA")
     st.markdown(
-        '<div style="border-bottom: 2px solid #1A1A1A; '
+        '<div style="border-bottom: 2px solid #313131; '
         'margin: 0 0 -1.5rem 0;"></div>',
         unsafe_allow_html=True,
     )
@@ -7162,8 +7228,8 @@ elif aba == "Carga":
         """
         <style>
         .carga-kpi-card {
-            background: #F5F1E8;
-            border: 2px solid #1A1A1A;
+            background: #FFFFFF;
+            border: 2px solid #313131;
             padding: 8px 12px;
             border-radius: 0;
             min-height: 6.5rem;     /* alinha % Renov (1 row) com as multi (2 rows) */
@@ -7177,7 +7243,7 @@ elif aba == "Carga":
             font-size: 0.85rem;
             text-transform: uppercase;
             letter-spacing: 0.16em;
-            color: #1A1A1A;
+            color: #313131;
             font-weight: 700;
             line-height: 1.2;
         }
@@ -7199,21 +7265,21 @@ elif aba == "Carga":
         .carga-kpi-value-num {
             font-family: 'Bebas Neue', sans-serif;
             font-size: 1.45rem;
-            color: #1A1A1A;
+            color: #313131;
             letter-spacing: 0.02em;
             line-height: 1.1;
         }
         .carga-kpi-value-unit {
             font-family: 'Inter', sans-serif;
             font-size: 0.85rem;
-            color: #1A1A1A;
+            color: #313131;
             font-weight: 600;
             margin-left: 0.4rem;
         }
         .carga-kpi-subtext {
             font-family: 'Inter', sans-serif;
             font-size: 0.8rem;
-            color: #1A1A1A;
+            color: #313131;
             text-align: right;
             line-height: 1.25;
             white-space: nowrap;
@@ -7241,19 +7307,19 @@ elif aba == "Carga":
         .carga-kpi-multi-rotulo {
             font-family: 'Inter', sans-serif;
             font-size: 0.85rem;
-            color: #1A1A1A;
+            color: #313131;
             font-weight: 600;
         }
         .carga-kpi-multi-valor {
             font-family: 'Bebas Neue', sans-serif;
             font-size: 1.25rem;
-            color: #1A1A1A;
+            color: #313131;
             letter-spacing: 0.02em;
         }
         .carga-kpi-multi-unit {
             font-family: 'Inter', sans-serif;
             font-size: 0.75rem;
-            color: #1A1A1A;
+            color: #313131;
             font-weight: 600;
             margin-left: 0.3rem;
         }
@@ -7563,9 +7629,9 @@ penetração da solar centralizada.
         f'<div style="display:flex; justify-content:space-between; '
         f'align-items:baseline; '
         f'font-family:\'Bebas Neue\', sans-serif; '
-        f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
+        f'font-size:1.1rem; letter-spacing:0.08em; color:{COR_TEXTO}; '
         f'margin: 2.6rem 0 0.3rem 0; padding-bottom:3px; '
-        f'border-bottom: 2px solid #1A1A1A;">'
+        f'border-bottom: 2px solid {COR_TEXTO};">'
         f'<span>{label_sub_carga} · CARGA TOTAL VS LÍQUIDA</span>'
         f'<span>{periodo_str_carga}</span>'
         f'</div>',
@@ -7573,7 +7639,7 @@ penetração da solar centralizada.
     )
     st.markdown(
         f'<div style="font-family:\'Inter\', sans-serif; '
-        f'font-size:0.9rem; color:#1A1A1A; font-weight:500; '
+        f'font-size:0.9rem; color:{COR_TEXTO}; font-weight:500; '
         f'letter-spacing:0.04em; margin:0 0 0.5rem 0;">'
         f'{tag_granularidade_carga}'
         f'</div>',
@@ -7613,7 +7679,7 @@ penetração da solar centralizada.
                 f'<span style="color:{BAUHAUS_BLUE}; font-weight:700;">'
                 f'{total_label_fix}</span>'
                 '&nbsp;&nbsp;'
-                '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
+                '<span style="color:#313131;">%{y:,.0f} MWmed</span>'
                 '<extra></extra>'
             ),
         )
@@ -7636,7 +7702,7 @@ penetração da solar centralizada.
                 f'<span style="color:{BAUHAUS_RED}; font-weight:700;">'
                 f'{liquida_label_fix}</span>'
                 '&nbsp;&nbsp;'
-                '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
+                '<span style="color:#313131;">%{y:,.0f} MWmed</span>'
                 '<extra></extra>'
             ),
         )
@@ -7790,9 +7856,9 @@ penetração da solar centralizada.
         f'<div style="display:flex; justify-content:space-between; '
         f'align-items:baseline; '
         f'font-family:\'Bebas Neue\', sans-serif; '
-        f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
+        f'font-size:1.1rem; letter-spacing:0.08em; color:{COR_TEXTO}; '
         f'margin: 2.6rem 0 0.3rem 0; padding-bottom:3px; '
-        f'border-bottom: 2px solid #1A1A1A;">'
+        f'border-bottom: 2px solid {COR_TEXTO};">'
         f'<span>{label_sub_carga} · COMPOSIÇÃO DA CARGA TOTAL</span>'
         f'<span>{periodo_str_carga}</span>'
         f'</div>',
@@ -7800,7 +7866,7 @@ penetração da solar centralizada.
     )
     st.markdown(
         f'<div style="font-family:\'Inter\', sans-serif; '
-        f'font-size:0.9rem; color:#1A1A1A; font-weight:500; '
+        f'font-size:0.9rem; color:{COR_TEXTO}; font-weight:500; '
         f'letter-spacing:0.04em; margin:0 0 0.5rem 0;">'
         f'{tag_granularidade_carga}'
         f'</div>',
@@ -7833,7 +7899,7 @@ penetração da solar centralizada.
                 f'<span style="color:{COR_FONTE_SOLAR}; font-weight:700;">'
                 f'{solar_lbl}</span>'
                 '&nbsp;&nbsp;'
-                '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
+                '<span style="color:#313131;">%{y:,.0f} MWmed</span>'
                 '<extra></extra>'
             ),
         )
@@ -7854,7 +7920,7 @@ penetração da solar centralizada.
                 f'<span style="color:{COR_FONTE_EOLICA}; font-weight:700;">'
                 f'{eolica_lbl}</span>'
                 '&nbsp;&nbsp;'
-                '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
+                '<span style="color:#313131;">%{y:,.0f} MWmed</span>'
                 '<extra></extra>'
             ),
         )
@@ -7875,7 +7941,7 @@ penetração da solar centralizada.
                 f'<span style="color:{COR_FONTE_HIDRO}; font-weight:700;">'
                 f'{hidro_lbl}</span>'
                 '&nbsp;&nbsp;'
-                '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
+                '<span style="color:#313131;">%{y:,.0f} MWmed</span>'
                 '<extra></extra>'
             ),
         )
@@ -7896,7 +7962,7 @@ penetração da solar centralizada.
                 f'<span style="color:{COR_FONTE_TERMICA}; font-weight:700;">'
                 f'{termica_lbl}</span>'
                 '&nbsp;&nbsp;'
-                '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
+                '<span style="color:#313131;">%{y:,.0f} MWmed</span>'
                 '<extra></extra>'
             ),
         )
@@ -7931,7 +7997,7 @@ penetração da solar centralizada.
                     f'<span style="color:{COR_INTERC_V2}; font-weight:700;">'
                     f'{interc_lbl}</span>'
                     '&nbsp;&nbsp;'
-                    '<span style="color:#1A1A1A;">%{customdata}</span>'
+                    '<span style="color:#313131;">%{customdata}</span>'
                     '<extra></extra>'
                 ),
             )
@@ -7952,7 +8018,7 @@ penetração da solar centralizada.
                 f'<span style="color:{COR_CARGA_V2}; font-weight:700;">'
                 f'{carga_lbl}</span>'
                 '&nbsp;&nbsp;'
-                '<span style="color:#1A1A1A;">%{y:,.0f} MWmed</span>'
+                '<span style="color:#313131;">%{y:,.0f} MWmed</span>'
                 '<extra></extra>'
             ),
         )

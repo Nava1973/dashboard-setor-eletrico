@@ -53,17 +53,32 @@ from components.tab_curtailment import (
 
 
 # =============================================================================
-# Paleta Bauhaus (duplicada de app.py — manter sincronizada).
-# Cores canônicas de fontes de geração via decisão 5.33.
+# Paleta — migração 2026-05-15 (Bauhaus → Bradesco).
+# Single source of truth em utils/paleta_bradesco.py.
 # =============================================================================
 
-BAUHAUS_RED    = "#D62828"
-BAUHAUS_YELLOW = "#F6BD16"
-BAUHAUS_BLUE   = "#2A6F97"
-BAUHAUS_BLACK  = "#1A1A1A"
-BAUHAUS_CREAM  = "#F5F1E8"
-BAUHAUS_GRAY   = "#4A4A4A"
-BAUHAUS_LIGHT  = "#E8E3D4"
+from utils.paleta_bradesco import (
+    COR_FUNDO,
+    COR_TEXTO,
+    COR_TEXTO_SECUND,
+    COR_GRID,
+    COR_SIN,
+    COR_DESTAQUE,
+    COR_ACCENT,
+    COR_NE,
+)
+
+# Compat aliases — migração 2026-05-15. TODO: rename to COR_* nos consumidores.
+# Sub-bloco crítico: BAUHAUS_YELLOW = COR_NE neste arquivo porque não há uso
+# real de YELLOW (aparece só na declaração); se aparecer uso futuro deve ser
+# revisado caso a caso (destaque → COR_DESTAQUE vs NE → COR_NE).
+BAUHAUS_BLACK  = COR_TEXTO     # era #1A1A1A → #313131
+BAUHAUS_CREAM  = COR_FUNDO     # era #F5F1E8 → #FFFFFF
+BAUHAUS_LIGHT  = COR_GRID      # era #E8E3D4 → #E0E0E0
+BAUHAUS_GRAY   = COR_SIN       # era #4A4A4A (preservado)
+BAUHAUS_RED    = COR_DESTAQUE  # era #D62828 → #CC092F (sem uso real; alias por uniformidade)
+BAUHAUS_YELLOW = COR_NE        # era #F6BD16 → #560CAB (sem uso real; alias por uniformidade)
+BAUHAUS_BLUE   = COR_ACCENT    # era #2A6F97 → #0078B7 (sem uso real; alias por uniformidade)
 
 # Cores canônicas de fontes de geração — agora importadas de
 # utils/cores_fontes.py (decisão 5.33 RESOLVIDA). Os nomes locais
@@ -445,9 +460,9 @@ def _render_grafico_grupo(
         f'<div style="display:flex; justify-content:space-between; '
         f'align-items:baseline; '
         f"font-family:'Bebas Neue', sans-serif; "
-        f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
+        f'font-size:1.1rem; letter-spacing:0.08em; color:{COR_TEXTO}; '
         f'margin: 2.6rem 0 0.3rem 0; padding-bottom:3px; '
-        f'border-bottom: 2px solid #1A1A1A;">'
+        f'border-bottom: 2px solid {COR_TEXTO};">'
         f'<span>GERAÇÃO EÓLICA/SOLAR · {grupo_label.upper()}</span>'
         f'<span>{periodo_str}</span>'
         f'</div>',
@@ -455,7 +470,7 @@ def _render_grafico_grupo(
     )
     st.markdown(
         f'<div style="font-family:\'Inter\', sans-serif; '
-        f'font-size:0.9rem; color:#1A1A1A; font-weight:500; '
+        f'font-size:0.9rem; color:{COR_TEXTO}; font-weight:500; '
         f'letter-spacing:0.04em; margin:0 0 0.5rem 0;">'
         f'{granularidade_ui} · {unidade_label}'
         f'</div>',
@@ -483,7 +498,7 @@ def _render_grafico_grupo(
         hovertemplate=(
             f'<span style="color:{COR_FONTE_EOLICA}; font-weight:700;">'
             f'{label_eol_fix}</span>&nbsp;&nbsp;'
-            f'<span style="color:#1A1A1A;">{y_fmt}</span>'
+            f'<span style="color:{COR_TEXTO};">{y_fmt}</span>'
             '<extra></extra>'
         ),
     ))
@@ -495,7 +510,7 @@ def _render_grafico_grupo(
         hovertemplate=(
             f'<span style="color:{COR_FONTE_SOLAR}; font-weight:700;">'
             f'{label_sol_fix}</span>&nbsp;&nbsp;'
-            f'<span style="color:#1A1A1A;">{y_fmt}</span>'
+            f'<span style="color:{COR_TEXTO};">{y_fmt}</span>'
             '<extra></extra>'
         ),
     ))
@@ -507,9 +522,9 @@ def _render_grafico_grupo(
         marker=dict(size=0, opacity=0),
         showlegend=False,
         hovertemplate=(
-            '<span style="color:#1A1A1A; font-weight:700;">'
+            f'<span style="color:{COR_TEXTO}; font-weight:700;">'
             f'{label_total_fix}</span>&nbsp;&nbsp;'
-            f'<span style="color:#1A1A1A;">{y_fmt}</span>'
+            f'<span style="color:{COR_TEXTO};">{y_fmt}</span>'
             '<extra></extra>'
         ),
     ))
@@ -580,16 +595,16 @@ def _render_grafico_grupo(
     # mais perto do bloco de download).
     # ------------------------------------------------------------------
     st.markdown(
-        '<div style="font-family:\'Inter\', sans-serif; '
-        'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-        'margin: 1.2rem 0 0.8rem 0;">'
-        'Geração eólica e solar verificada por grupo econômico. '
-        'Cobertura: usinas Tipo I, II-B e II-C apuradas no '
-        'constrained-off (não inclui Tipo III nem geração SMF/CCEE '
-        'de referência). Pode divergir de releases corporativos que '
-        'usam Sistema de Medição para Faturamento. Dados ONS via '
-        'base de constrained-off.'
-        '</div>',
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:{COR_TEXTO_SECUND}; font-style:italic; '
+        f'margin: 1.2rem 0 0.8rem 0;">'
+        f'Geração eólica e solar verificada por grupo econômico. '
+        f'Cobertura: usinas Tipo I, II-B e II-C apuradas no '
+        f'constrained-off (não inclui Tipo III nem geração SMF/CCEE '
+        f'de referência). Pode divergir de releases corporativos que '
+        f'usam Sistema de Medição para Faturamento. Dados ONS via '
+        f'base de constrained-off.'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -661,8 +676,8 @@ def _render_aba_geracao_grupo_impl() -> None:
     # Título h1 + linha separadora Bauhaus
     st.markdown("# GERAÇÃO POR GRUPO")
     st.markdown(
-        '<div style="border-bottom: 2px solid #1A1A1A; '
-        'margin: 0 0 -1.5rem 0;"></div>',
+        f'<div style="border-bottom: 2px solid {COR_TEXTO}; '
+        f'margin: 0 0 -1.5rem 0;"></div>',
         unsafe_allow_html=True,
     )
 

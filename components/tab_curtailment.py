@@ -46,18 +46,32 @@ from utils.cores_fontes import COR_FONTE_SOLAR, COR_FONTE_EOLICA
 
 
 # =============================================================================
-# Paleta Bauhaus (duplicada do app.py:61-76 — manter sincronizada).
-# Não é importável do app.py por evitar circular import (app importa este).
-# Refator futuro: mover pra utils/bauhaus_palette.py compartilhado.
+# Paleta — migração 2026-05-15 (Bauhaus → Bradesco).
+# Single source of truth em utils/paleta_bradesco.py.
 # =============================================================================
 
-BAUHAUS_RED    = "#D62828"
-BAUHAUS_YELLOW = "#F6BD16"
-BAUHAUS_BLUE   = "#2A6F97"
-BAUHAUS_BLACK  = "#1A1A1A"
-BAUHAUS_CREAM  = "#F5F1E8"
-BAUHAUS_GRAY   = "#4A4A4A"
-BAUHAUS_LIGHT  = "#E8E3D4"
+from utils.paleta_bradesco import (
+    COR_FUNDO,
+    COR_TEXTO,
+    COR_TEXTO_SECUND,
+    COR_GRID,
+    COR_SIN,
+    COR_DESTAQUE,
+    COR_ACCENT,
+    COR_NE,
+)
+
+# Compat aliases — migração 2026-05-15. TODO: rename to COR_* nos consumidores.
+# BAUHAUS_YELLOW aqui é usado como cor DA RAZÃO "CNF" (CORES_RAZAO linha 75) —
+# semântica "dado", não destaque/NE. Mapeei pra COR_NE pra ter 4 cores
+# distintas no gráfico de razões (vermelho/roxo/azul/preto).
+BAUHAUS_BLACK  = COR_TEXTO     # era #1A1A1A → #313131
+BAUHAUS_CREAM  = COR_FUNDO     # era #F5F1E8 → #FFFFFF
+BAUHAUS_LIGHT  = COR_GRID      # era #E8E3D4 → #E0E0E0
+BAUHAUS_GRAY   = COR_SIN       # era #4A4A4A (preservado)
+BAUHAUS_RED    = COR_DESTAQUE  # era #D62828 → #CC092F (vermelho Bradesco)
+BAUHAUS_YELLOW = COR_NE        # era #F6BD16 → #560CAB (roxo); ver nota acima
+BAUHAUS_BLUE   = COR_ACCENT    # era #2A6F97 → #0078B7 (azul Bradesco)
 
 # Cores canônicas de fontes de geração — agora importadas de
 # utils/cores_fontes.py (decisão 5.33 RESOLVIDA). Os nomes locais
@@ -195,11 +209,11 @@ def _fmt_pct_curt(x, casas: int = 2) -> str:
 # separada do número em Bebas)
 # =============================================================================
 
-_CSS_KPI_CURT = """
+_CSS_KPI_CURT = f"""
 <style>
-.curt-kpi-card {
-    background: #F5F1E8;
-    border: 2px solid #1A1A1A;
+.curt-kpi-card {{
+    background: {COR_FUNDO};
+    border: 2px solid {COR_TEXTO};
     padding: 8px 12px;
     border-radius: 0;
     text-align: center;
@@ -209,58 +223,58 @@ _CSS_KPI_CURT = """
     display: flex;
     flex-direction: column;
     justify-content: center;
-}
-.curt-kpi-label {
+}}
+.curt-kpi-label {{
     font-family: 'Inter', sans-serif;
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #1A1A1A;
+    color: {COR_TEXTO};
     font-weight: 700;
     line-height: 1.2;
     word-break: keep-all;
     overflow-wrap: normal;
     hyphens: none;
-}
-.curt-kpi-value {
+}}
+.curt-kpi-value {{
     display: flex;
     align-items: baseline;
     justify-content: center;
     margin-top: 0.5rem;
-}
-.curt-kpi-value-num {
+}}
+.curt-kpi-value-num {{
     font-family: 'Bebas Neue', sans-serif;
     font-size: 1.45rem;
-    color: #1A1A1A;
+    color: {COR_TEXTO};
     letter-spacing: 0.02em;
     line-height: 1.1;
-}
-.curt-kpi-value-unit {
+}}
+.curt-kpi-value-unit {{
     font-family: 'Inter', sans-serif;
     font-size: 0.85rem;
-    color: #1A1A1A;
+    color: {COR_TEXTO};
     font-weight: 600;
     margin-left: 0.4rem;
-}
+}}
 
 /* Variantes de cor pra cards KPI (sub-aba "Por estado").
-   Default (sem modifier class) mantém preto BAUHAUS_BLACK. */
-.curt-kpi-card.variante-vermelho .curt-kpi-value-num { color: #D62828; }
-.curt-kpi-card.variante-azul .curt-kpi-value-num { color: #2A6F97; }
-.curt-kpi-card.variante-cinza .curt-kpi-value-num { color: #4A4A4A; }
+   Default (sem modifier class) mantém preto COR_TEXTO. */
+.curt-kpi-card.variante-vermelho .curt-kpi-value-num {{ color: {COR_DESTAQUE}; }}
+.curt-kpi-card.variante-azul .curt-kpi-value-num {{ color: {COR_ACCENT}; }}
+.curt-kpi-card.variante-cinza .curt-kpi-value-num {{ color: {COR_SIN}; }}
 
 /* Tabs internas (st.tabs) — fix de cor pra legibilidade.
    Nota: seletor .stTabs é global, mas como o CSS só muda COR DE TEXTO
    (não layout/tamanho/padding), o impacto em outras abas que usem
    st.tabs é benéfico (legibilidade) ou neutro. */
-.stTabs [data-baseweb="tab"] p {
-    color: #1A1A1A !important;
+.stTabs [data-baseweb="tab"] p {{
+    color: {COR_TEXTO} !important;
     font-weight: 500;
-}
-.stTabs [data-baseweb="tab"][aria-selected="true"] p {
-    color: #D62828 !important;
+}}
+.stTabs [data-baseweb="tab"][aria-selected="true"] p {{
+    color: {COR_DESTAQUE} !important;
     font-weight: 700;
-}
+}}
 </style>
 """
 
@@ -292,11 +306,11 @@ def _placeholder_em_construcao():
     """Placeholder elegante pras sub-abas vazias (Por estado / Por usina /
     Por grupo) — substitui st.info() por div Inter italic centralizado."""
     st.markdown(
-        '<div style="font-family:\'Inter\', sans-serif; '
-        'font-size:0.95rem; color:#6B6B6B; font-style:italic; '
-        'padding: 2rem 0; text-align:center;">'
-        'Sub-aba em construção — disponível em breve.'
-        '</div>',
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.95rem; color:{COR_TEXTO_SECUND}; font-style:italic; '
+        f'padding: 2rem 0; text-align:center;">'
+        f'Sub-aba em construção — disponível em breve.'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -661,9 +675,9 @@ def _render_visao_geral(
         f'<div style="display:flex; justify-content:space-between; '
         f'align-items:baseline; '
         f"font-family:'Bebas Neue', sans-serif; "
-        f'font-size:1.1rem; letter-spacing:0.08em; color:#1A1A1A; '
+        f'font-size:1.1rem; letter-spacing:0.08em; color:{COR_TEXTO}; '
         f'margin: 2.6rem 0 0.3rem 0; padding-bottom:3px; '
-        f'border-bottom: 2px solid #1A1A1A;">'
+        f'border-bottom: 2px solid {COR_TEXTO};">'
         f'<span>CURTAILMENT POR TIPO DE RESTRIÇÃO · {fonte_label.upper()} · {contexto_label}</span>'
         f'<span>{periodo_str}</span>'
         f'</div>',
@@ -676,7 +690,7 @@ def _render_visao_geral(
     _unidade_label = "GWh curtailment" if unidade_modo == "gwh" else "% curtailment"
     st.markdown(
         f'<div style="font-family:\'Inter\', sans-serif; '
-        f'font-size:0.9rem; color:#1A1A1A; font-weight:500; '
+        f'font-size:0.9rem; color:{COR_TEXTO}; font-weight:500; '
         f'letter-spacing:0.04em; margin:0 0 0.5rem 0;">'
         f'{granularidade_ui} · {_unidade_label}'
         f'</div>',
@@ -723,9 +737,9 @@ def _render_visao_geral(
             hovertemplate=(
                 f'<span style="color:{cor}; font-weight:700;">'
                 f'{label_fix}</span>'
-                '&nbsp;&nbsp;'
-                f'<span style="color:#1A1A1A;">{_y_format}</span>'
-                '<extra></extra>'
+                f'&nbsp;&nbsp;'
+                f'<span style="color:{COR_TEXTO};">{_y_format}</span>'
+                f'<extra></extra>'
             ),
         ))
 
@@ -747,11 +761,11 @@ def _render_visao_geral(
         marker=dict(size=0, opacity=0),
         showlegend=False,
         hovertemplate=(
-            '<span style="color:#1A1A1A; font-weight:700;">'
+            f'<span style="color:{COR_TEXTO}; font-weight:700;">'
             f'{_label_total_fix}</span>'
-            '&nbsp;&nbsp;'
-            f'<span style="color:#1A1A1A;">{_y_format_total}</span>'
-            '<extra></extra>'
+            f'&nbsp;&nbsp;'
+            f'<span style="color:{COR_TEXTO};">{_y_format_total}</span>'
+            f'<extra></extra>'
         ),
     ))
 
@@ -908,30 +922,30 @@ def _render_visao_geral(
 # Sub-aba: Por unidade — SPEC §6 (C.1: Total apenas, sem hover, sem click)
 # =============================================================================
 
-_CSS_TABELA_UNIDADES = """
+_CSS_TABELA_UNIDADES = f"""
 <style>
-.curt-tab-unid-wrap {
+.curt-tab-unid-wrap {{
     max-height: 600px;
     overflow-y: auto;
-    border: 2px solid #1A1A1A;
-    background: #F5F1E8;
+    border: 2px solid {COR_TEXTO};
+    background: {COR_FUNDO};
     margin: 0.5rem 0 1rem 0;
     /* Scrollbar Bauhaus (Firefox) */
     scrollbar-width: auto;
-    scrollbar-color: #1A1A1A #F5F1E8;
-}
+    scrollbar-color: {COR_TEXTO} {COR_FUNDO};
+}}
 /* Scrollbar Bauhaus (Chrome/Edge/Safari) — escopada, não vaza pra outros containers */
-.curt-tab-unid-wrap::-webkit-scrollbar {
+.curt-tab-unid-wrap::-webkit-scrollbar {{
     width: 12px;
-}
-.curt-tab-unid-wrap::-webkit-scrollbar-track {
-    background: #F5F1E8;
-}
-.curt-tab-unid-wrap::-webkit-scrollbar-thumb {
-    background: #1A1A1A;
-    border: 2px solid #F5F1E8;
-}
-.curt-tab-unid {
+}}
+.curt-tab-unid-wrap::-webkit-scrollbar-track {{
+    background: {COR_FUNDO};
+}}
+.curt-tab-unid-wrap::-webkit-scrollbar-thumb {{
+    background: {COR_TEXTO};
+    border: 2px solid {COR_FUNDO};
+}}
+.curt-tab-unid {{
     width: 100%;
     border-collapse: collapse;
     /* Larguras fixas — header maior do mês corrente ("até XX/XX") não
@@ -939,32 +953,32 @@ _CSS_TABELA_UNIDADES = """
     table-layout: fixed;
     font-family: 'Inter', sans-serif;
     font-size: 0.85rem;
-}
+}}
 /* G.7 (10 colunas): 15% Unidade + 15% Grupo + 8.75% × 8 numéricas
    (3 meses + 4 trimestres + LTM) = 100%. Em viewport 1400px (G.4):
    col-num ≈ 122px, label cols ≈ 210px. */
-.curt-tab-unid th:nth-child(1), .curt-tab-unid td:nth-child(1) { width: 15%; }
-.curt-tab-unid th:nth-child(2), .curt-tab-unid td:nth-child(2) { width: 15%; }
-.curt-tab-unid th.col-num, .curt-tab-unid td.col-num { width: 8.75%; }
+.curt-tab-unid th:nth-child(1), .curt-tab-unid td:nth-child(1) {{ width: 15%; }}
+.curt-tab-unid th:nth-child(2), .curt-tab-unid td:nth-child(2) {{ width: 15%; }}
+.curt-tab-unid th.col-num, .curt-tab-unid td.col-num {{ width: 8.75%; }}
 /* Linha vertical sutil entre coluna do penúltimo mês (FEV) e trimestre
    corrente (2T 26) — separador conceitual mês↔trimestre. Cor #A8A8A8
    é cinza médio: contrasta o suficiente pra marcar a transição em fundo
-   cream Bauhaus #F5F1E8 sem ficar poluída. Espessura 2px alinha com o
-   padrão Bauhaus do app (bordas pretas 2px nos botões/cards) — cor
-   sutil + espessura padrão = presente sem competir. Calibrada no smoke
-   test do COMMIT 3 (1px era fino demais; #C8C8C8 era invisível). */
+   da tabela sem ficar poluída. Espessura 2px alinha com o padrão Bauhaus
+   do app (bordas pretas 2px nos botões/cards) — cor sutil + espessura
+   padrão = presente sem competir. Calibrada no smoke test do COMMIT 3
+   (1px era fino demais; #C8C8C8 era invisível). */
 .curt-tab-unid th.col-divisor,
-.curt-tab-unid td.col-divisor {
+.curt-tab-unid td.col-divisor {{
     /* !important pra vencer reset CSS global do Streamlit que aplica
        border: 0 em <td>/<th> com specificity igual ou superior. Sem
        !important a borda some apesar da regra estar válida. */
     border-left: 2px solid #A8A8A8 !important;
-}
-.curt-tab-unid thead th {
+}}
+.curt-tab-unid thead th {{
     position: sticky;
     top: 0;
-    background: #1A1A1A;
-    color: #F5F1E8;
+    background: {COR_TEXTO};
+    color: {COR_FUNDO};
     font-family: 'Inter', sans-serif;
     font-size: 0.85rem;
     font-weight: 700;
@@ -972,15 +986,15 @@ _CSS_TABELA_UNIDADES = """
     text-transform: uppercase;
     text-align: left;
     padding: 10px 14px;
-    border-bottom: 2px solid #1A1A1A;
+    border-bottom: 2px solid {COR_TEXTO};
     z-index: 10;
-}
-.curt-tab-unid thead th.col-num {
+}}
+.curt-tab-unid thead th.col-num {{
     text-align: right;
-}
+}}
 /* Sufixo "(até DD/MM)" do mês corrente em 2ª linha do header — menor,
    normal weight, não-uppercase pra contrastar com o "MAI/26" principal. */
-.curt-tab-unid thead th .col-sufixo {
+.curt-tab-unid thead th .col-sufixo {{
     display: block;
     font-size: 0.7rem;
     font-weight: 400;
@@ -988,14 +1002,14 @@ _CSS_TABELA_UNIDADES = """
     letter-spacing: 0;
     margin-top: 2px;
     opacity: 0.85;
-}
+}}
 /* G.7: 2ª linha do header com MESMO peso visual do label principal
    (vs col-sufixo que é sutil). Usado pelo período LTM ("Últimos" +
    "12 meses") onde a 2ª linha é descrição ESSENCIAL da janela, não
    detalhe sufixado. font-size 0.85rem == thead th default → mesma
    hierarquia visual. line-height 1.05 compacta a altura pra não
    estourar o header. */
-.curt-tab-unid thead th .col-sub-label {
+.curt-tab-unid thead th .col-sub-label {{
     display: block;
     margin-top: 2px;
     font-family: 'Inter', sans-serif;
@@ -1004,30 +1018,30 @@ _CSS_TABELA_UNIDADES = """
     line-height: 1.05;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-}
-.curt-tab-unid tbody td {
+}}
+.curt-tab-unid tbody td {{
     padding: 10px 14px;
-    border-bottom: 1px solid #E8E3D4;
-    color: #1A1A1A;
+    border-bottom: 1px solid {COR_GRID};
+    color: {COR_TEXTO};
     vertical-align: top;
     /* Trunca nomes muito longos com ellipsis em vez de quebrar (table-layout
        fixed obrigaria quebra automática feia). */
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-.curt-tab-unid tbody td.col-num {
+}}
+.curt-tab-unid tbody td.col-num {{
     font-family: 'JetBrains Mono', 'Courier New', monospace;
     text-align: right;
     white-space: nowrap;
-}
-.curt-tab-unid tbody td.col-prop-other {
-    color: #6B6B6B;
+}}
+.curt-tab-unid tbody td.col-prop-other {{
+    color: {COR_TEXTO_SECUND};
     font-style: italic;
-}
-.curt-tab-unid tbody tr:last-child td {
+}}
+.curt-tab-unid tbody tr:last-child td {{
     border-bottom: none;
-}
+}}
 </style>
 """
 
@@ -1238,15 +1252,15 @@ def _render_por_unidade(
         return
 
     st.markdown(
-        '<div style="font-family:\'Inter\', sans-serif; '
-        'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-        'margin:0.6rem 0 0.5rem 0;">'
-        'Cada linha é uma unidade geradora com algum corte registrado pelo '
-        'ONS em pelo menos um dos 8 períodos (3 meses + 4 trimestres + LTM). '
-        'Unidades sem ocorrências de curtailment não aparecem. % calculado '
-        'sobre geração potencial da unidade no período. Ordenado por % do '
-        'trimestre corrente.'
-        '</div>',
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:{COR_TEXTO_SECUND}; font-style:italic; '
+        f'margin:0.6rem 0 0.5rem 0;">'
+        f'Cada linha é uma unidade geradora com algum corte registrado pelo '
+        f'ONS em pelo menos um dos 8 períodos (3 meses + 4 trimestres + LTM). '
+        f'Unidades sem ocorrências de curtailment não aparecem. % calculado '
+        f'sobre geração potencial da unidade no período. Ordenado por % do '
+        f'trimestre corrente.'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -1460,7 +1474,7 @@ def _render_mapa_estado(
         featureidkey="properties.sigla",
         locations=agg["UF"].tolist(),
         z=agg["PCT"].tolist(),
-        colorscale=[[0, BAUHAUS_CREAM], [0.5, BAUHAUS_YELLOW], [1, BAUHAUS_RED]],
+        colorscale="OrRd",  # built-in Plotly laranja→vermelho — substitui o gradient Bauhaus [cream, amarelo, vermelho] (migração 2026-05-15)
         customdata=cd_colored,
         hovertemplate=(
             "<b>%{customdata[0]}</b><br>"
@@ -1618,12 +1632,12 @@ def _render_aba_curtailment_impl() -> None:
 
     # ---- Caption explicativa (Inter italic cinza, padrão Bauhaus) ----
     st.markdown(
-        '<div style="font-family:\'Inter\', sans-serif; '
-        'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-        'margin:0 0 0.8rem 0;">'
-        'Restrições de geração (constrained-off) em usinas eólicas e solares '
-        'do SIN. Dados ONS desde 2022.'
-        '</div>',
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:{COR_TEXTO_SECUND}; font-style:italic; '
+        f'margin:0 0 0.8rem 0;">'
+        f'Restrições de geração (constrained-off) em usinas eólicas e solares '
+        f'do SIN. Dados ONS desde 2022.'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -1771,16 +1785,16 @@ def _render_aba_curtailment_impl() -> None:
         )
 
         # Caption indicativa (lê data efetiva do cache atual). Padrão
-        # Bauhaus de caption discreta — Inter italic cinza #6B6B6B
+        # Caption discreta — Inter italic cinza COR_TEXTO_SECUND
         # (st.caption renderiza em branco sobre cream, invisível).
         st.markdown(
-            '<div style="font-family:\'Inter\', sans-serif; '
-            'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-            'margin:0.6rem 0 0.5rem 0;">'
+            f'<div style="font-family:\'Inter\', sans-serif; '
+            f'font-size:0.85rem; color:{COR_TEXTO_SECUND}; font-style:italic; '
+            f'margin:0.6rem 0 0.5rem 0;">'
             f'Histórico em cache: desde '
             f'{data_ini_ampla_ui.strftime("%d/%m/%Y")}. '
             f'Use 24M ou Máx pra carregar mais.'
-            '</div>',
+            f'</div>',
             unsafe_allow_html=True,
         )
 

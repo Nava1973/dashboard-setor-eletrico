@@ -40,13 +40,23 @@ from components.tab_modulacao import _calcular_spread
 
 
 # =============================================================================
-# Paleta Bauhaus
+# Paleta — migração 2026-05-15 (Bauhaus → Bradesco).
+# Single source of truth em utils/paleta_bradesco.py.
 # =============================================================================
 
-BAUHAUS_BLACK = "#1A1A1A"
-BAUHAUS_CREAM = "#F5F1E8"
-BAUHAUS_LIGHT = "#E8E3D4"
-BAUHAUS_RED   = "#D62828"   # cor única dos gráficos (padrão das outras abas)
+from utils.paleta_bradesco import (
+    COR_FUNDO,
+    COR_TEXTO,
+    COR_TEXTO_SECUND,
+    COR_GRID,
+    COR_DESTAQUE,
+)
+
+# Compat aliases — migração 2026-05-15. TODO: rename to COR_* nos consumidores.
+BAUHAUS_BLACK = COR_TEXTO     # era #1A1A1A → #313131
+BAUHAUS_CREAM = COR_FUNDO     # era #F5F1E8 → #FFFFFF
+BAUHAUS_LIGHT = COR_GRID      # era #E8E3D4 → #E0E0E0
+BAUHAUS_RED   = COR_DESTAQUE  # era #D62828 → #CC092F (vermelho Bradesco)
 
 
 def _blend(hex_a: str, hex_b: str, t: float) -> str:
@@ -405,7 +415,7 @@ def _titulo_bloco(texto: str) -> str:
     """HTML do título de um bloco (cabeçalho de grupo do trimestre)."""
     return (
         f'<div style="font-family:\'Bebas Neue\', sans-serif; '
-        f'font-size:1rem; letter-spacing:0.08em; color:#1A1A1A; '
+        f'font-size:1rem; letter-spacing:0.08em; color:{COR_TEXTO}; '
         f'text-align:center; margin:0 0 0.15rem 0; height:1.3rem; '
         f'line-height:1.3rem;">{texto}</div>'
     )
@@ -451,12 +461,12 @@ def _render_tabela_premissas(premissas_base, aloc_atual, spreads_auto,
     efetivo (pro cálculo).
     """
     st.markdown(
-        '<div style="font-family:\'Inter\', sans-serif; font-size:1rem; '
-        'font-weight:600; letter-spacing:0.05em; color:#1A1A1A; '
-        'margin:1.8rem 0 0.4rem 0; padding-bottom:3px; '
-        'border-bottom:2px solid #1A1A1A;">'
-        'Premissas — Vendas ACL e Spot (MWmed) e Spread de modulação (R$/MWh)'
-        '</div>',
+        f'<div style="font-family:\'Inter\', sans-serif; font-size:1rem; '
+        f'font-weight:600; letter-spacing:0.05em; color:{COR_TEXTO}; '
+        f'margin:1.8rem 0 0.4rem 0; padding-bottom:3px; '
+        f'border-bottom:2px solid {COR_TEXTO};">'
+        f'Premissas — Vendas ACL e Spot (MWmed) e Spread de modulação (R$/MWh)'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -535,12 +545,12 @@ def _render_tabela_alocacao(premissas_base) -> dict:
     Retorna {emp: {tri: {'hidro','eolica','solar'}}}.
     """
     st.markdown(
-        '<div style="font-family:\'Inter\', sans-serif; font-size:1rem; '
-        'font-weight:600; letter-spacing:0.05em; color:#1A1A1A; '
-        'margin:1.4rem 0 0.4rem 0; padding-bottom:3px; '
-        'border-bottom:2px solid #1A1A1A;">'
-        'Alocação entre fontes da capacidade firme total (%)'
-        '</div>',
+        f'<div style="font-family:\'Inter\', sans-serif; font-size:1rem; '
+        f'font-weight:600; letter-spacing:0.05em; color:{COR_TEXTO}; '
+        f'margin:1.4rem 0 0.4rem 0; padding-bottom:3px; '
+        f'border-bottom:2px solid {COR_TEXTO};">'
+        f'Alocação entre fontes da capacidade firme total (%)'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -749,16 +759,16 @@ def _render_impl(user: str) -> None:
     chart_box = st.container()      # gráfico no topo (renderizado depois)
 
     st.markdown(
-        '<div style="font-family:\'Inter\', sans-serif; '
-        'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-        'margin:0.2rem 0 1rem 0;">'
-        'Cálculo aproximado: receita ≈ (Vendas ACL + Vendas líquidas no spot, '
-        'em MWmed convertidas a MWh) × spread de modulação ponderado pelo mix '
-        'de fontes da empresa (hidro/eólica/solar). Pode ser negativa (empresa '
-        'muito exposta a solar → spread negativo). Trimestre corrente é '
-        'pró-rata até a última data com dado; trimestres futuros usam, por '
-        'default, o spread ponderado corrente (editável na tabela).'
-        '</div>',
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:{COR_TEXTO_SECUND}; font-style:italic; '
+        f'margin:0.2rem 0 1rem 0;">'
+        f'Cálculo aproximado: receita ≈ (Vendas ACL + Vendas líquidas no spot, '
+        f'em MWmed convertidas a MWh) × spread de modulação ponderado pelo mix '
+        f'de fontes da empresa (hidro/eólica/solar). Pode ser negativa (empresa '
+        f'muito exposta a solar → spread negativo). Trimestre corrente é '
+        f'pró-rata até a última data com dado; trimestres futuros usam, por '
+        f'default, o spread ponderado corrente (editável na tabela).'
+        f'</div>',
         unsafe_allow_html=True,
     )
 

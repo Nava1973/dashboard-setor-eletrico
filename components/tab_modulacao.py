@@ -42,13 +42,22 @@ from utils.cores_fontes import (
 
 
 # =============================================================================
-# Paleta Bauhaus — duplicada do app.py/tab_curtailment.py (circular import).
-# Refator futuro: mover pra utils/bauhaus_palette.py (decisão 5.33 pendente).
+# Paleta — migração 2026-05-15 (Bauhaus → Bradesco).
+# Single source of truth em utils/paleta_bradesco.py. Aliases locais ficam
+# por compat com ~26 usos no resto do arquivo.
 # =============================================================================
 
-BAUHAUS_BLACK  = "#1A1A1A"
-BAUHAUS_CREAM  = "#F5F1E8"
-BAUHAUS_LIGHT  = "#E8E3D4"
+from utils.paleta_bradesco import (
+    COR_FUNDO,
+    COR_TEXTO,
+    COR_TEXTO_SECUND,
+    COR_GRID,
+)
+
+# Compat aliases — migração 2026-05-15. TODO: rename to COR_* nos consumidores.
+BAUHAUS_BLACK  = COR_TEXTO   # era #1A1A1A → #313131
+BAUHAUS_CREAM  = COR_FUNDO   # era #F5F1E8 → #FFFFFF
+BAUHAUS_LIGHT  = COR_GRID    # era #E8E3D4 → #E0E0E0
 
 # Cores canônicas de fontes de geração — agora importadas de
 # utils/cores_fontes.py (decisão 5.33 RESOLVIDA). Os nomes locais
@@ -646,9 +655,9 @@ def _render_aba_modulacao_impl() -> None:
     # date_inputs com label visível ("Data inicial"/"Data final") que sobem
     # acima do campo — sem essa folga, o label encavala no texto da caption.
     st.markdown(
-        '<div style="font-family:\'Inter\', sans-serif; '
-        'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-        'margin:0 0 2rem 0;">'
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:{COR_TEXTO_SECUND}; font-style:italic; '
+        f'margin:0 0 2rem 0;">'
         'Spread de modulação (R$/MWh) = PLD médio ponderado pela geração '
         '<strong>menos</strong> PLD médio flat. Positivo = fonte gera mais nas '
         'horas caras. Negativo = gera mais nas horas baratas.'
