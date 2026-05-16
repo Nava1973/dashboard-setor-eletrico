@@ -5302,18 +5302,110 @@ baseadas no relatório.
 
 ---
 
-## 9. Débitos Técnicos Pendentes
+## 9. Pendências Abertas
 
-### 9.1 Docstring de load_pld_media_semanal — caminho mínimo resolvido
+Snapshot consolidado de tudo que aguarda execução. Cada item tem 1-3
+linhas (o quê + ref §5.X de origem). Itens detalhados ficam na §5.X
+correspondente — esta seção é o índice operacional.
 
-**Resolvido na Frente 1 da sub-sessão pós-e152458 (decisão 5.69):**
-docstring de `load_pld_media_semanal` corrigida de
-`(data=ini-semana, data_fim=fim-semana, submercado, pld)` para
-`(data=ini-semana, submercado, pld)` — reflete o schema real produzido
-por `_normalize_semanal`.
+### 9.1 Sprint GSF — fases não entregues (snapshot 16/05/2026)
 
-**Caminho alternativo segue pendente:** adicionar coluna `data_fim`
-no `_normalize_semanal` (custo: ~1 linha; benefício: alinha código e
+- **Fase 3 — Script de validação automatizada.**
+  `scripts/validar_gsf_calculado_vs_mre.py` rodando a fórmula do loader
+  contra os 15 pontos oficiais com tolerância ±0,5pp. Útil como
+  regressão contra mudanças silenciosas do dataset CCEE. Esforço
+  ~1-2h. Detalhes em §5.77.
+
+- **Fase 4 V2 — Extensão histórica pré-nov/2023.**
+  Dataset CCEE só cobre nov/2023+. Loader stub
+  `load_gsf_historico_pre2023()` preparado em `data_loaders/ccee_gsf.py`.
+  Bloqueado em coleta manual de `data/raw/gsf_historico_pre2023.csv`.
+  Detalhes em §5.77.
+
+- **Fase 2E removida do roadmap (16/05/2026).**
+  Hover JetBrains Mono + markers em GSF>100% + 3 KPIs topo foi
+  descartado por decisão UX. Sub-aba GSF fica sem KPIs. Mantido aqui
+  pra posteridade caso alguém pergunte por que não tem.
+
+### 9.2 Modulação — bug widget cleanup pendente
+
+- **Aplicar shadow state pattern na Modulação.**
+  Mesma vulnerabilidade estrutural diagnosticada no GSF (§5.77 + §5.18):
+  `mod_granularidade`, `mod_data_ini`, `mod_data_fim` são widget keys
+  vulneráveis ao cleanup do Streamlit ao trocar de aba. Fix não
+  aplicado lá porque o bug não foi reportado em uso real (suspeita:
+  defaults entre granularidades são similares, então o reset é menos
+  visível). Replicar `_SHADOW_MAP_MOD` + `_shadow_restore_mod()` +
+  `_shadow_sync_mod()` seguindo o padrão de `components/tab_gsf.py`.
+  Esforço ~30 min.
+
+### 9.3 Deprecations Streamlit (com deadlines)
+
+- **🔴 URGENTE — `st.components.v1.html` removido após 2026-06-01.**
+  Provável uso no drill-down térmico SIN (§5.56 — JS injection
+  cross-iframe). Substituir por `st.iframe`. Esforço ~1h. Deadline
+  em ~2 semanas.
+
+- **🟡 `use_container_width=True/False` → `width='stretch'`/`'content'`.**
+  Sem deadline anunciado. Warnings aparecem no console. Esforço ~1h
+  (find/replace seguro).
+
+### 9.4 Backlog de UX e refatores
+
+Itens documentados em §5.X que aguardam priorização:
+
+- **PLD nacional ponderado SIN** — habilitaria visão SIN agregada na
+  aba Modulação (hoje só 4 submercados — §5.61).
+- **MWM/GWH em Eneva Trimestral** — backlog futuro (§5.51).
+- **Refator paleta Bauhaus → `utils/bauhaus_palette.py`** — bloqueado
+  por circular import, backlog cresceu com Curtailment + Geração Grupo
+  + Modulação duplicando constantes (§5.61, §5.33).
+- **Atualizar anchors MMGD** com valores reais SQL — depende do próximo
+  release PDGD (~abr/2027) pra ter novo gold standard (§5.67).
+- **Itens registrados na §5.66** "pra próxima sessão" (DthAtualiza-
+  CadastralEmpreend / loader MMGD dinâmico).
+- **Spinner CSS — texto invisível na aba PLD horário.** Investigar
+  seletor `[data-testid='stSpinner']` específico do tema dark.
+  Funcionalidade OK, problema é só visual.
+- **Modulação lazy loading** — avaliar se o padrão da Frente 3 do PLD
+  (§5.71, modo recente vs completo + modal) se aplica também à
+  Modulação. Pode virar "Frente 4" ou generalização reusável.
+
+### 9.5 Pendências de Curtailment (sessão 11/05/2026)
+
+**Cosméticas:**
+
+- Mover "Histórico em cache: XXX" pra footnote em `_render_visao_geral`.
+- Padronizar UX "Total (E+S)" na aba Curtailment (alinhar com label
+  introduzido em §5.60 pra Geração por Grupo).
+- Padronizar grafia "Ribeiro Goncalves" / "Ribeiro Gonçalves" no Excel
+  `data/curtailment/unidades_geradoras.xlsx`.
+- Adicionar Enel Green Power em `_GRUPOS_PRIORIZADOS`.
+
+**Validações de dados (sem urgência mas importantes):**
+
+- Validar dono real de `CONJ. SERTÃO SOLAR BARREIRAS` via ANEEL/SIGA
+  (§5.60 deixou em aberto após investigação não conclusiva).
+- Confirmar dono real de `CONJ. RIBEIRO GONÇALVES 500 KV` via ANEEL —
+  atualmente em "Other" (§5.60).
+- Investigar 21k linhas marcadas como "Other" no rateio — pode haver
+  grupos identificáveis perdidos.
+- Gap residual ~4% pós-fix Equatorial Solar 4T25 pode ser MMGD/Tipo III
+  não capturado pelo constrained-off — investigar separadamente (§5.60).
+
+### 9.6 Débitos técnicos resolvidos (histórico)
+
+Itens que já foram resolvidos pelo caminho mínimo mas onde resta um
+caminho alternativo "melhor" — registro pra reavaliação futura.
+
+**Docstring de `load_pld_media_semanal` — caminho mínimo resolvido.**
+Resolvido na Frente 1 da sub-sessão pós-e152458 (decisão 5.69):
+docstring corrigida de `(data=ini-semana, data_fim=fim-semana,
+submercado, pld)` para `(data=ini-semana, submercado, pld)` — reflete
+o schema real produzido por `_normalize_semanal`.
+
+*Caminho alternativo segue pendente:* adicionar coluna `data_fim` no
+`_normalize_semanal` (custo: ~1 linha; benefício: alinha código e
 docstring, simplifica consumidores que precisem do fim da semana —
 ex: hover do PLD semanal computado em §5.68 via `pd.Timedelta(days=6)`
 no render). Rompe decisão original do comentário interno em
