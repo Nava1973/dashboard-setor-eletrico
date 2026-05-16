@@ -4506,6 +4506,33 @@ Aliases de compat (`BAUHAUS_BLACK = COR_TEXTO`, `BAUHAUS_CREAM = COR_FUNDO`, `BA
 - Refator dos 3 dicts inline de motivos térmicos pra USAR `CORES_MOTIVOS_TERMICO` do `paleta_bradesco.py`.
 - O secret `cookie.expiry_days` no Streamlit Cloud (`st.secrets["auth_config"]["yaml_content"]`) continua precisando ser ajustado manualmente pra refletir mudanças do `config.yaml.example` (não há sincronização automática).
 
+### 5.77 Sub-aba GSF (Fator de Ajuste do MRE) — Sprint completo Fases 0 a 2D+++ (16/05/2026)
+
+**Contexto.** GSF (Generation Scaling Factor / Fator de Ajuste do MRE) é a métrica oficial CCEE que indica se as UHEs participantes do Mecanismo de Realocação de Energia (MRE) entregaram acima (>100% = energia secundária) ou abaixo (<100% = déficit) da garantia física agregada no mês. Sub-aba implementada em "Geração → GSF" (3ª sub-view, após SIN e Eólica/Solar por Grupo). Spec completo em `docs/SPEC_gsf_v1.md`.
+
+**Fórmula validada empiricamente (Fase 0).** A jornada de descoberta foi a parte mais cara do sprint — 8 hipóteses estruturadas testadas até bater. A versão inicial do spec assumia que `MRE_MENSAL` continha o numerador/denominador do GSF, mas testes contra 15 pontos oficiais (9 do Power BI público CCEE + 6 do InfoPLD) provaram que **`MRE_MENSAL` não tem GSF nem seus inputs diretos**: `ENTREGA_MRE` é volume de settlement (= `VALOR_ALOCADO_MRE / CUSTO_MRE`, identidade confirmada), não geração bruta UHE; `FATOR_REDUCAO_ACUMULADO` é produto dos 3 fatores de perda (interna × rede básica × disponibilidade), não GSF. A solução real veio do dataset `GERACAO_HORARIA_SUBMERCADO` com fórmula:
+
+```
+GSF_mês = Σ(GERACAO_MRE) / Σ(GARANTIA_FISICA_MRE)
+          agregando 4 submercados × todas horas do mês
+```
+
+Validação: **12/12 hits ±0.5pp** contra os 15 pontos oficiais (3 fora do range do dataset porque cobertura é nov/2023+). Mean abs diff = 0.027pp; max = 0.158pp; 4 meses batem a 3 casas decimais. Cuidado crítico: **NÃO usar `GARANTIA_FISICA_MODULADA_MRE`** como denominador — é GF capada pós-modulação e a razão dá ~100% sempre, mascarando deficits. Também **NÃO usar `GERACAO`** (sem `_MRE`) — é geração TOTAL do submercado (todas as fontes), 3-4× maior que UHE MRE.
+
+**Loader (`data_loaders/ccee_gsf.py`).** `load_gsf_mensal()` retorna DataFrame indexed por `mes_ref` (datetime64, 1º dia do mês), colunas `sum_geracao_mre_mwh`, `sum_gf_mre_mwh`, `gsf` (decimal), `fonte_dado`. Cache 2-layer (decisão 5.15): `@st.cache_data` TTL 6h em RAM + parquets por ano em `~/.cache/dashboard-setor-eletrico/gsf_v1/`. TTL diferenciado: anos fechados 30d, ano corrente/anterior 24h (recontabilização possível). 3-strategy cascade CKAN→dump. Resource IDs persistidos em `scripts/_resource_ids_gsf.json` (origem da população do dict inline `RESOURCE_IDS_BY_YEAR`). Cold load ~25s, warm-disk ~60ms, warm-RAM 0ms. `load_gsf_historico_pre2023()` stub que retorna df vazio se arquivo não existir (preparação V2). `clear_gsf_cache()` limpa RAM + apaga parquets por ano.
+
+**UI (`components/tab_gsf.py`).** Estrutura visual de cima pra baixo: (1) header "GSF — FATOR DE AJUSTE DO MRE" com border-bottom 2px `#313131`; (2) period controls em 7 colunas FIXAS `[2, 1, 1, 1, 4.2, 2, 2]` (replica padrão Modulação adaptado — `cols[1..3]` vazios intencionalmente pra preservar alinhamento visual entre abas mesmo sem presets); (3) gráfico Plotly com fills semânticos déficit/secundária + linha principal preta + paridade 100% dashed; (4) tabela HTML "Detalhamento — Últimos 12 meses"; (5) footnote com fórmula MR.2.1; (6) expander de diagnóstico colapsado. Cores via `utils/paleta_bradesco.py`: linha principal `COR_TEXTO` (#313131), déficit `rgba(204,9,47, 0.15)` (= `COR_DESTAQUE` 15%), secundária `rgba(135,206,235, 0.30)` (sky blue 30% — verde `COR_SUCESSO` foi testado e trocado por feedback UX). Markers em GSF>100% e 3 KPIs topo planejados pra Fase 2E (não entregue neste sprint).
+
+**Decisões arquiteturais.** (a) **Granularidades Mensal + Trimestral** (sem semanal — GSF é série mensal-nativa). (b) **Agregação trimestral em RENDER** via `df.groupby(pd.Grouper(freq='QS')).agg(sum, sum, first)` + recálculo `gsf = sum/sum` — não no loader, e NÃO média de GSFs mensais (semântica contábil correta). (c) **Drop trimestre incompleto NO INÍCIO** (`n_meses<3`) — exceto o último (parcial preservado). (d) **Selectbox MM/AAAA mensal e "1T26" trimestral** em vez de date_input — GSF é mensal-nativo, dia arbitrário não tem semântica. (e) **Defaults**: mensal `data_fim − 12 meses` (~13 month-starts visíveis), trimestral `data_fim − 21 meses` (exatamente 8 trimestres). (f) **Tabela 12m SEMPRE fixa mensal, independente dos period controls** — "tabela = estado recente, gráfico = evolução". (g) Helper `_construir_label_trimestre(ts)` → `"1T26"` formato BR; helper `_converter_periodo(ts, gran)` → start-of-period via `to_period(freq).start_time` (Dez/2024 mensal ↔ 4T24 trim); helper `_snap_to_options(ts, options)` snap pro option válido mais próximo `<= ts` (cobre migração de tipo, dataset shrinking, state stale).
+
+**Bug widget cleanup cross-tab + fix shadow state (commit `b6068b3`).** Diagnosticado via prints temporários e logs do usuário: Streamlit faz cleanup das widget keys ao sair da aba (widgets não renderizados naquele frame). As 3 keys que são `key=` de selectbox (`gsf_granularidade`, `gsf_data_ini`, `gsf_data_fim`) são REMOVIDAS de `session_state`. Keys não-widget (`gsf_datas_custom`, `gsf_granularidade_anterior`) sobrevivem, gerando estado inconsistente: ao voltar pra GSF, `setdefault` reativa granularidade pra "mensal", init block re-seta defaults mensais, e o granularity-change block "converte" as datas DEFAULT recém-setadas (não as custom originais, que já se perderam). Resultado: UI sempre volta pro default mensal mesmo com state custom marcado. **Fix:** pattern de shadow state alinhado com decisão 5.18. `_SHADOW_MAP_GSF` mapeia cada widget key pra `gsf_shadow_*`. `_shadow_restore_gsf()` roda no INÍCIO de `render_aba_gsf` (ANTES de qualquer `setdefault`) e restaura se widget ausente + shadow presente. `_shadow_sync_gsf()` roda APÓS todas as mutações programáticas (init, granularity re-derive, snap), antes dos widgets renderizarem, espelhando widget keys → shadows. Em 1ª render absoluta o restore é no-op (nada existe), init defaults rola normal. Quatro cenários validados via simulação com mock `session_state`.
+
+**Refinos visuais finais (commit `cc49a2e`).** (a) Caixas De/Até alargadas de 1.5 pra 2.0 (spacer encolheu de 5.2 pra 4.2, soma 15.2 preservada) — `Mar/2025` não corta mais. (b) Placeholder `<div color:transparent>` acima do selectbox de granularidade pra alinhar verticalmente com De/Até que têm labels visíveis. (c) Legenda do gráfico: size 14px + cor `COR_TEXTO` + family Inter (default cinza pequeno tinha legibilidade fraca).
+
+**Modulação tem o mesmo bug estrutural mas NÃO foi corrigida** — estruturalmente as 3 widget keys (`mod_granularidade`, `mod_data_ini`, `mod_data_fim`) também são vulneráveis ao cleanup, mas o usuário reportou que cross-tab persiste na Modulação. Hipótese: bug existe mas é menos visível porque defaults entre granularidades são similares, OU Modulação tem mecanismo não-identificado que evita cleanup. Aplicar o mesmo fix lá é pendência se for reportado em uso real.
+
+**Pendências.** Fase 2E (hover JetBrains Mono no Plotly, markers grandes em GSF>100% em sky blue, 3 KPIs topo: GSF mês mais recente, GSF acumulado 12 meses ponderado, Energia Secundária acumulada 12 meses em TWh). Fase 3 (`scripts/validar_gsf_calculado_vs_mre.py` automatizando a validação contra os 15 pontos oficiais — passa a ser parte da regressão). Fase 4 V2 (extensão histórica pré-nov/2023 dependente de arquivo manual `data/raw/gsf_historico_pre2023.csv`; loader stub já preparado). Atualização do `SPEC_gsf_v1.md` consolidando que `MRE_MENSAL` foi rejeitado e `GERACAO_HORARIA_SUBMERCADO` é a fonte canônica (revisão pós-Fase 0 já feita no commit `fed1cbd`).
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
@@ -5208,6 +5235,31 @@ baseadas no relatório.
     adicionais: removeu border-bottom do CSS do selectbox, removeu
     "Indicadores do dia DD/MM/YYYY" (duplicava o range), borda da régua
     KPIs single-day #1A1A1A → #CCCCCC (régua coerente). Detalhes em §5.71.
+
+35. **Sprint GSF — Fases 0 a 2D+++ (16/05/2026)** — sub-aba GSF (Fator
+    de Ajuste do MRE) na aba Geração, 3ª sub-view depois de SIN e Eólica/
+    Solar por Grupo. Fase 0 (descoberta da fórmula) foi a etapa mais cara:
+    8 hipóteses estruturadas testadas — `MRE_MENSAL`, `MRE_HORARIO`,
+    `GERACAO_UHE_V2`, alternativas de denominador (`GF_MODULADA_AJUSTADA_MRE`,
+    `GF_FATOR_DISPONIBILIDADE`, `GF_SAZONALIZADA`), Itaipu (total + 50% +
+    via `ENTREGA_MRE_ITAIPU`), exclusão de COTAS — todas rejeitadas até
+    descobrir `GERACAO_HORARIA_SUBMERCADO` com `Σ(GERACAO_MRE) /
+    Σ(GARANTIA_FISICA_MRE)` que bate 12/12 hits ±0.5pp contra 15 pontos
+    oficiais (Power BI público CCEE + InfoPLD). Fase 1: loader
+    `data_loaders/ccee_gsf.py` com cache 2-layer (RAM 6h + parquet por
+    ano, TTL diferenciado 30d/24h), 3-strategy cascade CKAN→dump,
+    `clear_gsf_cache()`. Fase 2: UI completa em `components/tab_gsf.py`
+    — header + period controls (selectbox granularidade Mensal/Trimestral
+    + selectbox MM/AAAA-ou-1T26 De/Até no padrão Modulação 7 colunas
+    fixas) + gráfico Plotly (linha preta, paridade dashed, fills déficit
+    vermelho e secundária sky blue, legenda topo 14px Inter) + tabela
+    HTML "Últimos 12 meses" SEMPRE fixa mensal + footnote MR.2.1 +
+    expander de diagnóstico. Bug widget cleanup cross-tab descoberto via
+    prints temporários e resolvido com pattern shadow state (§5.18
+    aplicado a GSF). Fases pendentes: 2E (KPIs + markers + hover
+    JetBrains), 3 (validador automatizado), 4 (V2 histórico pré-2023).
+    Modulação tem mesma vulnerabilidade estrutural mas fix não aplicado
+    lá (não reportado em uso). Detalhes em §5.77.
 
 ---
 
