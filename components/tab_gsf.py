@@ -19,7 +19,8 @@ Fases internas (sprint GSF Fase 2):
     2A — esqueleto: render minimo + chamada teste do loader
     2B — grafico Plotly linha temporal
     2B+ — refinos: cor secundaria azul ceu, eixo X mensal, footnote
-    2C — tabela HTML ultimos 12 meses
+    2B++ — refinos finais: legenda topo, eixo Y sem decimal, hover preto
+    2C — tabela HTML ultimos 12 meses (este commit)
     2D — period controls
     2E — polimento final (hover, markers, KPIs)
 
@@ -41,8 +42,22 @@ from utils.paleta_bradesco import (
     COR_TEXTO,
     COR_TEXTO_SECUND,
     COR_DESTAQUE,
+    COR_BORDA_SUTIL,
+    COR_FONTE_MMGD,
     plotly_layout_defaults,
 )
+
+
+# PT-BR (Plotly usa ingles no strftime — mapa manual evita locale dependency)
+_MESES_PT_BR = {
+    1: "Jan", 2: "Fev", 3: "Mar", 4: "Abr",  5: "Mai", 6: "Jun",
+    7: "Jul", 8: "Ago", 9: "Set", 10: "Out", 11: "Nov", 12: "Dez",
+}
+
+
+def _fmt_mes_pt(ts: pd.Timestamp) -> str:
+    """'2026-03-01' -> 'Mar/2026'."""
+    return f"{_MESES_PT_BR[ts.month]}/{ts.year}"
 
 
 # Cores derivadas pros preenchimentos de area semantica.
@@ -188,6 +203,94 @@ def _construir_figura_gsf(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def _construir_tabela_12m(df: pd.DataFrame) -> str:
+    """Constroi HTML da tabela "Detalhamento — Ultimos 12 meses".
+
+    - Mais recente em CIMA (descending por mes)
+    - Mes em PT-BR (Mar/2026)
+    - GSF com 2 casas (100.32%)
+    - TWh = MWh / 1_000_000 com 2 casas
+    - Linhas com Energia Secundaria (GSF > 1.0) destacadas em amarelo
+      claro (COR_FONTE_MMGD #FFE082)
+    - Alternancia sutil (linhas pares cinza claro #FAFAFA) gerenciada
+      via classe Python (nao :nth-child) pra que .secundaria sobreponha
+      sem precisar !important
+    """
+    df_tail = df.tail(12)
+    df_tail = df_tail.iloc[::-1]  # mais recente em cima
+
+    css = f"""
+    <style>
+    .gsf-tab-12m {{
+        width: 100%;
+        border-collapse: collapse;
+        font-family: 'Inter', sans-serif;
+        margin-top: 0.5rem;
+        margin-bottom: 0.5rem;
+    }}
+    .gsf-tab-12m thead th {{
+        background: {COR_TEXTO};
+        color: #FFFFFF;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 8px 12px;
+        text-align: right;
+        border: 1px solid {COR_BORDA_SUTIL};
+    }}
+    .gsf-tab-12m thead th.col-mes {{ text-align: left; }}
+    .gsf-tab-12m tbody td {{
+        padding: 8px 12px;
+        font-size: 13px;
+        color: {COR_TEXTO};
+        border: 1px solid {COR_BORDA_SUTIL};
+        text-align: right;
+    }}
+    .gsf-tab-12m tbody td.col-mes {{ text-align: left; font-weight: 600; }}
+    .gsf-tab-12m tbody tr.row-par td {{ background: #FFFFFF; }}
+    .gsf-tab-12m tbody tr.row-impar td {{ background: #FAFAFA; }}
+    /* .secundaria sobrepoe a alternancia (especificidade igual, vem depois) */
+    .gsf-tab-12m tbody tr.secundaria td {{ background: {COR_FONTE_MMGD}; }}
+    </style>
+    """
+
+    head = (
+        "<thead><tr>"
+        '<th class="col-mes">Mês</th>'
+        "<th>GSF (%)</th>"
+        "<th>Geração MRE (TWh)</th>"
+        "<th>GF MRE (TWh)</th>"
+        "<th>Energia Secundária?</th>"
+        "</tr></thead>"
+    )
+
+    linhas = []
+    for i, (idx, row) in enumerate(df_tail.iterrows()):
+        gsf = row["gsf"]
+        eh_secundaria = gsf > 1.0
+        classes = ["row-par" if i % 2 == 0 else "row-impar"]
+        if eh_secundaria:
+            classes.append("secundaria")
+        cls = " ".join(classes)
+
+        # Conversao MWh -> TWh (1 TWh = 1e6 MWh)
+        ger_twh = row["sum_geracao_mre_mwh"] / 1_000_000.0
+        gf_twh = row["sum_gf_mre_mwh"] / 1_000_000.0
+
+        linhas.append(
+            f'<tr class="{cls}">'
+            f'<td class="col-mes">{_fmt_mes_pt(idx)}</td>'
+            f"<td>{gsf * 100:.2f}%</td>"
+            f"<td>{ger_twh:.2f}</td>"
+            f"<td>{gf_twh:.2f}</td>"
+            f'<td>{"Sim" if eh_secundaria else "Não"}</td>'
+            "</tr>"
+        )
+
+    body = "<tbody>" + "".join(linhas) + "</tbody>"
+    table = f'<table class="gsf-tab-12m">{head}{body}</table>'
+    return css + table
+
+
 def render_aba_gsf() -> None:
     """Entry point da sub-aba GSF (chamada de app.py)."""
     # Header padrao do projeto
@@ -209,6 +312,13 @@ def render_aba_gsf() -> None:
     # Gráfico principal
     fig = _construir_figura_gsf(df)
     st.plotly_chart(fig, use_container_width=True)
+
+    # Tabela "Detalhamento — Últimos 12 meses" (Fase 2C).
+    # Decisao: sempre fixa nos ultimos 12 meses (independente dos period
+    # controls do grafico, que entrarao na 2D). Tabela = "estado recente";
+    # grafico = "evolucao".
+    st.markdown("### Detalhamento — Últimos 12 meses")
+    st.markdown(_construir_tabela_12m(df), unsafe_allow_html=True)
 
     # Footnote com fórmula validada (R3 dos refinos 2B+)
     st.caption(
