@@ -1,0 +1,39 @@
+{
+  "dataset_id": "27fd4abf-9508-4c16-9885-289524b2d529",
+  "dataset_name": "geracao_horaria_submercado",
+  "discovered_at": "2026-05-16T12:26:49",
+  "resource_ids_by_year": {
+    "2023": "18c785e6-ecb3-465c-af55-77dc9a374f95",
+    "2024": "9d619679-62fc-4afd-b725-ee63c5d511d8",
+    "2025": "eeafc24a-97de-4e34-805b-bf5fc8146be2",
+    "2026": "4ff8ad16-93fa-4bf2-a7f3-03f23132fb38"
+  },
+  "resources_meta": [
+    {
+      "ano": 2023,
+      "name": "geracao_horaria_submercado_2023",
+      "id": "18c785e6-ecb3-465c-af55-77dc9a374f95"
+    },
+    {
+      "ano": 2024,
+      "name": "geracao_horaria_submercado_2024",
+      "id": "9d619679-62fc-4afd-b725-ee63c5d511d8"
+    },
+    {
+      "ano": 2025,
+      "name": "geracao_horaria_submercado_2025",
+      "id": "eeafc24a-97de-4e34-805b-bf5fc8146be2"
+    },
+    {
+      "ano": 2026,
+      "name": "geracao_horaria_submercado_2026",
+      "id": "4ff8ad16-93fa-4bf2-a7f3-03f23132fb38"
+    }
+  ],
+  "formula": {
+    "numerator_column": "GERACAO_MRE",
+    "denominator_column": "GARANTIA_FISICA_MRE",
+    "agg": "sum no mes, todos 4 submercados, todos os periodos",
+    "result_unit": "fracao decimal (multiplicar por 100 pra %)"
+  }
+}
