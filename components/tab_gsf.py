@@ -139,8 +139,9 @@ def _construir_figura_gsf(df: pd.DataFrame) -> go.Figure:
         mode="lines",
         line=dict(color=COR_TEXTO, width=2),
         name="GSF mensal",
+        # hovermode="x unified" do layout ja injeta a data como header do
+        # tooltip — incluir "%{x|...}" no template duplica o mes.
         hovertemplate=(
-            "%{x|%b/%Y}<br>"
             "GSF: %{y:.2f}%"
             "<extra></extra>"
         ),
