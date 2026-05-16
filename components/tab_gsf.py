@@ -358,13 +358,19 @@ def _construir_figura_gsf(
     layout = plotly_layout_defaults()
     # Sobrescreve legend dos defaults pra colocar no topo horizontal
     # (libera ~15% de largura util pro plot — refino 2B++ R1).
+    # Font size 14 + cor COR_TEXTO (#313131 preto Bradesco) — refino 2D+++
+    # (legenda default em cinza pequena tinha legibilidade pior).
     layout["legend"] = dict(
         orientation="h",
         yanchor="bottom",
         y=1.02,
         xanchor="right",
         x=1,
-        font=dict(color=COR_TEXTO),
+        font=dict(
+            size=14,
+            color=COR_TEXTO,
+            family="'Inter', sans-serif",
+        ),
         bgcolor="rgba(0,0,0,0)",  # transparente, sem caixa
     )
     fig.update_layout(
@@ -541,8 +547,19 @@ def render_aba_gsf() -> None:
     st.session_state.setdefault("gsf_granularidade", "mensal")
     st.session_state.setdefault("gsf_datas_custom", False)
 
-    cols = st.columns([2, 1, 1, 1, 5.2, 1.5, 1.5])
+    # Larguras: De/Ate alargadas (1.5 -> 2) pra caber "Mar/2025" sem
+    # cortar. Spacer encolheu (5.2 -> 4.2). Soma total preservada (15.2).
+    cols = st.columns([2, 1, 1, 1, 4.2, 2, 2])
     with cols[0]:
+        # Label placeholder pra alinhar verticalmente com De/Ate. Os
+        # selectbox De/Ate tem labels visiveis ("De", "Ate") que ocupam
+        # ~16px acima do widget; sem o placeholder, a granularidade
+        # ficaria mais alta. Padrao da decisao CLAUDE.md §5.15.
+        st.markdown(
+            '<div style="font-size:0.75rem; line-height:1.2; '
+            'margin-bottom:2px; color:transparent; user-select:none;">·</div>',
+            unsafe_allow_html=True,
+        )
         granularidade = st.selectbox(
             "Granularidade",
             options=list(_GRANULARIDADES),
