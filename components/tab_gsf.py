@@ -20,8 +20,9 @@ Fases internas (sprint GSF Fase 2):
     2B — grafico Plotly linha temporal
     2B+ — refinos: cor secundaria azul ceu, eixo X mensal, footnote
     2B++ — refinos finais: legenda topo, eixo Y sem decimal, hover preto
-    2C — tabela HTML ultimos 12 meses (este commit)
-    2D — period controls
+    2C — tabela HTML ultimos 12 meses
+    2C+ — micro-fix: remove data duplicada no hover unified
+    2D — period controls (este commit): date_input De/Ate, default 12M
     2E — polimento final (hover, markers, KPIs)
 
 Notas de design:
@@ -310,14 +311,67 @@ def render_aba_gsf() -> None:
         st.error("load_gsf_mensal() retornou DataFrame vazio.")
         return
 
-    # Gráfico principal
-    fig = _construir_figura_gsf(df)
+    # ----- Period controls (Fase 2D) -----
+    # Decisao: 2 date_input puros (sem shortcut buttons). UI mais limpa,
+    # usuario tem controle total. Default na 1a carga = ultimos 12 meses.
+    #
+    # IMPORTANTE: init de session_state ANTES de instanciar widgets
+    # (pattern do CLAUDE.md §5.12). Sem `value=` nos widgets — so `key=`,
+    # pra evitar conflito de source of truth.
+    primeiro_ts = df.index.min()
+    ultimo_ts = df.index.max()
+    if "gsf_data_ini" not in st.session_state:
+        data_ini_default_ts = ultimo_ts - pd.DateOffset(months=12)
+        if data_ini_default_ts < primeiro_ts:
+            data_ini_default_ts = primeiro_ts
+        st.session_state["gsf_data_ini"] = data_ini_default_ts.date()
+        st.session_state["gsf_data_fim"] = ultimo_ts.date()
+
+    col_lbl, col_de, col_ate = st.columns([1, 2, 2])
+    with col_lbl:
+        st.markdown("**Período:**")
+    with col_de:
+        st.date_input(
+            "De",
+            key="gsf_data_ini",
+            min_value=primeiro_ts.date(),
+            max_value=ultimo_ts.date(),
+            format="DD/MM/YYYY",
+        )
+    with col_ate:
+        st.date_input(
+            "Até",
+            key="gsf_data_fim",
+            min_value=primeiro_ts.date(),
+            max_value=ultimo_ts.date(),
+            format="DD/MM/YYYY",
+        )
+
+    # Ler de volta e validar (se usuario inverteu ini>fim, swap silencioso)
+    data_ini = st.session_state["gsf_data_ini"]
+    data_fim = st.session_state["gsf_data_fim"]
+    if data_ini > data_fim:
+        data_ini, data_fim = data_fim, data_ini
+
+    # Filtrar df pro grafico. df.index eh DatetimeIndex (1o dia do mes);
+    # comparar via .date() pra alinhar com tipo date dos widgets.
+    df_grafico = df[
+        (df.index.date >= data_ini) & (df.index.date <= data_fim)
+    ]
+    if df_grafico.empty:
+        # Defesa contra cenario "0 linhas" — nao deveria ocorrer
+        # com min/max corretos, mas guarda contra edge cases.
+        st.warning("Período selecionado sem dados. Mostrando série completa.")
+        df_grafico = df
+
+    # Gráfico principal (usa df_grafico filtrado)
+    fig = _construir_figura_gsf(df_grafico)
     st.plotly_chart(fig, use_container_width=True)
 
     # Tabela "Detalhamento — Últimos 12 meses" (Fase 2C).
-    # Decisao: sempre fixa nos ultimos 12 meses (independente dos period
-    # controls do grafico, que entrarao na 2D). Tabela = "estado recente";
-    # grafico = "evolucao".
+    # Decisao: SEMPRE fixa nos ultimos 12 meses, INDEPENDENTE dos period
+    # controls do grafico. Tabela = "estado recente"; grafico = "evolucao".
+    # Por isso usa `df` (completo), nao `df_grafico` (filtrado).
     st.markdown("### Detalhamento — Últimos 12 meses")
     st.markdown(_construir_tabela_12m(df), unsafe_allow_html=True)
 
