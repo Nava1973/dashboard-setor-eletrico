@@ -17,10 +17,17 @@ Data loader: data_loaders/ccee_gsf.py
 
 Fases internas (sprint GSF Fase 2):
     2A — esqueleto: render minimo + chamada teste do loader
-    2B — grafico Plotly linha temporal (este commit)
+    2B — grafico Plotly linha temporal
+    2B+ — refinos: cor secundaria azul ceu, eixo X mensal, footnote
     2C — tabela HTML ultimos 12 meses
     2D — period controls
     2E — polimento final (hover, markers, KPIs)
+
+Notas de design:
+    - Area "Deficit" usa COR_DESTAQUE (#CC092F vermelho Bradesco) opacidade 15%.
+    - Area "Energia Secundaria" usa #87CEEB (sky blue) opacidade 30% —
+      escolhido por feedback UX (verde COR_SUCESSO testado mas trocado
+      por preferencia estetica de "abundancia clara").
 """
 from __future__ import annotations
 
@@ -34,18 +41,19 @@ from utils.paleta_bradesco import (
     COR_TEXTO,
     COR_TEXTO_SECUND,
     COR_DESTAQUE,
-    COR_SUCESSO,
     plotly_layout_defaults,
 )
 
 
-# Cores derivadas com alpha 15% pros preenchimentos de area semantica.
-# rgba inline em vez de utility pq sao usados so neste componente
-# e os hex base (COR_DESTAQUE = #CC092F, COR_SUCESSO = #2E7D32) sao
-# canonicos da paleta — mudancas na paleta refletem aqui via reedicao
-# manual destes 2 strings (low risk, pouco volume).
-_FILL_DEFICIT = "rgba(204, 9, 47, 0.15)"      # COR_DESTAQUE @ 15%
-_FILL_SECUNDARIA = "rgba(46, 125, 50, 0.15)"  # COR_SUCESSO @ 15%
+# Cores derivadas pros preenchimentos de area semantica.
+# rgba inline em vez de utility pq sao usados so neste componente.
+# Deficit: COR_DESTAQUE (#CC092F vermelho Bradesco) @ 15%.
+# Secundaria: #87CEEB (sky blue) @ 30% — azul ceu = abundancia semantica
+#   positiva. Verde (COR_SUCESSO #2E7D32) testado em iteracao anterior e
+#   trocado por feedback UX. Alpha 30% (vs 15% do deficit) pq azul claro
+#   ficaria fraco demais com 15%.
+_FILL_DEFICIT = "rgba(204, 9, 47, 0.15)"        # COR_DESTAQUE @ 15%
+_FILL_SECUNDARIA = "rgba(135, 206, 235, 0.30)"  # azul ceu — abundancia semantica positiva
 _TRANSPARENT = "rgba(0,0,0,0)"
 
 
@@ -147,7 +155,12 @@ def _construir_figura_gsf(df: pd.DataFrame) -> go.Figure:
         height=460,
         hovermode="x unified",
     )
-    fig.update_xaxes(title_text="")
+    fig.update_xaxes(
+        title_text="",
+        dtick="M1",            # 1 tick por mes (todos os meses visiveis)
+        tickformat="%b/%y",    # formato compacto: "Nov/23"
+        tickangle=-45,         # rotaciona pra caber sem sobrepor
+    )
     fig.update_yaxes(
         title_text="GSF (%)",
         tickformat=".1f",
@@ -178,6 +191,15 @@ def render_aba_gsf() -> None:
     # Gráfico principal
     fig = _construir_figura_gsf(df)
     st.plotly_chart(fig, use_container_width=True)
+
+    # Footnote com fórmula validada (R3 dos refinos 2B+)
+    st.caption(
+        "**Fórmula** (Regras de Comercialização CCEE, módulo MRE, "
+        "item MR.2.1): GSF = Σ(GERACAO_MRE) / Σ(GARANTIA_FISICA_MRE), "
+        "agregando 4 submercados × todas as horas do mês. Fonte: dataset "
+        "CCEE GERACAO_HORARIA_SUBMERCADO. Validado em 12/12 meses contra "
+        "valores oficiais (Power BI CCEE + InfoPLD)."
+    )
 
     # Debug colapsado (legado da Fase 2A — diagnostico do retorno)
     with st.expander("Diagnóstico do `load_gsf_mensal()` (Fase 2A)",
