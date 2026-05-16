@@ -22,7 +22,10 @@ Fases internas (sprint GSF Fase 2):
     2B++ — refinos finais: legenda topo, eixo Y sem decimal, hover preto
     2C — tabela HTML ultimos 12 meses
     2C+ — micro-fix: remove data duplicada no hover unified
-    2D — period controls (este commit): date_input De/Ate, default 12M
+    2D — period controls: date_input De/Ate, default 12M
+    2D++ — refator (este commit): selectbox de periodo (MM/AAAA mensal,
+           "1T26" trimestral) + granularidade Mensal/Trimestral, layout
+           7 colunas do padrao Modulacao
     2E — polimento final (hover, markers, KPIs)
 
 Notas de design:
@@ -61,6 +64,141 @@ def _fmt_mes_pt(ts: pd.Timestamp) -> str:
     return f"{_MESES_PT_BR[ts.month]}/{ts.year}"
 
 
+def _construir_label_trimestre(ts: pd.Timestamp) -> str:
+    """'2026-01-01' (start of 1T26) -> '1T26'."""
+    ts = pd.Timestamp(ts)
+    trim = (ts.month - 1) // 3 + 1
+    return f"{trim}T{ts.year % 100:02d}"
+
+
+# =============================================================================
+# Granularidade (Fase 2D+)
+# =============================================================================
+
+LABELS_GRANULARIDADE = {
+    "mensal":     "Mensal",
+    "trimestral": "Trimestral",
+}
+_GRANULARIDADES = tuple(LABELS_GRANULARIDADE.keys())
+
+# Offset em meses pra computar data_ini default a partir de data_fim.
+# Mensal 12 = mantem comportamento aprovado em 2D (13 month-starts visiveis).
+# Trimestral 21 = exatamente 8 trimestres (start-of-quarter da janela).
+_DEFAULT_OFFSET_MESES = {
+    "mensal":     12,
+    "trimestral": 21,
+}
+
+
+def _marcar_datas_custom_gsf() -> None:
+    """on_change dos date_inputs: marca que o usuario mexeu nas datas.
+
+    Enquanto gsf_datas_custom eh False, trocar de granularidade re-deriva
+    a janela pro default da nova granularidade (sempre mostra ate o
+    ultimo periodo disponivel). Quando True, a janela custom persiste
+    entre granularidades — soh muda a agregacao subjacente.
+    """
+    st.session_state["gsf_datas_custom"] = True
+
+
+def _agregar_trimestral(df_mensal: pd.DataFrame) -> pd.DataFrame:
+    """Agrega df mensal -> trimestral. Index = start-of-quarter.
+
+    GSF recalculado do trimestre (sum / sum), NAO media de GSFs mensais
+    — semantica contabil correta.
+
+    Drop de trimestres incompletos NO INICIO (n_meses < 3) — exceto o
+    ultimo, que pode ser parcial (trim em andamento).
+    """
+    # 'QS' = quarter start frequency. Index resultante eh start-of-quarter
+    # (jan/abr/jul/out) — alinhado com convencao do projeto (1o dia do periodo).
+    agg = df_mensal.groupby(pd.Grouper(freq="QS")).agg(
+        sum_geracao_mre_mwh=("sum_geracao_mre_mwh", "sum"),
+        sum_gf_mre_mwh=("sum_gf_mre_mwh", "sum"),
+        fonte_dado=("fonte_dado", "first"),
+        n_meses=("gsf", "count"),
+    )
+    if agg.empty:
+        agg["gsf"] = []
+        return agg.drop(columns=["n_meses"])
+
+    # Drop incompletos no INICIO; preserva o ultimo mesmo se parcial.
+    max_idx = agg.index.max()
+    mask = (agg["n_meses"] >= 3) | (agg.index == max_idx)
+    agg = agg[mask].copy()
+
+    agg["gsf"] = agg["sum_geracao_mre_mwh"] / agg["sum_gf_mre_mwh"]
+    agg = agg.drop(columns=["n_meses"])
+    agg.index.name = "mes_ref"
+    return agg
+
+
+def _converter_periodo(ts, granularidade: str) -> pd.Timestamp:
+    """Snap ts pro start-of-period da granularidade.
+
+    mensal:     start-of-month (1o dia do mes que contem ts)
+    trimestral: start-of-quarter (1o dia do trim que contem ts)
+
+    Usado na troca de granularidade quando gsf_datas_custom=True —
+    converte as datas custom (uma "ancora") pro 1o dia do periodo
+    correspondente na nova granularidade.
+    """
+    ts = pd.Timestamp(ts)
+    if granularidade == "trimestral":
+        return ts.to_period("Q").start_time
+    return ts.to_period("M").start_time
+
+
+def _snap_to_options(ts, options: list) -> pd.Timestamp:
+    """Garante que ts existe em options; senao snap pro mais proximo <= ts
+    (ou primeiro/ultimo nas bordas).
+
+    Usado como clamp defensivo antes de instanciar selectbox: cobre
+    (a) migracao de tipo (date -> Timestamp ao reabrir sessao 2D)
+    (b) dataset shrinking entre granularidades
+    (c) qualquer valor de state que nao seja exatamente igual a um option
+
+    Streamlit lanca exception "value is not in options" se a key do
+    selectbox tem valor fora da lista — esse snap previne isso.
+    """
+    if not options:
+        return pd.Timestamp(ts)
+    ts = pd.Timestamp(ts)
+    options_sorted = sorted(options)
+    if ts in options_sorted:
+        return ts
+    if ts <= options_sorted[0]:
+        return options_sorted[0]
+    if ts >= options_sorted[-1]:
+        return options_sorted[-1]
+    # ts no meio do range mas nao bate exato: snap pro maior <= ts
+    valid = [o for o in options_sorted if o <= ts]
+    return valid[-1] if valid else options_sorted[0]
+
+
+def _default_janela_gsf(
+    df_agg: pd.DataFrame, granularidade: str,
+) -> tuple:
+    """Retorna (data_ini_default, data_fim_default) como date objects
+    pra inicializar gsf_data_ini/gsf_data_fim na 1a carga ou ao trocar
+    granularidade sem datas custom.
+
+    mensal: data_fim - 12 meses (~13 month-starts visiveis, igual 2D).
+    trimestral: data_fim - 21 meses (exatamente 8 trimestres).
+    """
+    if df_agg.empty:
+        # Sem dados — devolve um par seguro mesmo
+        hoje = pd.Timestamp.today().normalize()
+        return hoje.date(), hoje.date()
+    ultimo_ts = df_agg.index.max()
+    primeiro_ts = df_agg.index.min()
+    offset_meses = _DEFAULT_OFFSET_MESES.get(granularidade, 12)
+    data_ini_ts = ultimo_ts - pd.DateOffset(months=offset_meses)
+    if data_ini_ts < primeiro_ts:
+        data_ini_ts = primeiro_ts
+    return data_ini_ts.date(), ultimo_ts.date()
+
+
 # Cores derivadas pros preenchimentos de area semantica.
 # rgba inline em vez de utility pq sao usados so neste componente.
 # Deficit: COR_DESTAQUE (#CC092F vermelho Bradesco) @ 15%.
@@ -73,13 +211,19 @@ _FILL_SECUNDARIA = "rgba(135, 206, 235, 0.30)"  # azul ceu — abundancia semant
 _TRANSPARENT = "rgba(0,0,0,0)"
 
 
-def _construir_figura_gsf(df: pd.DataFrame) -> go.Figure:
-    """Monta a figura Plotly do GSF mensal com areas semanticas
-    deficit/secundaria.
+def _construir_figura_gsf(
+    df: pd.DataFrame, granularidade: str = "mensal",
+) -> go.Figure:
+    """Monta a figura Plotly do GSF com areas semanticas deficit/secundaria.
+
+    Suporta mensal e trimestral (Fase 2D+). O eixo X adapta:
+      - mensal: tickformat="%b/%y" (ex: "Nov/23"), dtick="M1"
+      - trimestral: tickvals + ticktext via _construir_label_trimestre
+        (ex: "1T26"). Sem dtick (1 tick por ponto).
 
     Padrao classico Plotly de "fill condicional" usando 4 traces:
         baseline -> y_baixo (fill='tonexty' = deficit, vermelho)
-        baseline -> y_alto  (fill='tonexty' = secundaria, verde)
+        baseline -> y_alto  (fill='tonexty' = secundaria, azul ceu)
     Linha principal preta vai POR CIMA como ultimo trace.
     """
     x = df.index
@@ -187,12 +331,26 @@ def _construir_figura_gsf(df: pd.DataFrame) -> go.Figure:
             font=dict(size=14, color="#000000"),
         ),
     )
-    fig.update_xaxes(
-        title_text="",
-        dtick="M1",            # 1 tick por mes (todos os meses visiveis)
-        tickformat="%b/%y",    # formato compacto: "Nov/23"
-        tickangle=-45,         # rotaciona pra caber sem sobrepor
-    )
+    # Eixo X — adapta por granularidade (Fase 2D+).
+    if granularidade == "trimestral":
+        # tickvals/ticktext explicito: 1 tick por trimestre, label custom
+        # "1T26" (Plotly nao tem format string nativo pra trimestre).
+        tickvals_trim = list(df.index)
+        ticktext_trim = [_construir_label_trimestre(ts) for ts in tickvals_trim]
+        fig.update_xaxes(
+            title_text="",
+            tickvals=tickvals_trim,
+            ticktext=ticktext_trim,
+            tickangle=-45,
+        )
+    else:
+        # Mensal: tick por mes, format compacto "Nov/23".
+        fig.update_xaxes(
+            title_text="",
+            dtick="M1",
+            tickformat="%b/%y",
+            tickangle=-45,
+        )
     fig.update_yaxes(
         title_text="GSF (%)",
         # tickformat ".0f" gera "90%" (sem decimal) nos eixos (R2).
@@ -311,61 +469,131 @@ def render_aba_gsf() -> None:
         st.error("load_gsf_mensal() retornou DataFrame vazio.")
         return
 
-    # ----- Period controls (Fase 2D) -----
-    # Decisao: 2 date_input puros (sem shortcut buttons). UI mais limpa,
-    # usuario tem controle total. Default na 1a carga = ultimos 12 meses.
+    # ----- Period controls (Fase 2D++) -----
+    # Padrao do componente Modulacao: layout FIXO de 7 colunas
+    # [2, 1, 1, 1, 5.2, 1.5, 1.5] independente da granularidade.
+    #   cols[0]    = selectbox granularidade (label collapsed)
+    #   cols[1..3] = INTENCIONALMENTE VAZIOS (era pra presets na Modulacao;
+    #                GSF nao expoe presets — slots preservados pra alinhar
+    #                visualmente com outras abas).
+    #   cols[4]    = spacer
+    #   cols[5..6] = selectbox "De" / "Ate" (substituem o date_input do 2D
+    #                porque GSF eh serie mensal/trimestral-nativa — dia
+    #                arbitrario seria ignorado, gerando UX confusa).
     #
-    # IMPORTANTE: init de session_state ANTES de instanciar widgets
-    # (pattern do CLAUDE.md §5.12). Sem `value=` nos widgets — so `key=`,
-    # pra evitar conflito de source of truth.
-    primeiro_ts = df.index.min()
-    ultimo_ts = df.index.max()
-    if "gsf_data_ini" not in st.session_state:
-        data_ini_default_ts = ultimo_ts - pd.DateOffset(months=12)
-        if data_ini_default_ts < primeiro_ts:
-            data_ini_default_ts = primeiro_ts
-        st.session_state["gsf_data_ini"] = data_ini_default_ts.date()
-        st.session_state["gsf_data_fim"] = ultimo_ts.date()
+    # Layout FIXO + zero st.rerun() na troca de granularidade sao
+    # intencionais (vide comentarios da Modulacao): rerun explicito
+    # limparia keys de widget nao-renderizado naquele frame.
+    st.session_state.setdefault("gsf_granularidade", "mensal")
+    st.session_state.setdefault("gsf_datas_custom", False)
 
-    col_lbl, col_de, col_ate = st.columns([1, 2, 2])
-    with col_lbl:
-        st.markdown("**Período:**")
-    with col_de:
-        st.date_input(
+    cols = st.columns([2, 1, 1, 1, 5.2, 1.5, 1.5])
+    with cols[0]:
+        granularidade = st.selectbox(
+            "Granularidade",
+            options=list(_GRANULARIDADES),
+            format_func=lambda g: LABELS_GRANULARIDADE[g],
+            key="gsf_granularidade",
+            label_visibility="collapsed",
+        )
+    # cols[1..3]: vazios (sem presets pro GSF — alinhamento visual).
+
+    # Agregacao da granularidade ANTES dos selectbox de periodo (precisa
+    # do df_agg pra ter as options corretas por granularidade).
+    if granularidade == "trimestral":
+        df_agg = _agregar_trimestral(df)
+    else:
+        df_agg = df
+
+    # Init das datas (1a carga ou cleanup parcial — OR cobre ambos).
+    if ("gsf_data_ini" not in st.session_state
+            or "gsf_data_fim" not in st.session_state):
+        di, dfim = _default_janela_gsf(df_agg, granularidade)
+        st.session_state["gsf_data_ini"] = pd.Timestamp(di)
+        st.session_state["gsf_data_fim"] = pd.Timestamp(dfim)
+
+    # Detectar troca de granularidade.
+    _gran_anterior = st.session_state.get("gsf_granularidade_anterior")
+    houve_troca = (
+        _gran_anterior is not None and _gran_anterior != granularidade
+    )
+    if houve_troca:
+        if not st.session_state["gsf_datas_custom"]:
+            # Re-derivar janela pro default da nova granularidade
+            # (sempre mostra ate o ultimo periodo disponivel).
+            di, dfim = _default_janela_gsf(df_agg, granularidade)
+            st.session_state["gsf_data_ini"] = pd.Timestamp(di)
+            st.session_state["gsf_data_fim"] = pd.Timestamp(dfim)
+        else:
+            # Datas custom: converter pro start-of-period da nova
+            # granularidade (Mensal "Dez/2024" -> Trim "4T24" etc.).
+            ini_atual = st.session_state["gsf_data_ini"]
+            fim_atual = st.session_state["gsf_data_fim"]
+            st.session_state["gsf_data_ini"] = _converter_periodo(
+                ini_atual, granularidade,
+            )
+            st.session_state["gsf_data_fim"] = _converter_periodo(
+                fim_atual, granularidade,
+            )
+    # Atualiza sempre (FORA do if) — sem isso, troca em 2 steps falha.
+    st.session_state["gsf_granularidade_anterior"] = granularidade
+
+    # Options dos selectbox = lista de start-of-period do df_agg.
+    opts_periodo = list(df_agg.index)
+    label_fn = (
+        _construir_label_trimestre
+        if granularidade == "trimestral"
+        else _fmt_mes_pt
+    )
+
+    # Clamp/snap defensivo pras options atuais. Cobre 3 cenarios:
+    #   (a) migracao 2D -> 2D++: state tinha date, options sao Timestamp;
+    #   (b) dataset shrinking entre granularidades (trim max_d < mensal max_d);
+    #   (c) qualquer valor stale fora das options atuais.
+    # Streamlit lanca "value is not in options" se a key tem valor invalido —
+    # esse snap garante que isso nunca acontece.
+    st.session_state["gsf_data_ini"] = _snap_to_options(
+        st.session_state["gsf_data_ini"], opts_periodo,
+    )
+    st.session_state["gsf_data_fim"] = _snap_to_options(
+        st.session_state["gsf_data_fim"], opts_periodo,
+    )
+
+    with cols[5]:
+        st.selectbox(
             "De",
+            options=opts_periodo,
+            format_func=label_fn,
             key="gsf_data_ini",
-            min_value=primeiro_ts.date(),
-            max_value=ultimo_ts.date(),
-            format="DD/MM/YYYY",
+            on_change=_marcar_datas_custom_gsf,
         )
-    with col_ate:
-        st.date_input(
+    with cols[6]:
+        st.selectbox(
             "Até",
+            options=opts_periodo,
+            format_func=label_fn,
             key="gsf_data_fim",
-            min_value=primeiro_ts.date(),
-            max_value=ultimo_ts.date(),
-            format="DD/MM/YYYY",
+            on_change=_marcar_datas_custom_gsf,
         )
 
-    # Ler de volta e validar (se usuario inverteu ini>fim, swap silencioso)
-    data_ini = st.session_state["gsf_data_ini"]
-    data_fim = st.session_state["gsf_data_fim"]
+    # Ler datas + swap silencioso se invertidas.
+    data_ini = pd.Timestamp(st.session_state["gsf_data_ini"])
+    data_fim = pd.Timestamp(st.session_state["gsf_data_fim"])
     if data_ini > data_fim:
         data_ini, data_fim = data_fim, data_ini
 
-    # Filtrar df pro grafico. df.index eh DatetimeIndex (1o dia do mes);
-    # comparar via .date() pra alinhar com tipo date dos widgets.
-    df_grafico = df[
-        (df.index.date >= data_ini) & (df.index.date <= data_fim)
+    # Filtragem simples: ambos sao start-of-period exatos (selectbox so
+    # permite valores das options). Sem regra de "trimestre parcial"
+    # — usuario escolhe trimestres inteiros, nao dias arbitrarios.
+    df_grafico = df_agg[
+        (df_agg.index >= data_ini) & (df_agg.index <= data_fim)
     ]
     if df_grafico.empty:
-        # Defesa contra cenario "0 linhas" — nao deveria ocorrer
-        # com min/max corretos, mas guarda contra edge cases.
         st.warning("Período selecionado sem dados. Mostrando série completa.")
-        df_grafico = df
+        df_grafico = df_agg
 
-    # Gráfico principal (usa df_grafico filtrado)
-    fig = _construir_figura_gsf(df_grafico)
+    # Gráfico principal (df_grafico filtrado + granularidade pro eixo X).
+    fig = _construir_figura_gsf(df_grafico, granularidade)
     st.plotly_chart(fig, use_container_width=True)
 
     # Tabela "Detalhamento — Últimos 12 meses" (Fase 2C).
