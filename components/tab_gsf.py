@@ -101,6 +101,55 @@ def _marcar_datas_custom_gsf() -> None:
     st.session_state["gsf_datas_custom"] = True
 
 
+# =============================================================================
+# Shadow state (Fase 2D++ bugfix — widget cleanup cross-tab)
+# =============================================================================
+# Problema: ao navegar pra outra aba, Streamlit faz cleanup das widget keys
+# nao renderizadas (gsf_granularidade, gsf_data_ini, gsf_data_fim).
+# Keys nao-widget (gsf_datas_custom, gsf_granularidade_anterior) sobrevivem,
+# criando estado inconsistente que reseta a UI pro default ao voltar.
+#
+# Solucao: espelhar as widget keys em keys "shadow" (prefixo gsf_shadow_*),
+# que NAO sao widget keys e sobrevivem ao cleanup. Restaurar a partir do
+# shadow no INICIO do render se as widget keys sumiram.
+#
+# Pattern alinhado com CLAUDE.md §5.18 (backup paralelo de selectbox sujeito
+# a cleanup).
+
+_SHADOW_MAP_GSF = {
+    "gsf_granularidade": "gsf_shadow_granularidade",
+    "gsf_data_ini":      "gsf_shadow_data_ini",
+    "gsf_data_fim":      "gsf_shadow_data_fim",
+}
+
+
+def _shadow_restore_gsf() -> None:
+    """Detecta widget cleanup (key ausente mas shadow presente) e restaura.
+
+    Roda no INICIO do render, ANTES de qualquer setdefault — assim o
+    setdefault nao sobrescreve a restauracao com defaults.
+
+    Edge case 1a render absoluta: nem widget keys nem shadows existem;
+    restore eh no-op; init defaults rola normal.
+    """
+    for src, dst in _SHADOW_MAP_GSF.items():
+        if src not in st.session_state and dst in st.session_state:
+            st.session_state[src] = st.session_state[dst]
+
+
+def _shadow_sync_gsf() -> None:
+    """Espelha widget keys → shadow keys.
+
+    Chamada no FIM do render (apos todas as mutacoes programaticas) e
+    sempre que o codigo muda widget keys (init, re-derivacao por troca
+    de granularidade). on_change dos selectbox NAO precisa chamar — o
+    proximo render acaba sincronizando aqui.
+    """
+    for src, dst in _SHADOW_MAP_GSF.items():
+        if src in st.session_state:
+            st.session_state[dst] = st.session_state[src]
+
+
 def _agregar_trimestral(df_mensal: pd.DataFrame) -> pd.DataFrame:
     """Agrega df mensal -> trimestral. Index = start-of-quarter.
 
@@ -453,6 +502,11 @@ def _construir_tabela_12m(df: pd.DataFrame) -> str:
 
 def render_aba_gsf() -> None:
     """Entry point da sub-aba GSF (chamada de app.py)."""
+    # FIRST: restaura widget keys do shadow se Streamlit fez cleanup
+    # ao sair da aba. Tem que vir ANTES de setdefault — senao o
+    # setdefault sobrescreveria a restauracao com defaults.
+    _shadow_restore_gsf()
+
     # Header padrao do projeto
     st.markdown("# GSF — FATOR DE AJUSTE DO MRE")
     st.markdown(
@@ -558,6 +612,11 @@ def render_aba_gsf() -> None:
     st.session_state["gsf_data_fim"] = _snap_to_options(
         st.session_state["gsf_data_fim"], opts_periodo,
     )
+
+    # Sincroniza shadow apos todas as mutacoes programaticas
+    # (init defaults, granularity-change re-derive/convert, snap).
+    # Garante que cross-tab navegando depois disso restaura tudo.
+    _shadow_sync_gsf()
 
     with cols[5]:
         st.selectbox(
