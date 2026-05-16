@@ -146,6 +146,17 @@ def _construir_figura_gsf(df: pd.DataFrame) -> go.Figure:
 
     # ---- Layout ----
     layout = plotly_layout_defaults()
+    # Sobrescreve legend dos defaults pra colocar no topo horizontal
+    # (libera ~15% de largura util pro plot — refino 2B++ R1).
+    layout["legend"] = dict(
+        orientation="h",
+        yanchor="bottom",
+        y=1.02,
+        xanchor="right",
+        x=1,
+        font=dict(color=COR_TEXTO),
+        bgcolor="rgba(0,0,0,0)",  # transparente, sem caixa
+    )
     fig.update_layout(
         **layout,
         title=dict(
@@ -154,6 +165,10 @@ def _construir_figura_gsf(df: pd.DataFrame) -> go.Figure:
         ),
         height=460,
         hovermode="x unified",
+        # Hover label: fonte maior e preta pra contraste maximo (R3).
+        hoverlabel=dict(
+            font=dict(size=14, color="#000000"),
+        ),
     )
     fig.update_xaxes(
         title_text="",
@@ -163,7 +178,10 @@ def _construir_figura_gsf(df: pd.DataFrame) -> go.Figure:
     )
     fig.update_yaxes(
         title_text="GSF (%)",
-        tickformat=".1f",
+        # tickformat ".0f" gera "90%" (sem decimal) nos eixos (R2).
+        # Hover da linha principal mantem 2 decimais via hovertemplate
+        # ("%{y:.2f}%") — precisao tecnica preservada no tooltip.
+        tickformat=".0f",
         ticksuffix="%",
     )
 
