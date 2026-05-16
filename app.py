@@ -1867,7 +1867,8 @@ with st.sidebar:
                     st.rerun()
 
         # Sub-itens condicionais embaixo de "Geração" (decisão 5.37 — pendente
-        # de doc): SIN (conteúdo histórico inalterado) + Eólica/Solar por Grupo.
+        # de doc): SIN (conteúdo histórico inalterado) + Eólica/Solar por Grupo +
+        # GSF (Fator de Ajuste do MRE, sprint GSF Fase 2A).
         # Keys com prefixo `nav_sub_gen_` casam com o CSS `[class*="st-key-nav_sub_"]`
         # via match por prefixo — sem CSS dedicado.
         if _aba_opcao == "Geração" and _is_active:
@@ -1876,6 +1877,7 @@ with st.sidebar:
             _subviews_gen = [
                 ("SIN", "SIN"),
                 ("Eólica/Solar por Grupo", "Grupo"),
+                ("GSF", "GSF"),
             ]
             for _label, _valor in _subviews_gen:
                 _is_sub_active = (
@@ -6885,6 +6887,17 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "G
     # -----------------------------------------------------------------------
     from components.tab_geracao_grupo import render_aba_geracao_grupo
     render_aba_geracao_grupo()
+
+elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "GSF":
+    # -----------------------------------------------------------------------
+    # Aba Geração — sub-view "GSF" (Fator de Ajuste do MRE — sprint GSF).
+    # Fórmula validada empiricamente Fase 0 (12/12 hits ±0.5pp):
+    #     GSF_mês = sum(GERACAO_MRE) / sum(GARANTIA_FISICA_MRE)
+    # do dataset CCEE GERACAO_HORARIA_SUBMERCADO.
+    # Componentizada em components/tab_gsf.py.
+    # -----------------------------------------------------------------------
+    from components.tab_gsf import render_aba_gsf
+    render_aba_gsf()
 
 elif aba == "Carga":
     # -----------------------------------------------------------------------
