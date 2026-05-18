@@ -4646,6 +4646,30 @@ Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regress
 
 **Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
 
+### 5.85 Script de validação automatizada GSF — Sprint Fase 3 (resolve §9.1)
+
+**Contexto:** Sprint GSF (§5.77) deixou pendente a Fase 3, um script que rode a fórmula do **loader do projeto** contra os 15 pontos oficiais (9 Power BI público CCEE + 6 InfoPLD) coletados na Fase 0. Diferença vs `scripts/validacao_final_gsf.py` (que existia desde a Fase 0): aquele baixa do CKAN direto e roda a fórmula manual — era a prova de Fase 0. O novo `scripts/validar_gsf_calculado_vs_mre.py` valida o **loader que de fato roda em produção** (`data_loaders/ccee_gsf.load_gsf_mensal()`), servindo como regressão contra mudanças silenciosas no dataset CCEE ou quebras introduzidas no `_agregar_mensal` / `_carregar_ano_horario`.
+
+**Estrutura do script:** segue o padrão dos outros `validate_*.py` / `validar_*.py` em `scripts/`. Imports relativos via `sys.path.insert`, `sys.stdout.reconfigure("utf-8")` pra Windows, `main()` central que retorna exit code (0 = OK, 1 = FAIL >1.0pp, 2 = erro fatal). 3 níveis de status por ponto: `[OK]` <0.5pp, `[WARN]` 0.5–1.0pp, `[FAIL]` >1.0pp. Pontos fora do range coberto pelo loader (nov/2023+) marcados como `SKIP` — não contam contra hits, são esperados (2 dos 15: mar/2023 e jul/2023).
+
+**Flag opcional `--fresh`:** limpa cache RAM + disk parquets via `clear_gsf_cache()` antes de carregar. Força re-download do CKAN (~25s, vs ~60ms warm-disk). Útil pra checar se o dataset realmente atual ainda bate. Default é não limpar (modo rápido).
+
+**Resultado da 1ª execução (18/05/2026):**
+```
+Pontos avaliados:   13/15 (skipados: 2)
+HITS  (<0.5pp):     13
+WARNS (0.5-1.0pp):  0
+FAILS (>1.0pp):     0
+Mean abs diff:      0.0370 pp
+Max  abs diff:      0.1626 pp
+```
+
+Comparativo com Fase 0 do §5.77 (que reportou "12/12 hits"): agora 13/13 — o ponto extra é 2026-02, que entrou na cobertura desde o snapshot de 16/05/2026. Mean abs diff 0.037pp vs 0.027pp original (variação esperada, dentro da margem). Formula do loader segue batendo com o oficial.
+
+**Quando rodar:** (a) após CCEE publicar novo mês (~2º dia útil do M+2); (b) após alterar `data_loaders/ccee_gsf.py`; (c) após upgrade de pandas/curl-cffi que possa afetar parse de CSV/JSON; (d) integrado em CI futuramente se valer a pena (exit code já está pronto pra isso).
+
+**Observação sobre tabela `GSF_OFICIAL_PCT`:** está duplicada em `validar_gsf_calculado_vs_mre.py` (novo) e `validacao_final_gsf.py` (existente). Decisão: aceitar duplicação — extrair pra módulo compartilhado adicionaria 1 import com baixo benefício (ambos os scripts são utilitários standalone, e a tabela só muda quando CCEE publicar novo gold standard ~anual). Atualizar nos dois lugares quando necessário.
+
 ### 5.84 Pendências §9.5 cosméticas — revisitadas (18/05/2026)
 
 Revisão dos 4 itens da §9.5 de Curtailment com o usuário. Resultado: 1 já estava feito, 1 aplicado, 2 rejeitados com regra de design explicitada pela primeira vez.
@@ -5498,11 +5522,7 @@ correspondente — esta seção é o índice operacional.
 
 ### 9.1 Sprint GSF — fases não entregues (snapshot 16/05/2026)
 
-- **Fase 3 — Script de validação automatizada.**
-  `scripts/validar_gsf_calculado_vs_mre.py` rodando a fórmula do loader
-  contra os 15 pontos oficiais com tolerância ±0,5pp. Útil como
-  regressão contra mudanças silenciosas do dataset CCEE. Esforço
-  ~1-2h. Detalhes em §5.77.
+- ~~**Fase 3 — Script de validação automatizada.**~~ ✅ **RESOLVIDO (18/05/2026)** — `scripts/validar_gsf_calculado_vs_mre.py` criado, 13/13 hits dentro de 0.5pp na 1ª execução. Detalhes em §5.85.
 
 - **Fase 4 V2 — Extensão histórica pré-nov/2023.**
   Dataset CCEE só cobre nov/2023+. Loader stub
