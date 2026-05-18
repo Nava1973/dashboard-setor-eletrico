@@ -146,6 +146,15 @@ _DEFAULT_ACL = 200.0
 _DEFAULT_SPOT = 50.0
 _DEFAULT_ALOC = {"hidro": 100.0, "eolica": 0.0, "solar": 0.0}
 
+# Usuários com permissão de editar a Estimativa BBI (baseline oficial visto
+# por todos). Demais usuários veem o baseline como ponto de partida e podem
+# montar cenários pessoais em cima — sem afetar o BBI.
+ADMIN_USERS = {"Nava", "Fagundes", "Caruso"}
+
+# Key especial no JSON pra Estimativa BBI. Prefixo `_` separa de usernames
+# reais (que nunca começam com `_`).
+_BBI_KEY = "_bbi"
+
 _PREMISSAS_PATH = (
     Path(__file__).resolve().parent.parent
     / "data" / "premissas_receita_modulacao.json"
@@ -177,7 +186,9 @@ def _premissas_default() -> dict:
 
 
 def _carregar_premissas(user: str) -> dict:
-    """Premissas salvas do usuário; cai pros defaults onde não houver/erro.
+    """Cascata em 3 camadas: code defaults → Estimativa BBI (baseline
+    oficial) → premissas pessoais do user. Cada camada sobrescreve a
+    anterior campo a campo (None = não sobrescreve).
     Dados de schema antigo (sem `_versao` atual) são ignorados."""
     base = _premissas_default()
     try:
@@ -185,24 +196,68 @@ def _carregar_premissas(user: str) -> dict:
             todas = json.loads(_PREMISSAS_PATH.read_text(encoding="utf-8"))
             if todas.get("_versao") != _PREMISSAS_VERSAO:
                 return base  # schema antigo → ignora, usa defaults
-            salvas = todas.get(user, {})
-            for emp in EMPRESAS:
-                for tri in TRIMESTRES:
-                    cell = salvas.get(emp, {}).get(tri, {})
-                    for k in _CAMPOS_CELULA:
-                        if cell.get(k) is not None:
-                            base[emp][tri][k] = float(cell[k])
+            # Camada 1: Estimativa BBI; Camada 2: cenário pessoal do user
+            for fonte in (todas.get(_BBI_KEY, {}), todas.get(user, {})):
+                for emp in EMPRESAS:
+                    for tri in TRIMESTRES:
+                        cell = fonte.get(emp, {}).get(tri, {})
+                        for k in _CAMPOS_CELULA:
+                            if cell.get(k) is not None:
+                                base[emp][tri][k] = float(cell[k])
     except Exception:
         pass
     return base
 
 
+def _carregar_baseline_bbi() -> dict | None:
+    """Retorna a Estimativa BBI (baseline oficial) ou None se não existir.
+    Usado pra detectar se o usuário está vendo o baseline ou um cenário."""
+    try:
+        if not _PREMISSAS_PATH.exists():
+            return None
+        todas = json.loads(_PREMISSAS_PATH.read_text(encoding="utf-8"))
+        if todas.get("_versao") != _PREMISSAS_VERSAO:
+            return None
+        return todas.get(_BBI_KEY)
+    except Exception:
+        return None
+
+
 def _salvar_premissas(user: str, premissas: dict) -> bool:
-    """Grava as premissas do usuário no JSON compartilhado (best-effort).
+    """Grava as premissas pessoais do user no JSON compartilhado (best-effort).
 
     No Streamlit Cloud o disco é efêmero (apagado em restart do container)
     — persiste localmente sempre, no Cloud só entre reinícios.
     """
+    return _gravar_secao(user, premissas)
+
+
+def _salvar_baseline_bbi(premissas: dict) -> bool:
+    """Grava a Estimativa BBI (baseline oficial). Só admins devem chamar —
+    a checagem de permissão fica na UI, esta função apenas escreve."""
+    return _gravar_secao(_BBI_KEY, premissas)
+
+
+def _apagar_premissas_usuario(user: str) -> bool:
+    """Remove a seção pessoal do user (usado pelo Reset → BBI).
+    Após isso, o user passa a ver a Estimativa BBI ao recarregar."""
+    try:
+        if not _PREMISSAS_PATH.exists():
+            return True
+        todas = json.loads(_PREMISSAS_PATH.read_text(encoding="utf-8"))
+        if user in todas:
+            del todas[user]
+            _PREMISSAS_PATH.write_text(
+                json.dumps(todas, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        return True
+    except Exception:
+        return False
+
+
+def _gravar_secao(chave: str, premissas: dict) -> bool:
+    """Grava uma seção qualquer no JSON (user ou _bbi), preservando o resto."""
     try:
         _PREMISSAS_PATH.parent.mkdir(parents=True, exist_ok=True)
         todas = {}
@@ -211,11 +266,11 @@ def _salvar_premissas(user: str, premissas: dict) -> bool:
                 existente = json.loads(
                     _PREMISSAS_PATH.read_text(encoding="utf-8"))
                 if existente.get("_versao") == _PREMISSAS_VERSAO:
-                    todas = existente  # preserva outros usuários
+                    todas = existente  # preserva outras seções
             except Exception:
                 pass
         todas["_versao"] = _PREMISSAS_VERSAO
-        todas[user] = premissas
+        todas[chave] = premissas
         _PREMISSAS_PATH.write_text(
             json.dumps(todas, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -223,6 +278,27 @@ def _salvar_premissas(user: str, premissas: dict) -> bool:
         return True
     except Exception:
         return False
+
+
+def _premissas_iguais(a: dict, b: dict | None) -> bool:
+    """Compara dois dicts de premissas com tolerância pequena pra floats.
+    Usado pra detectar se o usuário está com o baseline BBI puro ou se já
+    divergiu (cenário pessoal)."""
+    if b is None:
+        return False
+    for emp in EMPRESAS:
+        for tri in TRIMESTRES:
+            ac = a.get(emp, {}).get(tri, {})
+            bc = b.get(emp, {}).get(tri, {})
+            for k in _CAMPOS_CELULA:
+                av, bv = ac.get(k), bc.get(k)
+                if av is None and bv is None:
+                    continue
+                if av is None or bv is None:
+                    return False
+                if abs(float(av) - float(bv)) > 1e-6:
+                    return False
+    return True
 
 
 # =============================================================================
@@ -338,7 +414,9 @@ def _spread_display(empresa, tri, aloc, spread_tri):
 
 def _calcular_receita(premissas: dict, spread_tri: dict, tris_reais) -> pd.DataFrame:
     """DataFrame: empresa, trimestre, tipo, receita_realizada, receita_estimada
-    (R$mn — podem ser negativas), n_horas, data_label."""
+    (R$mn — podem ser negativas), n_horas, data_label, acl_mwmed, spot_mwmed,
+    total_mwmed, spread_aplicado (R$/MWh — médio total já ponderado por
+    submercado e fontes; trimestres reais usam regra ACL, futuros o assumido)."""
     linhas = []
     for emp in EMPRESAS:
         for tri in TRIMESTRES:
@@ -363,6 +441,9 @@ def _calcular_receita(premissas: dict, spread_tri: dict, tris_reais) -> pd.DataF
                     receita_est = receita_td
                     tipo = "fechado"
                     data_label = "trimestre fechado"
+                # Spread "exibido" = mesmo valor da coluna Spread da Tabela 1
+                # (ponderado regra ACL — coerente com o que o usuário vê).
+                spread_aplicado = ws_acl
             else:
                 spread_assumido = premissas[emp][tri].get("spread")
                 if spread_assumido is None:
@@ -374,12 +455,16 @@ def _calcular_receita(premissas: dict, spread_tri: dict, tris_reais) -> pd.DataF
                 tipo = "futuro"
                 n_horas = 0
                 data_label = "estimativa"
+                spread_aplicado = float(spread_assumido)
 
             linhas.append({
                 "empresa": emp, "trimestre": tri, "tipo": tipo,
                 "receita_realizada": receita_td,
                 "receita_estimada": receita_est,
                 "n_horas": n_horas, "data_label": data_label,
+                "acl_mwmed": acl, "spot_mwmed": spot,
+                "total_mwmed": acl + spot,
+                "spread_aplicado": spread_aplicado,
             })
     return pd.DataFrame(linhas)
 
@@ -617,7 +702,7 @@ def _render_grafico(df_receita: pd.DataFrame, empresa: str) -> None:
         return
     ordem = {t: i for i, t in enumerate(TRIMESTRES)}
     dfe["_ord"] = dfe["trimestre"].map(ordem)
-    dfe = dfe.sort_values("_ord")
+    dfe = dfe.sort_values("_ord").reset_index(drop=True)
 
     # Rótulos do eixo X — trimestre corrente ganha o "até DD/mmm".
     x_labels = [
@@ -632,6 +717,15 @@ def _render_grafico(df_receita: pd.DataFrame, empresa: str) -> None:
         dfe["receita_estimada"] - dfe["receita_realizada"]
     ).tolist()
 
+    # customdata: [spread, acl, spot, total] — só a trace de linha consome
+    # esse customdata. As barras usam hoverinfo="skip" porque o R$mn já está
+    # impresso DENTRO da barra (redundante repetir no hover) e o spread é
+    # único por trimestre (mesmo valor pra realizado e estimado), então não
+    # faz sentido separar a contribuição de cada um.
+    customdata = dfe[
+        ["spread_aplicado", "acl_mwmed", "spot_mwmed", "total_mwmed"]
+    ].to_numpy()
+
     # Texto DENTRO de cada bloco — cada número vive na sua própria trace,
     # então some/volta junto quando o usuário liga/desliga a trace na legenda.
     def _txt(vals):
@@ -645,21 +739,180 @@ def _render_grafico(df_receita: pd.DataFrame, empresa: str) -> None:
         name="Realizado",
         x=x_labels, y=realizado,
         marker=dict(color=COR_REALIZADO),
-        text=_txt(realizado), textposition="inside",
-        insidetextanchor="middle",
-        textfont=dict(family="Inter, sans-serif", size=14, color="#FFFFFF"),
-        hovertemplate="Realizado: R$mn %{y:.0f}<extra></extra>",
+        hoverinfo="skip",
     ))
     fig.add_trace(go.Bar(
         name="Estimativa",
         x=x_labels, y=estimativa_inc,
         marker=dict(color=COR_ESTIMATIVA),
-        text=_txt(estimativa_inc), textposition="inside",
-        insidetextanchor="middle",
+        hoverinfo="skip",
+    ))
+
+    # --- Label única por barra (= total estimado, altura cheia da barra) ---
+    # Como o hover unificou Realizado/Estimativa num único bloco (spread é
+    # o mesmo nas duas categorias), a label também precisa ser única —
+    # quebrar em dois números (parcial + incremento) só polui o visual.
+    # Posicionamento: FORA do tip da barra (acima se positivo, abaixo se
+    # negativo), texto escuro contra o fundo creme — funciona pra trimestre
+    # fechado, corrente parcial e futuro sem mexer em cor de fonte por trace.
+    total_vals = dfe["receita_estimada"].tolist()
+    total_text = _txt(total_vals)
+    total_textpos = [
+        "top center" if v >= 0 else "bottom center" for v in total_vals
+    ]
+    fig.add_trace(go.Scatter(
+        x=x_labels, y=total_vals,
+        mode="text",
+        text=total_text,
+        textposition=total_textpos,
         textfont=dict(family="Inter, sans-serif", size=14,
                       color=BAUHAUS_BLACK),
-        hovertemplate="Estimativa: R$mn %{y:.0f}<extra></extra>",
+        hoverinfo="skip", showlegend=False, cliponaxis=False,
     ))
+
+    # --- Linha de Spread aplicado (eixo Y secundário) ---------------------
+    # Cor neutra escura, fina; vértices marcados pra ancorar cada trimestre.
+    # Tracejada nos trim. futuros (premissa, não realizado) e contínua nos
+    # reais. Pra ter dash misto, uso 2 traces que compartilham o ponto de
+    # transição (último real = primeiro futuro), mantendo a linha visualmente
+    # contínua mas com estilos distintos por segmento.
+    COR_SPREAD = "#3A3A3A"
+    spreads = dfe["spread_aplicado"].tolist()
+    tipos = dfe["tipo"].tolist()
+
+    def _segmento(condicao):
+        """Y do segmento — None nos pontos fora do segmento (Plotly não
+        desenha None, mantendo o eixo X intacto)."""
+        return [s if condicao(t, i) else None
+                for i, (t, s) in enumerate(zip(tipos, spreads))]
+
+    # Índice do último trimestre real (pra fazer a ponte com o tracejado).
+    idx_ultimo_real = max(
+        (i for i, t in enumerate(tipos) if t != "futuro"), default=-1,
+    )
+
+    y_real = _segmento(lambda t, i: t != "futuro")
+    # Futuro: APENAS pontos futuros (sem o ponto de transição). Antes eu
+    # incluía o ponto de transição em ambas as traces pra ter visual contínuo,
+    # mas isso causava hover DUPLICADO no trimestre de transição (2T26 no
+    # caso EQTL — vide bug reportado). Agora a continuidade visual vem da
+    # trace "ponte" abaixo.
+    y_futuro = [s if t == "futuro" else None
+                for t, s in zip(tipos, spreads)]
+    # Ponte: 2 pontos só (último real → primeiro futuro), tracejada, SEM
+    # markers e SEM hover — só une visualmente os dois segmentos.
+    y_bridge = [None] * len(spreads)
+    if (idx_ultimo_real >= 0 and idx_ultimo_real + 1 < len(spreads)
+            and tipos[idx_ultimo_real + 1] == "futuro"):
+        y_bridge[idx_ultimo_real] = spreads[idx_ultimo_real]
+        y_bridge[idx_ultimo_real + 1] = spreads[idx_ultimo_real + 1]
+
+    # Hover da linha = ÚNICA fonte de info no tooltip. Spread em 2 decimais
+    # (R$/MWh — granularidade fina importa); ACL/Spot/Total sem decimais
+    # (MWmed — número arredondado é mais legível).
+    # Prefixo "─●─" colorido na linha de Spread = marcador inline que deixa
+    # claro qual item é o da linha. Plotly em "x unified" centraliza o
+    # símbolo da trace verticalmente no bloco inteiro, então com 4 linhas
+    # ele cai no meio (em "Venda ACL"); este prefixo resolve sem refactor.
+    hover_line = (
+        f"<span style='color:{COR_SPREAD}'>─●─</span> "
+        "Spread modulação: R$/MWh %{customdata[0]:,.2f}<br>"
+        "Venda ACL: %{customdata[1]:,.0f} MWmed<br>"
+        "Venda Spot: %{customdata[2]:,.0f} MWmed<br>"
+        "<b>Total: %{customdata[3]:,.0f} MWmed</b>"
+        "<extra></extra>"
+    )
+
+    fig.add_trace(go.Scatter(
+        name="Spread aplicado",
+        x=x_labels, y=y_real,
+        mode="lines+markers",
+        line=dict(color=COR_SPREAD, width=1.6, shape="linear"),
+        marker=dict(size=9, color=COR_SPREAD,
+                    line=dict(width=1.2, color=BAUHAUS_CREAM)),
+        yaxis="y2",
+        customdata=customdata,
+        hovertemplate=hover_line,
+        legendgroup="spread",
+        connectgaps=False,
+    ))
+    # Ponte tracejada (sem markers, sem hover) — só une visualmente os dois
+    # segmentos. Como o hover é skip, não duplica o tooltip no trimestre de
+    # transição (que continua tendo hover só pela trace real).
+    if any(v is not None for v in y_bridge):
+        fig.add_trace(go.Scatter(
+            x=x_labels, y=y_bridge,
+            mode="lines",
+            line=dict(color=COR_SPREAD, width=1.6, dash="dash"),
+            yaxis="y2",
+            hoverinfo="skip",
+            showlegend=False,
+            connectgaps=False,
+        ))
+    # Segmento futuro — tracejado. showlegend=False pra não duplicar na legenda.
+    if any(v is not None for v in y_futuro):
+        fig.add_trace(go.Scatter(
+            name="Spread aplicado",
+            x=x_labels, y=y_futuro,
+            mode="lines+markers",
+            line=dict(color=COR_SPREAD, width=1.6, dash="dash"),
+            marker=dict(size=9, color=COR_SPREAD,
+                        line=dict(width=1.2, color=BAUHAUS_CREAM)),
+            yaxis="y2",
+            customdata=customdata,
+            hovertemplate=hover_line,
+            legendgroup="spread",
+            showlegend=False,
+            connectgaps=False,
+        ))
+
+    # --- Range Y1 + Y2: zona reservada pra linha de spread no topo ---
+    # Problema anterior: em barras pequenas (tip perto de 0), o label da barra
+    # (posicionado FORA do tip) caía na mesma faixa vertical do vértice da
+    # linha de spread (puxada pro topo via Y2), gerando overlap visual.
+    # Solução: estender Y1 com ~40% de headroom acima da maior barra; mapear
+    # Y2 pra que os vértices da linha caiam EXATAMENTE nessa headroom.
+    # Resultado: bars vivem na parte inferior, linha vive na parte superior,
+    # sempre fisicamente separadas — independente do tamanho da barra.
+    all_bar_vals = [v for v in realizado if v is not None]
+    all_bar_vals.extend(
+        v for v in dfe["receita_estimada"].tolist() if v is not None
+    )
+    all_bar_vals.append(0)  # garante que 0 sempre está no range
+    b_min = min(all_bar_vals)
+    b_max = max(all_bar_vals)
+    bar_amp = max(b_max - b_min, 1.0)
+    HEADROOM_TOP = 0.40  # 40% extra acima do bar_max = zona da linha
+    BOTTOM_PAD = 0.05
+    y1_top = b_max + HEADROOM_TOP * bar_amp
+    y1_bot = b_min - BOTTOM_PAD * bar_amp
+    y1_range = [y1_bot, y1_top]
+    y1_height = y1_top - y1_bot
+
+    # Y2: mapeia spread_min/max pra zona "logo acima das barras" → "quase no topo"
+    spreads_clean = [s for s in spreads if s is not None]
+    yaxis2_range = None
+    if spreads_clean:
+        s_min = min(spreads_clean)
+        s_max = max(spreads_clean)
+        s_diff = s_max - s_min
+        if s_diff < 0.5:  # spreads quase iguais — synthesize range pra evitar
+            pad = max(abs(s_max), 1.0) * 0.1
+            s_min -= pad
+            s_max += pad
+            s_diff = s_max - s_min
+        # Faixa visual reservada (em unidades Y1): de "logo acima do bar_max
+        # com margem" até "quase no topo do Y1 com pequeno respiro".
+        v_low = b_max + 0.12 * bar_amp
+        v_high = y1_top - 0.05 * y1_height
+        # Resolve y2_min/y2_max tal que s_min → v_low e s_max → v_high
+        # quando projetados na mesma faixa visual do Y1.
+        f_low = (v_low - y1_bot) / y1_height
+        f_high = (v_high - y1_bot) / y1_height
+        dy2 = s_diff / (f_high - f_low)
+        y2_min = s_min - f_low * dy2
+        y2_max = y2_min + dy2
+        yaxis2_range = [y2_min, y2_max]
 
     fig.update_layout(
         barmode="relative",  # empilha respeitando sinal (suporta negativos)
@@ -697,6 +950,21 @@ def _render_grafico(df_receita: pd.DataFrame, empresa: str) -> None:
                           color=BAUHAUS_BLACK),
             zeroline=True, zerolinecolor=BAUHAUS_BLACK, zerolinewidth=1.5,
             tickformat=",.0f",
+            # Range explícito com headroom no topo pra acomodar a linha de
+            # spread numa "zona reservada" — evita overlap com label das barras.
+            range=y1_range,
+        ),
+        # Eixo Y2 (spread): invisível por pedido do usuário — só serve pra
+        # escalar a linha sem competir com o eixo das barras. O range é
+        # forçado (não-autoscale) pra manter a linha no top ~25% do gráfico
+        # e evitar overlap com as barras quando spread e receita têm o mesmo
+        # sinal/magnitude (caso EQTL).
+        yaxis2=dict(
+            overlaying="y", side="right",
+            showgrid=False, showline=False, zeroline=False,
+            showticklabels=False, ticks="",
+            title=None,
+            range=yaxis2_range,
         ),
         font=dict(family="Inter, sans-serif", size=12),
     )
@@ -756,7 +1024,14 @@ def _render_impl(user: str) -> None:
         st.session_state["receita_premissas_base_v2"] = _carregar_premissas(user)
     premissas_base = st.session_state["receita_premissas_base_v2"]
 
+    # Permissão: admin pode gravar na Estimativa BBI; demais só na própria
+    # seção. Baseline BBI carregado direto do disco pra detectar se o que
+    # o user está vendo agora é o BBI puro ou se já divergiu pro cenário dele.
+    is_admin = user in ADMIN_USERS
+    bbi_baseline = _carregar_baseline_bbi()
+
     chart_box = st.container()      # gráfico no topo (renderizado depois)
+    modo_box = st.container()       # rótulo "Estimativa BBI" / "Cenário pessoal"
 
     st.markdown(
         f'<div style="font-family:\'Inter\', sans-serif; '
@@ -810,20 +1085,134 @@ def _render_impl(user: str) -> None:
                 "aloc_solar": aloc_atual[emp][tri]["solar"],
             }
 
-    col_btn, _ = st.columns([1, 4])
-    with col_btn:
-        salvar = st.button("Salvar premissas", use_container_width=True)
-    if salvar:
-        # st.toast: notificação transitória (aparece e some sozinha) — evita
-        # que o usuário ache que o salvamento é automático.
-        ok = _salvar_premissas(
-            user, _para_salvar(premissas_atual, spreads_auto, tris_futuros))
-        if ok:
-            st.toast("Premissas salvas.", icon="✅")
+    # --- Rótulo "modo" + botões adaptativos por permissão ---
+    # IMPORTANTE: comparar contra `payload` (versão normalizada, com spreads
+    # futuros = None quando coincidem com o auto), não contra `premissas_atual`
+    # (versão materializada com spreads já calculados). Sem isso, o spread
+    # auto-calculado em RAM vs o `None` salvo no BBI causam falso "divergiu".
+    payload = _para_salvar(premissas_atual, spreads_auto, tris_futuros)
+
+    # Modo preview do admin: lê do session_state ANTES de renderizar botões
+    # (o widget checkbox em si fica DEPOIS dos botões — menos churn visual
+    # quando o admin toggle). Default False na primeira visita.
+    # Banner amarelo de aviso vai DEPOIS do checkbox (renderizado lá embaixo).
+    preview_user = (
+        is_admin and st.session_state.get("receita_preview_user", False)
+    )
+    is_admin_efetivo = is_admin and not preview_user
+
+    viewing_bbi = _premissas_iguais(payload, bbi_baseline)
+    with modo_box:
+        if viewing_bbi:
+            st.markdown(
+                f'<div style="font-family:\'Bebas Neue\', sans-serif; '
+                f'font-size:1rem; letter-spacing:0.08em; color:{BAUHAUS_BLACK}; '
+                f'background:{BAUHAUS_LIGHT}; padding:0.4rem 0.8rem; '
+                f'border-left:4px solid {BAUHAUS_RED}; margin:0.5rem 0;">'
+                f'📊 ESTIMATIVA BBI'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
         else:
-            st.toast(
-                "Não foi possível salvar (disco somente leitura?).",
-                icon="⚠️",
+            st.markdown(
+                f'<div style="font-family:\'Inter\', sans-serif; '
+                f'font-size:0.9rem; color:{COR_TEXTO_SECUND}; '
+                f'background:{BAUHAUS_LIGHT}; padding:0.4rem 0.8rem; '
+                f'border-left:4px solid {COR_TEXTO_SECUND}; margin:0.5rem 0; '
+                f'font-style:italic;">'
+                f'Cenário pessoal — diferente da Estimativa BBI'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    if is_admin_efetivo:
+        col_a, col_b, _ = st.columns([1.3, 1.3, 2.4])
+        with col_a:
+            salvar_bbi = st.button(
+                "Salvar como Estimativa BBI", use_container_width=True,
+                type="primary",
+                help="Atualiza o baseline oficial visto por todos os usuários.",
+            )
+        with col_b:
+            salvar = st.button(
+                "Salvar minhas premissas", use_container_width=True,
+                help="Salva apenas no seu cenário pessoal (não afeta o BBI).",
+            )
+        if salvar_bbi:
+            if _salvar_baseline_bbi(payload):
+                st.toast("Estimativa BBI atualizada.", icon="✅")
+                st.rerun()  # rerun pra atualizar o rótulo "modo"
+            else:
+                st.toast(
+                    "Não foi possível salvar (disco somente leitura?).",
+                    icon="⚠️",
+                )
+        if salvar:
+            if _salvar_premissas(user, payload):
+                st.toast("Premissas pessoais salvas.", icon="✅")
+            else:
+                st.toast(
+                    "Não foi possível salvar (disco somente leitura?).",
+                    icon="⚠️",
+                )
+    else:
+        col_a, col_b, _ = st.columns([1.3, 1.6, 2.1])
+        with col_a:
+            salvar = st.button(
+                "Salvar minhas premissas", use_container_width=True,
+                type="primary",
+                help="Salva o cenário pessoal só pra você.",
+            )
+        with col_b:
+            reset_bbi = st.button(
+                "Resetar para Estimativa BBI", use_container_width=True,
+                help="Apaga suas premissas e volta a ver o baseline oficial.",
+            )
+        if salvar:
+            if _salvar_premissas(user, payload):
+                st.toast("Premissas pessoais salvas.", icon="✅")
+            else:
+                st.toast(
+                    "Não foi possível salvar (disco somente leitura?).",
+                    icon="⚠️",
+                )
+        if reset_bbi:
+            if _apagar_premissas_usuario(user):
+                # Limpa session_state pra forçar recarregar do BBI.
+                st.session_state.pop("receita_premissas_base_v2", None)
+                st.toast("Premissas resetadas para a Estimativa BBI.",
+                         icon="✅")
+                st.rerun()
+            else:
+                st.toast("Não foi possível resetar.", icon="⚠️")
+
+    # Checkbox de preview (admin-only) — posicionado ABAIXO dos botões pra
+    # minimizar churn visual no toggle. O valor é lido lá em cima via
+    # st.session_state antes da renderização dos botões; o widget aqui apenas
+    # registra/atualiza o estado quando o admin clica. O banner amarelo de
+    # aviso (quando preview está on) fica logo abaixo do checkbox, associado
+    # visualmente ao controle que ativou ele.
+    if is_admin:
+        st.markdown(
+            '<div style="margin-top:0.4rem;"></div>', unsafe_allow_html=True,
+        )
+        st.checkbox(
+            "👁️ Admin: Ver como usuário comum (preview)",
+            key="receita_preview_user",
+            help="Mostra a tela igual a um usuário sem permissão de admin "
+                 "veria — botões e contexto não-admin. Útil pra validar a UX.",
+        )
+        if preview_user:
+            st.markdown(
+                '<div style="background:#FFF3CD; border-left:4px solid #FFC107; '
+                'padding:0.4rem 0.8rem; margin:0.3rem 0 0.6rem 0; '
+                'font-family:Inter, sans-serif; font-size:0.85rem; '
+                'color:#856404;">'
+                '<b>MODO PREVIEW</b> — você está vendo a tela como um usuário '
+                'comum (não-admin) veria. Os botões acima executam ações de '
+                'verdade na sua conta — saving/reset afeta seu cenário pessoal.'
+                '</div>',
+                unsafe_allow_html=True,
             )
 
     # Cálculo + gráfico (no container do topo).
