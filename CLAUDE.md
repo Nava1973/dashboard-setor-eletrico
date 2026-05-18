@@ -4646,6 +4646,18 @@ Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regress
 
 **Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
 
+### 5.89 PLD mensal — ticks por mês + markers nos pontos (2 fixes visuais)
+
+**Contexto:** usuário pediu pra ver todos os meses no eixo X do gráfico do PLD em granularidade Mensal (preset 12M mostrava só 6 ticks, a cada 2 meses, com sobra de espaço óbvia). Investigação revelou 3 problemas — fixes 1+2 entregues nesta nota; fix 3 (mês corrente parcial) fica pra próxima.
+
+**Fix 1 — Tick faltando no extremo direito.** Primeira tentativa usou `dtick="M1"` + `tickformat="%b/%y"` na config do xaxis (cobrindo só granularidade mensal + período ≤ 18 meses). Funcionou parcialmente: 12M mostrou 12 ticks, mas o preset **6M** sumia o "Apr/26" (último mês). Sintoma conhecido do Plotly: `dtick` às vezes não desenha tick que coincide com o extremo direito do range. **Solução robusta:** trocar `dtick` por `tickvals=list(pivot.index)`. Força 1 tick exato em cada ponto do pivot, independente da heurística do Plotly. 100% garantido pra todos os presets (1M/3M/6M/12M).
+
+**Fix 2 — Preset 1M mostrava gráfico vazio.** Filtragem `[data_fim - 30 dias, data_fim]` deixa só 1 mês no pivot em granularidade mensal (apenas a linha do start_of_month dentro da janela). O trace usava `mode="lines"` puro — sem 2+ pontos não desenha nada visível. **Solução:** `mode="lines+markers"` quando granularidade=mensal, com marker estilizado (size 7, borda creme pra destacar contra a linha). Ponto único vira marker visível, e como bônus 3M/6M/12M ganham pontos demarcando cada mês (facilita leitura precisa).
+
+**Escopo intencional:** ambos os fixes são condicionados a `granularidade == "mensal"`. Em granularidades com muitos pontos (horária 24/dia, diária 30+/mês, semanal 4/mês), `tickvals` explícito ou `markers` poluiriam visualmente. Para a granularidade **mensal + "Máx"** (60+ meses, ~6 anos), só `tickvals` está condicionado também a `len(pivot) <= 18` (mantém autoscale do Plotly); markers no Máx ainda aparecem (validado visualmente, aceitável).
+
+**Pendência relacionada (não-entregue):** usuário também pediu mostrar o mês corrente parcial (ex.: "Mai/26 até 18" com média pro-rata dos dias já publicados) nos presets 3M/6M/12M. Feature maior (~1-2h) — requer carregar dataset diário em paralelo, computar média parcial, adicionar linha sintética no pivot mensal com flag `parcial=True`, e tratar overlap quando o mês fechar e CCEE publicar o oficial. Adiada pra próxima sessão pra alinhar regras (mínimo de dias pra mostrar, label exato, comportamento no hover) antes de implementar.
+
 ### 5.88 Sidebar — sub-views fantasmas no hover (descoberta passiva)
 
 **Contexto:** sidebar tinha 4 abas com sub-views (Despacho Térmico, Geração, Modulação, Carga) escondidas até o usuário clicar na aba pai. Usuário argumentou perda comercial (100 clientes usam o dash) — features grandes como GSF, Crescimento, Receita por Empresa ficavam invisíveis na exploração. Proposta: mostrar sub-views em "fantasma" cinza claro quando hover na aba pai; em mobile/touch (sem hover real) preservar comportamento atual.

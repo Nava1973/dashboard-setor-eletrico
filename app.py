@@ -2669,6 +2669,13 @@ if aba == "PLD":
 
     series_plot = list(SUBMERCADOS_ORD)
 
+    # Mensal ganha markers nas linhas (mode="lines+markers"): em presets
+    # curtos (1M = 1 ponto, 3M = 3 pontos) o "lines" puro nao desenha nada
+    # ou quase nada — markers garantem visibilidade do dado. Em outras
+    # granularidades (horario/diario/semanal com centenas/milhares de
+    # pontos), markers poluiriam visualmente — fica so "lines".
+    _trace_mode = "lines+markers" if granularidade == "mensal" else "lines"
+
     for col in series_plot:
         if col not in pivot.columns:
             continue
@@ -2683,11 +2690,16 @@ if aba == "PLD":
                 x=pivot.index,
                 y=pivot[col],
                 name=col,
-                mode="lines",
+                mode=_trace_mode,
                 line=dict(
                     color=cor_linha,
                     width=2.5,
                     dash="solid",
+                ),
+                marker=dict(
+                    color=cor_linha,
+                    size=7,
+                    line=dict(color=BAUHAUS_CREAM, width=1),
                 ),
                 # Hover com fonte monoespaçada: &nbsp; tem largura fixa,
                 # garantindo que "R$" comece na mesma coluna em todas as linhas.
@@ -2723,6 +2735,21 @@ if aba == "PLD":
                 hovertemplate='<b>Semana: %{customdata[0]}</b><extra></extra>',
             )
         )
+
+    # Tick por mes forca visibilidade de TODOS os meses quando granularidade
+    # mensal e periodo curto (ate 18 meses — cobre presets 1M/3M/6M/12M).
+    # Em "Max" mensal (~60+ meses) deixa autoscale do Plotly pra evitar
+    # overlap ilegivel.
+    #
+    # Usado tickvals=list(pivot.index) em vez de dtick="M1": dtick as vezes
+    # nao desenha o ultimo tick quando coincide com o extremo direito do
+    # range (sintoma observado no preset 6M, onde "Apr/26" sumia). tickvals
+    # forca 1 tick exato em cada ponto do pivot — 100% garantido.
+    _pld_mensal_curto = granularidade == "mensal" and len(pivot) <= 18
+    _xaxis_tick_extra = (
+        {"tickvals": list(pivot.index), "tickformat": "%b/%y"}
+        if _pld_mensal_curto else {}
+    )
 
     # Layout Bauhaus — papel creme, tipografia impactante, geometria
     fig.update_layout(
@@ -2787,6 +2814,9 @@ if aba == "PLD":
                     "mensal":  "%b %Y",
                 }[granularidade]
             ),
+            # Tick por mes (dtick + tickformat) so quando mensal+curto;
+            # senao dict vazio = nao adiciona nada (Plotly faz autoscale).
+            **_xaxis_tick_extra,
         ),
         yaxis=dict(
             title=dict(
