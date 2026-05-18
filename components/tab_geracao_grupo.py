@@ -673,11 +673,17 @@ def render_aba_geracao_grupo() -> None:
 
 
 def _render_aba_geracao_grupo_impl() -> None:
-    # Título h1 + linha separadora Bauhaus
+    # Título h1 + linha separadora Bauhaus. Margens calibradas (padrão PLD):
+    #   margin-top: -0.2rem → compensa o gap default do Streamlit entre blocos
+    #     (sem isso a linha aparece abaixo do fim da barra vermelha vertical)
+    #   margin-bottom: 1.2rem → afasta os controles da linha (sem isso os
+    #     labels colam visualmente na linha)
+    #   margin-left: 12px → alinha o início da linha com o padding-left do
+    #     h1 global (gap entre barra vermelha vertical e linha horizontal)
     st.markdown("# GERAÇÃO POR GRUPO")
     st.markdown(
         f'<div style="border-bottom: 2px solid {COR_TEXTO}; '
-        f'margin: 0 0 -1.5rem 0;"></div>',
+        f'margin: -0.2rem 0 1.2rem 12px;"></div>',
         unsafe_allow_html=True,
     )
 

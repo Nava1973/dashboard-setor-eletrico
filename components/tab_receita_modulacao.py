@@ -1006,7 +1006,16 @@ def render_aba_receita_modulacao(user: str) -> None:
 
 
 def _render_impl(user: str) -> None:
+    # Título + linha preta separadora (padrão final calibrado: -0.2rem top
+    # compensa gap do Streamlit; 1.2rem bottom dá respiro pros controles;
+    # 12px left alinha com padding-left do h1 global → gap entre barra
+    # vermelha e linha horizontal em vez do "L colado").
     st.markdown("# RECEITA DE MODULAÇÃO")
+    st.markdown(
+        f'<div style="border-bottom: 2px solid {BAUHAUS_BLACK}; '
+        f'margin: -0.2rem 0 1.2rem 12px;"></div>',
+        unsafe_allow_html=True,
+    )
     st.markdown(_CSS_TABELAS, unsafe_allow_html=True)
 
     spread_tri = _spread_trimestral()
@@ -1218,9 +1227,9 @@ def _render_impl(user: str) -> None:
     # Cálculo + gráfico (no container do topo).
     df_receita = _calcular_receita(premissas_atual, spread_tri, tris_reais)
     with chart_box:
-        st.markdown(
-            '<div style="margin-top:0.7rem;"></div>', unsafe_allow_html=True,
-        )
+        # Spacer reduzido pra zero — o margin-bottom: 1.2rem da linha preta
+        # já dá o respiro padrão. Spacer extra aqui empurrava os botões pra
+        # baixo desnecessariamente.
         st.session_state.setdefault("receita_empresa", EMPRESAS[0])
         cols_emp = st.columns([1, 1, 1, 1, 1, 1, 3])
         for _i, _emp in enumerate(EMPRESAS):
@@ -1234,5 +1243,10 @@ def _render_impl(user: str) -> None:
                     st.session_state["receita_empresa"] = _emp
                     st.rerun()
         empresa = st.session_state["receita_empresa"]
+        # Spacer entre a linha de botões (Auren/Axia/etc) e o título do
+        # gráfico — sem isso o título cola visualmente nos botões.
+        st.markdown(
+            '<div style="margin-top:1.8rem;"></div>', unsafe_allow_html=True,
+        )
         _titulo_grafico(empresa)
         _render_grafico(df_receita, empresa)

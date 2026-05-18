@@ -616,6 +616,7 @@ def _render_visao_geral(
     filtro_unidade: Optional[str] = None,
     filtro_grupo: Optional[str] = None,
     titulo_contexto: Optional[str] = None,
+    data_ini_ampla_ui: Optional[date] = None,
 ):
     """KPIs + série temporal de % curtailment por tipo de restrição.
 
@@ -830,6 +831,32 @@ def _render_visao_geral(
     st.plotly_chart(
         fig, use_container_width=True, config={"displaylogo": False},
     )
+
+    # =========================================================================
+    # Captions descritiva + técnica — logo abaixo do gráfico, ANTES do
+    # expander "Como é calculado". Movidas do topo da página (decisão UX:
+    # contexto explicativo perto do gráfico onde é relevante).
+    # =========================================================================
+    st.markdown(
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:{COR_TEXTO_SECUND}; font-style:italic; '
+        f'margin:0.5rem 0 0.2rem 0;">'
+        f'Restrições de geração (constrained-off) em usinas eólicas e '
+        f'solares do SIN. Dados ONS desde 2022.'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    if data_ini_ampla_ui is not None:
+        st.markdown(
+            f'<div style="font-family:\'Inter\', sans-serif; '
+            f'font-size:0.85rem; color:{COR_TEXTO_SECUND}; font-style:italic; '
+            f'margin:0 0 0.6rem 0;">'
+            f'Histórico em cache: desde '
+            f'{data_ini_ampla_ui.strftime("%d/%m/%Y")}. '
+            f'Use 24M ou Máx pra carregar mais.'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
     # =========================================================================
     # Expander glossário — perto do gráfico (UX: dúvida surge no contexto visual)
@@ -1627,17 +1654,16 @@ def render_aba_curtailment() -> None:
 def _render_aba_curtailment_impl() -> None:
     """Renderiza a aba completa de Curtailment."""
 
-    # ---- Título h1 (padrão das outras abas: app.py:2192, 2785, 3741) ----
+    # ---- Título h1 + linha preta separadora (padrão final calibrado:
+    # -0.2rem top compensa gap do Streamlit; 1.2rem bottom dá respiro pros
+    # controles; 12px left alinha com padding-left do h1 global → gap entre
+    # barra vermelha vertical e linha horizontal em vez do "L colado").
+    # CAPTION DESCRITIVO ("Restrições de geração...") foi movido pro final
+    # da página — fica como rodapé didático após o gráfico.
     st.markdown("# CURTAILMENT")
-
-    # ---- Caption explicativa (Inter italic cinza, padrão Bauhaus) ----
     st.markdown(
-        f'<div style="font-family:\'Inter\', sans-serif; '
-        f'font-size:0.85rem; color:{COR_TEXTO_SECUND}; font-style:italic; '
-        f'margin:0 0 0.8rem 0;">'
-        f'Restrições de geração (constrained-off) em usinas eólicas e solares '
-        f'do SIN. Dados ONS desde 2022.'
-        f'</div>',
+        f'<div style="border-bottom: 2px solid {COR_TEXTO}; '
+        f'margin: -0.2rem 0 1.2rem 12px;"></div>',
         unsafe_allow_html=True,
     )
 
@@ -1784,19 +1810,10 @@ def _render_aba_curtailment_impl() -> None:
             unit_toggle_key="curt_unidade",
         )
 
-        # Caption indicativa (lê data efetiva do cache atual). Padrão
-        # Caption discreta — Inter italic cinza COR_TEXTO_SECUND
-        # (st.caption renderiza em branco sobre cream, invisível).
-        st.markdown(
-            f'<div style="font-family:\'Inter\', sans-serif; '
-            f'font-size:0.85rem; color:{COR_TEXTO_SECUND}; font-style:italic; '
-            f'margin:0.6rem 0 0.5rem 0;">'
-            f'Histórico em cache: desde '
-            f'{data_ini_ampla_ui.strftime("%d/%m/%Y")}. '
-            f'Use 24M ou Máx pra carregar mais.'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+        # NOTA: Caption "Histórico em cache: desde..." foi movida pro final
+        # da página (depois do gráfico) — fica como rodapé técnico junto
+        # com a caption descritiva ("Restrições de geração..."), evitando
+        # quebra entre os controles e o chart.
 
         # Modal de expansão (decisão 5.12 — flag intermediário consumida com pop).
         modo_pendente = st.session_state.pop("_curt_pending_modal", None)
@@ -1970,6 +1987,7 @@ def _render_aba_curtailment_impl() -> None:
             filtro_grupo=filtro_grupo,
             filtro_unidade=filtro_unidade,
             titulo_contexto=titulo_contexto,
+            data_ini_ampla_ui=data_ini_ampla_ui,
         )
     elif sub_aba == "Por usina":
         # G.6: edge case "nenhum marcado" — caller mostra mensagem e

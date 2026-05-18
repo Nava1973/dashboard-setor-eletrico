@@ -442,6 +442,16 @@ def _render_modo_mensal(df_mensal: pd.DataFrame) -> None:
         config={"displaylogo": False},
     )
 
+    # ---- Nota descritiva (movida de cima do gráfico pra baixo) ----
+    st.markdown(
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:{BAUHAUS_GRAY}; font-style:italic; '
+        f'margin:0.6rem 0 0 0;">'
+        f'Evolução da capacidade instalada no SIN, por fonte, incluindo MMGD.'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
     # ---- Mini-nota de origem do MMGD ----
     if _tem_mmgd:
         _src_text = "Fonte MMGD: ANEEL CKAN (live)"
@@ -586,22 +596,17 @@ def _render_aba_capacidade_impl() -> None:
     # ---- Injeta CSS scoped (1x por render) ----
     st.markdown(_CSS_CAPACIDADE, unsafe_allow_html=True)
 
-    # ---- Título h1 ----
+    # ---- Título h1 + linha preta separadora (padrão tab_gsf.py:517-522) ----
+    # Nota descritiva ("Evolução da capacidade instalada no SIN, por fonte,
+    # incluindo MMGD") foi MOVIDA pra DEPOIS do gráfico (annual + mensal) —
+    # contexto de fonte cabe melhor como rodapé do gráfico, não como preâmbulo.
+    # margin-left: 12px alinha o início da linha com o padding-left do h1
+    # global (app.py:170) → cria um pequeno gap visual entre a barra vermelha
+    # vertical e a linha preta horizontal (em vez de fazer um "L" colado).
     st.markdown("# CAPACIDADE INSTALADA · BRASIL + MMGD")
-
-    # ---- Footnote italic cinza (contexto anual + MMGD) ----
     st.markdown(
-        f'<div style="font-family:\'Inter\', sans-serif; '
-        f'font-size:0.85rem; color:{BAUHAUS_GRAY}; font-style:italic; '
-        f'margin:0 0 0.8rem 0;">'
-        f'Evolução da capacidade instalada no SIN, por fonte, incluindo MMGD.'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-    # ---- Spacer entre footnote e controles (evita sobreposição) ----
-    st.markdown(
-        '<div style="margin-bottom: 1rem;"></div>',
+        f'<div style="border-bottom: 2px solid {BAUHAUS_BLACK}; '
+        f'margin: 0 0 1rem 12px;"></div>',
         unsafe_allow_html=True,
     )
 
@@ -878,6 +883,16 @@ def _render_aba_capacidade_impl() -> None:
         fig,
         use_container_width=True,
         config={"displaylogo": False},
+    )
+
+    # ---- Nota descritiva (movida de cima do gráfico pra baixo) ----
+    st.markdown(
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:{BAUHAUS_GRAY}; font-style:italic; '
+        f'margin:0.6rem 0 0 0;">'
+        f'Evolução da capacidade instalada no SIN, por fonte, incluindo MMGD.'
+        f'</div>',
+        unsafe_allow_html=True,
     )
 
     # ---- Mini-nota de origem do MMGD (G.3 — feedback visual de fallback) ----

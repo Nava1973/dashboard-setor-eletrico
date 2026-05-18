@@ -647,23 +647,19 @@ def _render_aba_modulacao_impl() -> None:
     As datas (`mod_data_ini`/`mod_data_fim` em session_state) são a fonte
     de verdade do recorte; os presets são atalhos que as setam. O destaque
     "primary" do botão é derivado das datas (None = janela custom)."""
-    # Título h1 (mesmo padrão das outras abas)
+    # Título h1 + linha preta separadora (padrão final calibrado: -0.2rem
+    # top compensa gap do Streamlit; 1.2rem bottom dá respiro pros controles;
+    # 12px left alinha com padding-left do h1 global → gap entre barra
+    # vermelha vertical e linha horizontal em vez do "L colado").
     st.markdown("# MODULAÇÃO")
-
-    # Caption explicativa (Inter italic cinza).
-    # margin-bottom generosa (2rem): a linha de controles logo abaixo tem
-    # date_inputs com label visível ("Data inicial"/"Data final") que sobem
-    # acima do campo — sem essa folga, o label encavala no texto da caption.
     st.markdown(
-        f'<div style="font-family:\'Inter\', sans-serif; '
-        f'font-size:0.85rem; color:{COR_TEXTO_SECUND}; font-style:italic; '
-        f'margin:0 0 2rem 0;">'
-        'Spread de modulação (R$/MWh) = PLD médio ponderado pela geração '
-        '<strong>menos</strong> PLD médio flat. Positivo = fonte gera mais nas '
-        'horas caras. Negativo = gera mais nas horas baratas.'
-        '</div>',
+        f'<div style="border-bottom: 2px solid {BAUHAUS_BLACK}; '
+        f'margin: -0.2rem 0 1.2rem 12px;"></div>',
         unsafe_allow_html=True,
     )
+    # NOTA: o caption explicativo (definição de spread de modulação) foi
+    # MOVIDO pra depois do último gráfico — fica como rodapé didático no
+    # final da página, sem competir com o título no topo.
 
     # --- Frente 3 (lazy loading): modo recente (default) vs completo ---
     # `mod_historico_completo` persiste a escolha em session_state; só volta
@@ -835,3 +831,17 @@ def _render_aba_modulacao_impl() -> None:
         if df_sub.empty:
             continue
         _render_grafico_submercado(df_sub, sub, granularidade)
+
+    # Caption explicativa (movida de cima do h1 pra rodapé didático no final
+    # da página — fica como nota de pé pro último gráfico, sem competir com
+    # o título no topo).
+    st.markdown(
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:{COR_TEXTO_SECUND}; font-style:italic; '
+        f'margin:0.6rem 0 0 0;">'
+        'Spread de modulação (R$/MWh) = PLD médio ponderado pela geração '
+        '<strong>menos</strong> PLD médio flat. Positivo = fonte gera mais nas '
+        'horas caras. Negativo = gera mais nas horas baratas.'
+        '</div>',
+        unsafe_allow_html=True,
+    )

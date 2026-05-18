@@ -1949,10 +1949,16 @@ with st.sidebar:
 if aba == "PLD":
     # Título principal da aba, em destaque Bauhaus (barra vermelha lateral)
     st.markdown("# PLD")
-    # Linha separadora preta abaixo do título — margem muito negativa puxa Período pra cima
+    # Linha separadora preta abaixo do título.
+    # margin-top: -1rem compensa o gap default do Streamlit entre blocos —
+    # sem isso, a linha aparece visualmente abaixo do fim da barra vermelha
+    # em vez de alinhada com ela. margin-bottom: -1.5rem puxa Período pra cima.
+    # margin-left: 12px alinha o início da linha com o padding-left do h1
+    # global (gap entre barra vermelha vertical e linha horizontal — em vez
+    # do "L colado").
     st.markdown(
         '<div style="border-bottom: 2px solid #313131; '
-        'margin: 0 0 -1.5rem 0;"></div>',
+        'margin: -0.2rem 0 1.2rem 12px;"></div>',
         unsafe_allow_html=True,
     )
 
@@ -2755,7 +2761,9 @@ if aba == "PLD":
         }}
         .kpi-ultimo-header {{
             font-family: 'Inter', sans-serif;
-            font-size: 0.72rem;
+            /* Aumentado 0.72rem → 0.88rem (~22% maior) pra ficar legível
+               sem ser tão tímido. Match visual com os labels SE/S/NE/N. */
+            font-size: 0.88rem;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.08em;
@@ -2765,7 +2773,9 @@ if aba == "PLD":
         }}
         .kpi-ultimo-data {{
             font-family: 'Inter', sans-serif;
-            font-size: 0.82rem;
+            /* Aumentado 0.82rem → 1rem (~22% maior). Match visual com o
+               header acima. */
+            font-size: 1rem;
             color: #313131;
             font-weight: 600;
             white-space: nowrap;
@@ -2943,10 +2953,14 @@ if aba == "PLD":
     )
 
 elif aba == "Reservatórios":
+    # Título + linha preta separadora (padrão final calibrado: -0.2rem top
+    # compensa gap do Streamlit; 1.2rem bottom dá respiro pros controles;
+    # 12px left alinha com padding-left do h1 global → gap entre barra
+    # vermelha vertical e linha horizontal em vez do "L colado").
     st.markdown("# RESERVATÓRIOS")
     st.markdown(
         '<div style="border-bottom: 2px solid #313131; '
-        'margin: 0 0 -1.5rem 0;"></div>',
+        'margin: -0.2rem 0 1.2rem 12px;"></div>',
         unsafe_allow_html=True,
     )
 
@@ -3190,10 +3204,14 @@ elif aba == "Reservatórios":
     )
 
 elif aba == "ENA/Chuva":
+    # Título + linha preta separadora (padrão final calibrado: -0.2rem top
+    # compensa gap do Streamlit; 1.2rem bottom dá respiro pros controles;
+    # 12px left alinha com padding-left do h1 global → gap entre barra
+    # vermelha vertical e linha horizontal em vez do "L colado").
     st.markdown("# ENA/Chuva")
     st.markdown(
         '<div style="border-bottom: 2px solid #313131; '
-        'margin: 0 0 -1.5rem 0;"></div>',
+        'margin: -0.2rem 0 1.2rem 12px;"></div>',
         unsafe_allow_html=True,
     )
 
@@ -3361,15 +3379,20 @@ elif aba == "ENA/Chuva":
     )
 
     # Janelas dos KPIs — fixas (referência = última data do dataset, não
-    # o filtro de período). Calculadas 1 vez antes do loop.
+    # o filtro de período). Calculadas 1 vez antes do loop. Ordem invertida:
+    # mais larga (12M) → mais estreita (último mês) → período úmido. Coloca
+    # a info marginal de chuva (mais recente) no canto direito, mais
+    # próxima dos olhos. Label "Período úmido atual" virou "Período úmido
+    # mais recente" porque o período úmido (1 nov → 30 abr) já terminou
+    # antes do uso típico do dashboard durante o ano (mai-out).
     _kpi_windows = [
-        ("Último mês",
-         ultima_data_ds - timedelta(days=30),  ultima_data_ds),
-        ("Últimos 3 meses",
-         ultima_data_ds - timedelta(days=90),  ultima_data_ds),
         ("Últimos 12 meses",
          ultima_data_ds - timedelta(days=365), ultima_data_ds),
-        ("Período úmido atual",
+        ("Últimos 3 meses",
+         ultima_data_ds - timedelta(days=90),  ultima_data_ds),
+        ("Último mês",
+         ultima_data_ds - timedelta(days=30),  ultima_data_ds),
+        ("Período úmido mais recente",
          *_wet_season_window(ultima_data_ds)),
     ]
 
@@ -3547,13 +3570,19 @@ elif aba == "Despacho Térmico":
     # Lag de 1 render no click do pill — no render do click, título mostra
     # valor antigo até o st.rerun() completar (sem flicker perceptível).
     if _subview == "Sistema":
-        _titulo_aba = "SIN - Despacho Termelétrico Total"
+        _titulo_aba = "SIN · Despacho Termelétrico Total"
     else:
-        _titulo_aba = "Eneva — Despacho Termelétrico"
+        _titulo_aba = "Eneva · Despacho Termelétrico"
+    # Título + linha preta separadora (padrão final calibrado: -0.2rem top
+    # compensa gap do Streamlit; -1rem bottom puxa controles pra cima
+    # próximo à linha; 12px left alinha com padding-left do h1 global →
+    # gap entre barra vermelha vertical e linha horizontal em vez do
+    # "L colado"). Mesma margem pras duas sub-views (Sistema e Eneva)
+    # agora que o spacer extra do Eneva foi removido.
     st.markdown(f"# {_titulo_aba}")
     st.markdown(
         '<div style="border-bottom: 2px solid #313131; '
-        'margin: 0 0 -1.5rem 0;"></div>',
+        'margin: -0.2rem 0 -1rem 12px;"></div>',
         unsafe_allow_html=True,
     )
 
@@ -4883,6 +4912,53 @@ elif aba == "Despacho Térmico":
             f'</div>',
             unsafe_allow_html=True,
         )
+
+        # ---- Botão Baixar CSV (padrão das outras abas) ----
+        # Exporta a agregação do gráfico (agg_sis) renomeada pra labels
+        # humanos. CSV PT-BR (separador ;, decimal vírgula, UTF-8 BOM).
+        if agg_sis is not None and not agg_sis.empty:
+            _rename_motivos_sis = {
+                "val_verifinflexibilidade":    "Inflexibilidade",
+                "val_verifordemmerito":        "Ordem de mérito",
+                "val_verifunitcommitment":     "Unit commitment",
+                "val_verifexportacao":         "Exportação",
+                "val_verifgsub":               "GSUB",
+                "val_verifrazaoeletrica":      "Razão elétrica",
+                "val_verifgarantiaenergetica": "Garantia energética",
+            }
+            _unidade_csv_sis = (
+                "MWmed" if sufixo_unidade_sis == "MWm" else sufixo_unidade_sis
+            )
+            _csv_cols_sis = ["label"] + [
+                c for c in MOTIVOS_COLS if c in agg_sis.columns
+            ]
+            csv_sis = agg_sis[_csv_cols_sis].rename(
+                columns={**_rename_motivos_sis, "label": "Período"}
+            )
+            # Anexa unidade nos cabeçalhos das colunas numéricas pra leitor.
+            csv_sis = csv_sis.rename(columns={
+                lbl: f"{lbl} ({_unidade_csv_sis})"
+                for lbl in _rename_motivos_sis.values()
+                if lbl in csv_sis.columns
+            })
+            _csv_bytes_sis = csv_sis.to_csv(
+                index=False, sep=";", decimal=",",
+            ).encode("utf-8-sig")
+            _gran_slug_sis = {
+                "Mensal": "mensal", "Diário": "diario",
+                "Horário": "horario", "Trimestral": "trimestral",
+            }.get(gran_atual, "dados")
+            st.download_button(
+                label="Baixar dados filtrados (CSV)",
+                data=_csv_bytes_sis,
+                file_name=(
+                    f"despacho_termico_sin_{_gran_slug_sis}_"
+                    f"{data_ini_sis.strftime('%Y%m%d')}_"
+                    f"{data_fim_sis.strftime('%Y%m%d')}.csv"
+                ),
+                mime="text/csv",
+                use_container_width=False,
+            )
     else:
         # === Sub-view Eneva — Fase C.2.1 ===
         # Caption interno removido na Fase E.11 — título dinâmico no topo
@@ -5000,17 +5076,10 @@ elif aba == "Despacho Térmico":
         min_d = df_eneva["data"].min().date()
         max_d = df_eneva["data"].max().date()
 
-        # Spacer pra evitar overlap entre pills (Eneva|SIN) e date_inputs.
-        # CSS global aplica margin-top: -1.5rem nos date_inputs pra alinhar
-        # pela base com presets — não cancela em Despacho Térmico onde pills
-        # ficam entre o título e o helper. Fase E.13. Reduzido pra 0.8rem
-        # na Fase H — Item 7, depois pra 0.3rem na Fase H.3 — Ajuste 1
-        # (cola mais perto das pills; o CSS scoped V3 da D.1.1 zera margin-
-        # top dos dates da Eneva, então 0.3rem basta pra folga visual).
-        st.markdown(
-            '<div style="margin-top: 0.3rem;"></div>',
-            unsafe_allow_html=True,
-        )
+        # NOTA: spacer histórico (0.3rem margin-top) removido — era pra
+        # evitar overlap com pills Eneva|SIN que já não existem mais aqui
+        # (a sub-view é selecionada via sidebar agora). Mantê-lo só empurra
+        # os controles pra longe da linha preta do título sem necessidade.
 
         # === Layout C linha 1: granularidade + Usina/Toggle + dates ===
         # selectbox em col_g; Usina + Toggle dentro do col_meio (que era
@@ -5921,6 +5990,64 @@ elif aba == "Despacho Térmico":
             unsafe_allow_html=True,
         )
 
+        # ---- Botão Baixar CSV (padrão das outras abas) ----
+        # Exporta a agregação `agg` do gráfico Eneva, renomeada pra labels
+        # humanos. Mesmo formato do Sistema (PT-BR ; , UTF-8 BOM).
+        try:
+            _agg_disponivel = "agg" in dir() and agg is not None and not agg.empty
+        except Exception:
+            _agg_disponivel = False
+        if _agg_disponivel:
+            _rename_motivos_en = {
+                "val_verifinflexibilidade":    "Inflexibilidade",
+                "val_verifordemmerito":        "Ordem de mérito",
+                "val_verifunitcommitment":     "Unit commitment",
+                "val_verifexportacao":         "Exportação",
+                "val_verifgsub":               "GSUB",
+                "val_verifrazaoeletrica":      "Razão elétrica",
+                "val_verifgarantiaenergetica": "Garantia energética",
+            }
+            _unidade_csv_en = (
+                "MWmed" if sufixo_unidade == "MWm" else sufixo_unidade
+            )
+            _csv_cols_en = ["label"] + [
+                c for c in MOTIVOS_COLS if c in agg.columns
+            ]
+            csv_en = agg[_csv_cols_en].rename(
+                columns={**_rename_motivos_en, "label": "Período"}
+            )
+            csv_en = csv_en.rename(columns={
+                lbl: f"{lbl} ({_unidade_csv_en})"
+                for lbl in _rename_motivos_en.values()
+                if lbl in csv_en.columns
+            })
+            _csv_bytes_en = csv_en.to_csv(
+                index=False, sep=";", decimal=",",
+            ).encode("utf-8-sig")
+            _gran_slug_en = {
+                "Mensal": "mensal", "Diário": "diario",
+                "Horário": "horario", "Trimestral": "trimestral",
+            }.get(gran_atual, "dados")
+            _usina_slug = (
+                (usina_sel or "consolidado")
+                .lower()
+                .replace(" ", "_")
+                .replace("ó", "o").replace("â", "a")
+                .replace("á", "a").replace("é", "e")
+                .replace("ã", "a").replace("í", "i").replace("ú", "u")
+            )
+            st.download_button(
+                label="Baixar dados filtrados (CSV)",
+                data=_csv_bytes_en,
+                file_name=(
+                    f"despacho_termico_eneva_{_usina_slug}_{_gran_slug_en}_"
+                    f"{data_ini.strftime('%Y%m%d')}_"
+                    f"{data_fim.strftime('%Y%m%d')}.csv"
+                ),
+                mime="text/csv",
+                use_container_width=False,
+            )
+
 elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "SIN":
     # -----------------------------------------------------------------------
     # Aba Geração — sub-view SIN (default). Stacked area de geração por fonte
@@ -5930,10 +6057,14 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
     # Sub-view "Grupo" (Eólica/Solar por Grupo) é renderizada em branch
     # separado abaixo (componente components.tab_geracao_grupo).
     # -----------------------------------------------------------------------
-    st.markdown("# GERAÇÃO")
+    # Título padronizado (· SIN) + linha preta separadora (padrão final
+    # validado: -0.2rem top compensa gap do Streamlit; 1.2rem bottom dá
+    # respiro pros labels dos controles; 12px left alinha com padding-left
+    # do h1 global pra criar gap entre barra vermelha e linha horizontal).
+    st.markdown("# GERAÇÃO · SIN")
     st.markdown(
         '<div style="border-bottom: 2px solid #313131; '
-        'margin: 0 0 -1.5rem 0;"></div>',
+        'margin: -0.2rem 0 1.2rem 12px;"></div>',
         unsafe_allow_html=True,
     )
 
@@ -6473,106 +6604,10 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
         if ger_total_media and ger_total_media > 0 else float("nan")
     )
 
-    # Caption colado nos KPIs: margin-bottom negativo neutraliza o gap
-    # default do stVerticalBlock entre elementos Streamlit, deixando o
-    # caption visualmente "agarrado" no bloco de KPIs (Sessão 4a).
-    st.markdown(
-        f'<div style="font-family:\'Inter\', sans-serif; '
-        f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-        f'margin:0.6rem 0 -0.8rem 0;">'
-        f'Médias do período selecionado ({NOME_SUB_LONGO[submercado_gen]}).'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-    # KPIs da Geração: HTML custom (não st.metric) porque Bebas Neue é
-    # all-caps por design — "MWmed" no value de st.metric renderiza como
-    # "MWMED". Solução: número em Bebas Neue + unidade em Inter mixed-case.
-    st.markdown(
-        """
-        <style>
-        .gen-kpi-card {
-            background: #FFFFFF;
-            border: 2px solid #313131;
-            padding: 8px 12px;
-            border-radius: 0;
-        }
-        .gen-kpi-label {
-            font-family: 'Inter', sans-serif;
-            font-size: 0.85rem;
-            text-transform: uppercase;
-            letter-spacing: 0.16em;
-            color: #313131;
-            font-weight: 700;
-            line-height: 1.2;
-        }
-        .gen-kpi-value {
-            display: flex;
-            align-items: baseline;
-            margin-top: 0.15rem;
-        }
-        .gen-kpi-value-num {
-            font-family: 'Bebas Neue', sans-serif;
-            font-size: 1.45rem;
-            color: #313131;
-            letter-spacing: 0.02em;
-            line-height: 1.1;
-        }
-        .gen-kpi-value-unit {
-            font-family: 'Inter', sans-serif;
-            font-size: 0.85rem;
-            color: #313131;
-            font-weight: 600;
-            margin-left: 0.4rem;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    def _render_kpi_gen(label: str, num: str, unit: str = "") -> str:
-        unit_html = (
-            f'<span class="gen-kpi-value-unit">{unit}</span>' if unit else ""
-        )
-        return (
-            f'<div class="gen-kpi-card">'
-            f'<div class="gen-kpi-label">{label}</div>'
-            f'<div class="gen-kpi-value">'
-            f'<span class="gen-kpi-value-num">{num}</span>{unit_html}'
-            f'</div>'
-            f'</div>'
-        )
-
-    kpi_cols = st.columns(4)
-    with kpi_cols[0]:
-        st.markdown(
-            _render_kpi_gen(
-                "GERAÇÃO TOTAL", _fmt_br_gen(ger_total_media), "MWmed"
-            ),
-            unsafe_allow_html=True,
-        )
-    with kpi_cols[1]:
-        # "%" colado no número — não passa por gen-kpi-value-unit.
-        st.markdown(
-            _render_kpi_gen(
-                "% RENOV VARIÁVEL", f"{_fmt_br_gen(pct_renov_var, casas=1)}%"
-            ),
-            unsafe_allow_html=True,
-        )
-    with kpi_cols[2]:
-        st.markdown(
-            _render_kpi_gen(
-                "TÉRMICA", _fmt_br_gen(termica_media), "MWmed"
-            ),
-            unsafe_allow_html=True,
-        )
-    with kpi_cols[3]:
-        st.markdown(
-            _render_kpi_gen(
-                "CARGA", _fmt_br_gen(carga_media), "MWmed"
-            ),
-            unsafe_allow_html=True,
-        )
+    # NOTA: Bloco "Caption + KPIs" foi MOVIDO pra DEPOIS do gráfico
+    # (entre o gráfico e o footnote de notas). Decisão UX: gráfico fica
+    # acima da fold (visível direto), KPIs ficam logo abaixo como
+    # complemento numérico. Ver bloco após st.plotly_chart(fig_c, ...).
 
     # =======================================================================
     # GRÁFICO — stacked area do submercado selecionado no dropdown.
@@ -6777,6 +6812,111 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
         config={"displaylogo": False},
     )
 
+    # ======================================================================
+    # KPIs (MOVIDOS pra DEPOIS do gráfico) — Caption + 4 cards. Antes
+    # ficavam ANTES do chart; movidos pra cá pra deixar o gráfico above-
+    # the-fold (insight visual primeiro, números consolidados depois).
+    # ======================================================================
+    st.markdown(
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+        f'margin:0.8rem 0 -0.8rem 0;">'
+        f'Médias do período selecionado ({NOME_SUB_LONGO[submercado_gen]}).'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # KPIs HTML custom (não st.metric) porque Bebas Neue é all-caps por
+    # design — "MWmed" no value de st.metric renderiza como "MWMED".
+    # Solução: número em Bebas Neue + unidade em Inter mixed-case.
+    st.markdown(
+        """
+        <style>
+        .gen-kpi-card {
+            background: #FFFFFF;
+            /* Borda cinza clara (#CCCCCC) — mesmo padrão dos KPIs do PLD
+               horário, mais leve visualmente que o #313131 anterior. */
+            border: 2px solid #CCCCCC;
+            padding: 8px 12px;
+            border-radius: 0;
+        }
+        .gen-kpi-label {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.16em;
+            color: #313131;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+        .gen-kpi-value {
+            display: flex;
+            align-items: baseline;
+            margin-top: 0.15rem;
+        }
+        .gen-kpi-value-num {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.45rem;
+            color: #313131;
+            letter-spacing: 0.02em;
+            line-height: 1.1;
+        }
+        .gen-kpi-value-unit {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
+            color: #313131;
+            font-weight: 600;
+            margin-left: 0.4rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    def _render_kpi_gen(label: str, num: str, unit: str = "") -> str:
+        unit_html = (
+            f'<span class="gen-kpi-value-unit">{unit}</span>' if unit else ""
+        )
+        return (
+            f'<div class="gen-kpi-card">'
+            f'<div class="gen-kpi-label">{label}</div>'
+            f'<div class="gen-kpi-value">'
+            f'<span class="gen-kpi-value-num">{num}</span>{unit_html}'
+            f'</div>'
+            f'</div>'
+        )
+
+    kpi_cols = st.columns(4)
+    with kpi_cols[0]:
+        st.markdown(
+            _render_kpi_gen(
+                "GERAÇÃO TOTAL", _fmt_br_gen(ger_total_media), "MWmed"
+            ),
+            unsafe_allow_html=True,
+        )
+    with kpi_cols[1]:
+        # "%" colado no número — não passa por gen-kpi-value-unit.
+        st.markdown(
+            _render_kpi_gen(
+                "% RENOV VARIÁVEL", f"{_fmt_br_gen(pct_renov_var, casas=1)}%"
+            ),
+            unsafe_allow_html=True,
+        )
+    with kpi_cols[2]:
+        st.markdown(
+            _render_kpi_gen(
+                "TÉRMICA", _fmt_br_gen(termica_media), "MWmed"
+            ),
+            unsafe_allow_html=True,
+        )
+    with kpi_cols[3]:
+        st.markdown(
+            _render_kpi_gen(
+                "CARGA", _fmt_br_gen(carga_media), "MWmed"
+            ),
+            unsafe_allow_html=True,
+        )
+
     # --- Notas de contexto (abaixo do gráfico) ---
     # Movidas pra cá na Sessão 4a pra preservar espaço above-the-fold dos
     # KPIs+gráfico. A 4ª nota (vline 29/04/2023) é condicional — só aparece
@@ -6897,7 +7037,7 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "G
     # Componentizada em components/tab_gsf.py.
     # -----------------------------------------------------------------------
     from components.tab_gsf import render_aba_gsf
-    render_aba_gsf()
+    render_aba_gsf(user)
 
 elif aba == "Carga":
     # -----------------------------------------------------------------------
@@ -6907,10 +7047,14 @@ elif aba == "Carga":
     # + Viz 2 (decomposição com ordem da carga líquida).
     # Sessão 4b adicionará Viz 3/4/5 (comparação anual, LDC, histograma rampas).
     # -----------------------------------------------------------------------
+    # Título + linha preta separadora (padrão final calibrado: -0.2rem top
+    # compensa gap do Streamlit; 1.2rem bottom dá respiro pros controles;
+    # 12px left alinha com padding-left do h1 global → gap entre barra
+    # vermelha vertical e linha horizontal em vez do "L colado").
     st.markdown("# CARGA")
     st.markdown(
         '<div style="border-bottom: 2px solid #313131; '
-        'margin: 0 0 -1.5rem 0;"></div>',
+        'margin: -0.2rem 0 1.2rem 12px;"></div>',
         unsafe_allow_html=True,
     )
 
@@ -7479,186 +7623,10 @@ elif aba == "Carga":
             f'</div>'
         )
 
-    # Caption acima dos KPIs — segue padrão da Geração ("Médias do período...").
-    # margin-bottom 0 (não -0.8rem como na Geração): na Carga o bloco
-    # <style> dos cards foi declarado ANTES do caption (linha ~3728), então
-    # só há UM gap default do stVerticalBlock entre caption e cards. Na
-    # Geração, o <style> vem entre caption e cards (~2945), criando 2 gaps
-    # — daí o -0.8rem agressivo lá funciona. Aqui margem zero deixa o gap
-    # natural do Streamlit dar o respiro visual entre caption e KPIs.
-    st.markdown(
-        f'<div style="font-family:\'Inter\', sans-serif; '
-        f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-        f'margin:0.6rem 0 0 0;">'
-        f'Indicadores do período selecionado '
-        f'({NOME_SUB_LONGO_CARGA[submercado_carga]}). '
-        f'Passe o mouse sobre cada KPI pra ver a definição.'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-    # 4 caixas em 1 linha. Proporção [1, 1.4, 1.4, 0.8] — Pico e Rampa
-    # precisam de mais espaço pelos timestamps "(DD/MM HHh)" extras em
-    # cada linha interna; % Renov é só 1 valor, comporta menos espaço.
-    # Caixa 1: CARGA MÉDIA       (Total + Líquida).
-    # Caixa 2: PICO DE CARGA     (Total + Líquida, com timestamp).
-    # Caixa 3: RAMPA MÁXIMA      (1H + 3H, com timestamp).
-    # Caixa 4: % RENOV VARIÁVEIS (1 valor — usa helper single original).
-    kpi_cols = st.columns([1, 1.4, 1.4, 0.8])
-
-    with kpi_cols[0]:
-        st.markdown(
-            _render_kpi_carga_multi(
-                "CARGA MÉDIA",
-                [
-                    {
-                        "rotulo": "Total",
-                        "valor":  _fmt_br_carga(kpis_carga["carga_total_media"]),
-                        "unit":   "MWmed",
-                    },
-                    {
-                        "rotulo": "Líquida",
-                        "valor":  _fmt_br_carga(kpis_carga["carga_liquida_media"]),
-                        "unit":   "MWmed",
-                    },
-                ],
-                tooltip=(
-                    "Total: soma de toda demanda elétrica do subsistema "
-                    "(inclui MMGD pós-29/04/2023). "
-                    "Líquida: total menos eólica e solar centralizada — "
-                    "o que hidro+térmica precisa cobrir."
-                ),
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with kpi_cols[1]:
-        st.markdown(
-            _render_kpi_carga_multi(
-                "PICO DE CARGA",
-                [
-                    {
-                        "rotulo": "Total",
-                        "valor":  _fmt_br_carga(kpis_carga["pico_carga_total"]),
-                        "unit":   "MWmed",
-                        "ts":     _fmt_ts_compact_carga(
-                            kpis_carga["pico_carga_total_ts"]
-                        ),
-                    },
-                    {
-                        "rotulo": "Líquida",
-                        "valor":  _fmt_br_carga(kpis_carga["pico_carga_liquida"]),
-                        "unit":   "MWmed",
-                        "ts":     _fmt_ts_compact_carga(
-                            kpis_carga["pico_carga_liquida_ts"]
-                        ),
-                    },
-                ],
-                tooltip=(
-                    "Maior valor instantâneo de carga no período. "
-                    "Total: pico da demanda total. "
-                    "Líquida: pico do que hidro+térmica precisa cobrir."
-                ),
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with kpi_cols[2]:
-        st.markdown(
-            _render_kpi_carga_multi(
-                "RAMPA MÁXIMA",
-                [
-                    {
-                        "rotulo": "1H",
-                        "valor":  _fmt_br_carga(kpis_carga["rampa_max_1h"]),
-                        "unit":   "MW",
-                        "ts":     _fmt_ts_compact_carga(
-                            kpis_carga["rampa_max_1h_ts"]
-                        ),
-                    },
-                    {
-                        "rotulo": "3H",
-                        "valor":  _fmt_br_carga(kpis_carga["rampa_max_3h"]),
-                        "unit":   "MW",
-                        "ts":     _fmt_ts_compact_carga(
-                            kpis_carga["rampa_max_3h_ts"]
-                        ),
-                    },
-                ],
-                tooltip=(
-                    "Maior variação de carga líquida em 1h e 3h consecutivas. "
-                    "Captura picos de estresse operacional "
-                    "(3h ≈ duck curve, rampa de fim de tarde)."
-                ),
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with kpi_cols[3]:
-        st.markdown(
-            _render_kpi_carga(
-                "% RENOV VARIÁVEIS",
-                f"{_fmt_br_carga(kpis_carga['pct_renov_var'], casas=1)}%",
-                tooltip=(
-                    "Participação de eólica+solar centralizada. Não inclui "
-                    "hidro (despachável) nem MMGD."
-                ),
-            ),
-            unsafe_allow_html=True,
-        )
-
-    # =========================================================================
-    # Glossário (st.expander, fechado por default). Posicionado APÓS os
-    # KPIs e ANTES das visualizações: leitura natural dos números primeiro,
-    # contexto profundo sob demanda. Tooltips dos KPIs cobrem a 1ª linha
-    # de definição; glossário aprofunda quando o leitor quer entender o
-    # "por que importa".
-    # =========================================================================
-    with st.expander("ⓘ Glossário"):
-        # Ordem espelha o layout dos cards (linha 1: Total/Líquida/% Renov;
-        # linha 2: Rampas) + Rampa Máxima por último (texto mais longo
-        # com comparação histórica 2015→2024). Capitalização dos termos
-        # bate exatamente com a label dos cards pra leitor associar.
-        st.markdown(
-            """
-**Carga Total**
-Demanda elétrica medida pelo ONS. Inclui MMGD pós-29/04/2023 (geração
-distribuída embutida na carga).
-
-**Carga Líquida**
-Carga total menos eólica e solar centralizada. Representa a demanda
-"residual" que hidro+térmica+importação precisam cobrir. Métrica-chave
-pra planejamento operacional do sistema.
-
-**Pico de Carga**
-Maior valor instantâneo de carga no período (granularidade horária).
-- *Total*: maior demanda elétrica registrada (com timestamp).
-- *Líquida*: maior valor que hidro+térmica precisou cobrir.
-
-**% Renováveis Variáveis**
-Participação de eólica+solar centralizada na carga total. Variáveis =
-não-despacháveis (dependem do recurso natural). Não inclui hidro
-(despachável via reservatórios) nem MMGD (telhados/fachadas, embutida
-na carga pós-2023).
-
-**Rampa Máxima (1h e 3h)**
-Variação de carga líquida em janelas de tempo consecutivas. Indicador
-de quanto a hidro+térmica precisa subir ou descer geração rapidamente
-pra acompanhar a demanda.
-
-A janela de **1h** captura picos instantâneos — momentos extremos onde
-a rede precisa reagir rápido (ex: nuvem cobre uma usina solar grande
-de repente).
-
-A janela de **3h** é o padrão internacional (referência: duck curve
-CAISO Califórnia 2013). Captura a rampa típica de fim de tarde, quando
-solar some entre 17h-20h e hidro+térmica precisam compensar gradualmente.
-
-Em 2015 as rampas de 3h no SIN ficavam em torno de ~5 GW. Em 2024 já
-se observam picos próximos a ~20 GW — quase 4× maiores, causados pela
-penetração da solar centralizada.
-            """
-        )
+    # NOTA: Bloco "Caption + KPIs + Glossário" foi MOVIDO pra DEPOIS do
+    # gráfico VIZ 1 (Carga Total vs Líquida) — fica entre Viz 1 e Viz 2.
+    # Decisão UX: usuário vê primeiro o gráfico visual, depois os números
+    # consolidados (KPIs) e o glossário pra aprofundar.
 
     # =========================================================================
     # VIZ 1 (Bloco 4) — Carga Total vs Carga Líquida sobrepostas.
@@ -7699,15 +7667,15 @@ penetração da solar centralizada.
 
     label_sub_carga = LABELS_SUBSISTEMA_CARGA[submercado_carga]
 
-    # margin-top aumentado de 1.2rem → 2.6rem na Sessão 4a pra separar
-    # visualmente o bloco "caption + KPIs" do bloco "título + gráfico".
-    # Mesmo valor da Geração — coerência visual entre as 2 abas.
+    # margin-top reduzido de 2.6rem → 0.5rem após KPIs serem movidos pra
+    # DEPOIS desse gráfico (não tem mais bloco grande acima pra separar —
+    # vem direto da fileira de controles do período).
     st.markdown(
         f'<div style="display:flex; justify-content:space-between; '
         f'align-items:baseline; '
         f'font-family:\'Bebas Neue\', sans-serif; '
         f'font-size:1.1rem; letter-spacing:0.08em; color:{COR_TEXTO}; '
-        f'margin: 2.6rem 0 0.3rem 0; padding-bottom:3px; '
+        f'margin: 0.5rem 0 0.3rem 0; padding-bottom:3px; '
         f'border-bottom: 2px solid {COR_TEXTO};">'
         f'<span>{label_sub_carga} · CARGA TOTAL VS LÍQUIDA</span>'
         f'<span>{periodo_str_carga}</span>'
@@ -7897,6 +7865,172 @@ penetração da solar centralizada.
         fig_v1, use_container_width=True,
         config={"displaylogo": False},
     )
+
+    # =========================================================================
+    # KPIs + Glossário — POSICIONADOS ENTRE VIZ 1 e VIZ 2 (decisão UX:
+    # usuário vê primeiro o gráfico de carga total/líquida, depois os
+    # números consolidados do período como referência pro próximo gráfico
+    # de decomposição). Bloco originalmente ficava acima do Viz 1.
+    # =========================================================================
+    st.markdown(
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+        f'margin:1.2rem 0 0 0;">'
+        f'Indicadores do período selecionado '
+        f'({NOME_SUB_LONGO_CARGA[submercado_carga]}). '
+        f'Passe o mouse sobre cada KPI pra ver a definição.'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # 4 caixas em 1 linha. Proporção [1, 1.4, 1.4, 0.8] — Pico e Rampa
+    # precisam de mais espaço pelos timestamps "(DD/MM HHh)" extras em
+    # cada linha interna; % Renov é só 1 valor, comporta menos espaço.
+    kpi_cols = st.columns([1, 1.4, 1.4, 0.8])
+
+    with kpi_cols[0]:
+        st.markdown(
+            _render_kpi_carga_multi(
+                "CARGA MÉDIA",
+                [
+                    {
+                        "rotulo": "Total",
+                        "valor":  _fmt_br_carga(kpis_carga["carga_total_media"]),
+                        "unit":   "MWmed",
+                    },
+                    {
+                        "rotulo": "Líquida",
+                        "valor":  _fmt_br_carga(kpis_carga["carga_liquida_media"]),
+                        "unit":   "MWmed",
+                    },
+                ],
+                tooltip=(
+                    "Total: soma de toda demanda elétrica do subsistema "
+                    "(inclui MMGD pós-29/04/2023). "
+                    "Líquida: total menos eólica e solar centralizada — "
+                    "o que hidro+térmica precisa cobrir."
+                ),
+            ),
+            unsafe_allow_html=True,
+        )
+
+    with kpi_cols[1]:
+        st.markdown(
+            _render_kpi_carga_multi(
+                "PICO DE CARGA",
+                [
+                    {
+                        "rotulo": "Total",
+                        "valor":  _fmt_br_carga(kpis_carga["pico_carga_total"]),
+                        "unit":   "MWmed",
+                        "ts":     _fmt_ts_compact_carga(
+                            kpis_carga["pico_carga_total_ts"]
+                        ),
+                    },
+                    {
+                        "rotulo": "Líquida",
+                        "valor":  _fmt_br_carga(kpis_carga["pico_carga_liquida"]),
+                        "unit":   "MWmed",
+                        "ts":     _fmt_ts_compact_carga(
+                            kpis_carga["pico_carga_liquida_ts"]
+                        ),
+                    },
+                ],
+                tooltip=(
+                    "Maior valor instantâneo de carga no período. "
+                    "Total: pico da demanda total. "
+                    "Líquida: pico do que hidro+térmica precisa cobrir."
+                ),
+            ),
+            unsafe_allow_html=True,
+        )
+
+    with kpi_cols[2]:
+        st.markdown(
+            _render_kpi_carga_multi(
+                "RAMPA MÁXIMA",
+                [
+                    {
+                        "rotulo": "1H",
+                        "valor":  _fmt_br_carga(kpis_carga["rampa_max_1h"]),
+                        "unit":   "MW",
+                        "ts":     _fmt_ts_compact_carga(
+                            kpis_carga["rampa_max_1h_ts"]
+                        ),
+                    },
+                    {
+                        "rotulo": "3H",
+                        "valor":  _fmt_br_carga(kpis_carga["rampa_max_3h"]),
+                        "unit":   "MW",
+                        "ts":     _fmt_ts_compact_carga(
+                            kpis_carga["rampa_max_3h_ts"]
+                        ),
+                    },
+                ],
+                tooltip=(
+                    "Maior variação de carga líquida em 1h e 3h consecutivas. "
+                    "Captura picos de estresse operacional "
+                    "(3h ≈ duck curve, rampa de fim de tarde)."
+                ),
+            ),
+            unsafe_allow_html=True,
+        )
+
+    with kpi_cols[3]:
+        st.markdown(
+            _render_kpi_carga(
+                "% RENOV VARIÁVEIS",
+                f"{_fmt_br_carga(kpis_carga['pct_renov_var'], casas=1)}%",
+                tooltip=(
+                    "Participação de eólica+solar centralizada. Não inclui "
+                    "hidro (despachável) nem MMGD."
+                ),
+            ),
+            unsafe_allow_html=True,
+        )
+
+    # Glossário (st.expander, fechado por default) — APÓS os KPIs.
+    with st.expander("ⓘ Glossário"):
+        st.markdown(
+            """
+**Carga Total**
+Demanda elétrica medida pelo ONS. Inclui MMGD pós-29/04/2023 (geração
+distribuída embutida na carga).
+
+**Carga Líquida**
+Carga total menos eólica e solar centralizada. Representa a demanda
+"residual" que hidro+térmica+importação precisam cobrir. Métrica-chave
+pra planejamento operacional do sistema.
+
+**Pico de Carga**
+Maior valor instantâneo de carga no período (granularidade horária).
+- *Total*: maior demanda elétrica registrada (com timestamp).
+- *Líquida*: maior valor que hidro+térmica precisou cobrir.
+
+**% Renováveis Variáveis**
+Participação de eólica+solar centralizada na carga total. Variáveis =
+não-despacháveis (dependem do recurso natural). Não inclui hidro
+(despachável via reservatórios) nem MMGD (telhados/fachadas, embutida
+na carga pós-2023).
+
+**Rampa Máxima (1h e 3h)**
+Variação de carga líquida em janelas de tempo consecutivas. Indicador
+de quanto a hidro+térmica precisa subir ou descer geração rapidamente
+pra acompanhar a demanda.
+
+A janela de **1h** captura picos instantâneos — momentos extremos onde
+a rede precisa reagir rápido (ex: nuvem cobre uma usina solar grande
+de repente).
+
+A janela de **3h** é o padrão internacional (referência: duck curve
+CAISO Califórnia 2013). Captura a rampa típica de fim de tarde, quando
+solar some entre 17h-20h e hidro+térmica precisam compensar gradualmente.
+
+Em 2015 as rampas de 3h no SIN ficavam em torno de ~5 GW. Em 2024 já
+se observam picos próximos a ~20 GW — quase 4× maiores, causados pela
+penetração da solar centralizada.
+            """
+        )
 
     # =========================================================================
     # VIZ 2 (Bloco 5) — Decomposição com ordem da carga líquida.
