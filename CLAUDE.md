@@ -4533,6 +4533,40 @@ Validação: **12/12 hits ±0.5pp** contra os 15 pontos oficiais (3 fora do rang
 
 **Pendências.** Fase 2E (hover JetBrains Mono no Plotly, markers grandes em GSF>100% em sky blue, 3 KPIs topo: GSF mês mais recente, GSF acumulado 12 meses ponderado, Energia Secundária acumulada 12 meses em TWh). Fase 3 (`scripts/validar_gsf_calculado_vs_mre.py` automatizando a validação contra os 15 pontos oficiais — passa a ser parte da regressão). Fase 4 V2 (extensão histórica pré-nov/2023 dependente de arquivo manual `data/raw/gsf_historico_pre2023.csv`; loader stub já preparado). Atualização do `SPEC_gsf_v1.md` consolidando que `MRE_MENSAL` foi rejeitado e `GERACAO_HORARIA_SUBMERCADO` é a fonte canônica (revisão pós-Fase 0 já feita no commit `fed1cbd`).
 
+### 5.78 Receita por Empresa: melhorias gráficas + Estimativa BBI (baseline admin)
+
+**Contexto:** sub-sessão de polish do gráfico (§5.74) + introdução de uma camada de "baseline oficial" (Estimativa BBI) editável só por admins, com cenário pessoal opcional pros demais usuários. Pattern desenhado pra escalar pro GSF e outras premissas curadas centralmente (CCEE-reported, BBI-internal).
+
+**Gráfico — refactor (`_render_grafico`):**
+
+(a) **Linha de Spread em eixo secundário** (`yaxis2`, invisível — sem ticks/grid/título). Cor neutra escura (`#3A3A3A`), width 1.6, vértices `marker.size=9` com borda creme pra ancorar cada trimestre. **3 traces** (não 2): trace **real** (sólida, hover ON) cobre trimestres reais (fechado+corrente); trace **ponte** (tracejada, `hoverinfo="skip"`, sem markers) liga apenas o último real ao primeiro futuro; trace **futuro** (tracejada, hover ON) só os futuros. Versão anterior duplicava o ponto de transição em 2 traces → ambas contribuíam pro `hovermode="x unified"` → hover **duplicado** no trimestre de transição (sintoma reportado no 2T26 da EQTL).
+
+(b) **Hover unificado com fonte única:** barras com `hoverinfo="skip"` (o R$mn já está dentro da barra como label — repetir no hover seria redundante); só a linha de spread contribui pro tooltip. Conteúdo (ordem): Spread modulação (2 decimais), Venda ACL (sem decimais), Venda Spot (sem decimais), **Total** em negrito. Prefixo inline `<span style='color:{COR_SPREAD}'>─●─</span>` colado em "Spread modulação" — em `hovermode="x unified"`, o símbolo automático da trace se centraliza verticalmente sobre o bloco inteiro (4 linhas → cai no meio); o prefixo inline resolve sem refactor.
+
+(c) **Label única por barra** (não duas — realizado/incremento): trace `Scatter` text-only (`mode="text"`) posicionada FORA do tip (`top center` se positivo, `bottom center` se negativo), texto escuro contra fundo creme, `cliponaxis=False`. Valor = `receita_estimada` (altura total da barra). Razão: o spread é único por trimestre (`base = acl*ws_acl + spot*ws_spot` divide só por `n_horas` vs `horas_cheio` pra obter realizado vs estimado — sem mudar o spread), então quebrar a label em "Realizado: X / Estimativa: Y" não acrescenta info — alinhado com o hover.
+
+(d) **Y1 com headroom + Y2 mapeado pra zona reservada:** `yaxis.range` setado explicitamente (não autoscale) com 40% extra acima do `bar_max` e 5% abaixo do `bar_min`. `yaxis2.range` calculado por mapeamento linear pra que `s_min`/`s_max` caiam em `[b_max + 0.12*amp, y1_top - 0.05*y1_height]` (top 25-30% visualmente). Sem isso, em barras pequenas (tip perto de 0), o label da barra (fora do tip) e o vértice da linha (no topo via push) competiam pela mesma faixa vertical → overlap visual. **Caso EQTL** (spread e receita ambos negativos) é o stress test — agora barras no andar de baixo, linha no andar de cima, sempre fisicamente separadas.
+
+(e) **Helper `_para_salvar` reusado pra comparação** (relevante pra Estimativa BBI abaixo, mas a mecânica do gráfico depende disso): trimestres futuros podem ter `spread=None` (sinal de "segue o auto"). A versão materializada em RAM resolve o spread auto; a versão persistida no JSON guarda `None`. Comparações entre as duas devem usar SEMPRE a versão normalizada (`_para_salvar(...)` → `payload`).
+
+**Estimativa BBI — baseline curado por admin:**
+
+(f) **Cascata em 3 camadas (`_carregar_premissas`):** defaults de código → seção `"_bbi"` no JSON (baseline oficial) → seção do user (cenário pessoal). Cada camada sobrescreve campo a campo (`None = não sobrescreve`). `_BBI_KEY = "_bbi"` reservado — prefixo `_` separa de usernames reais.
+
+(g) **Permissão por whitelist** (`ADMIN_USERS = {"Nava", "Fagundes", "Caruso"}`): admin vê 2 botões — `"Salvar como Estimativa BBI"` (primary, grava em `_bbi` via `_salvar_baseline_bbi`) e `"Salvar minhas premissas"` (cenário pessoal via `_salvar_premissas`). Não-admin vê `"Salvar minhas premissas"` (primary) + `"Resetar para Estimativa BBI"` (apaga seção pessoal via `_apagar_premissas_usuario` + pop session_state + `st.rerun()`). Helper `_gravar_secao(chave, premissas)` DRY entre os dois saves.
+
+(h) **Rótulo de modo** (acima das tabelas, no container reservado `modo_box`): faixa vermelha com `📊 ESTIMATIVA BBI` quando `_premissas_iguais(payload, bbi_baseline)`; faixa cinza `"Cenário pessoal — diferente da Estimativa BBI"` quando divergiu. **Armadilha:** comparar `premissas_atual` (RAM, spreads futuros materializados) vs `bbi_baseline` (JSON, `spread=None` nos futuros que seguem o auto) dá falso "divergiu" eternamente. Fix: comparar `payload = _para_salvar(...)` (normalizado) contra `bbi_baseline`. `_premissas_iguais` faz tolerância de float (`1e-6`) e trata `None==None` como igual.
+
+(i) **Modo preview pra admin** (`👁️ Admin: Ver como usuário comum (preview)`): checkbox abaixo dos botões + banner amarelo abaixo do checkbox quando ativo. `is_admin_efetivo = is_admin and not preview_user` controla qual conjunto de botões renderiza. **Posicionamento intencional:** valor lido via `session_state.get("receita_preview_user", False)` ANTES da renderização dos botões; o widget `st.checkbox` é instanciado DEPOIS dos botões — minimiza churn visual no toggle (só os botões trocam, checkbox fica parado). Banner abaixo do checkbox também, pra associação visual com o controle que ativou ele.
+
+(j) **Migração inicial:** seção `_bbi` populada via script one-shot copiando os valores atuais do `Nava` (único admin com dados salvos antes da feature). O `Nava` mantém sua seção pessoal idêntica ao baseline (sem divergência inicial); novos admins (`Fagundes`, `Caruso`) e usuários futuros caem direto na cascata BBI ao primeiro login. Dono do app substitui o baseline pelos valores reais via `"Salvar como Estimativa BBI"`.
+
+**Auth — 2 novos admins (`config.yaml`):** `Fagundes` e `Caruso` com hashes bcrypt gerados via `gen_password.py`; `preauthorized.emails` atualizado. Senhas iniciais comunicadas pelo dono pelo canal interno. Streamlit Cloud precisa atualizar `st.secrets["auth_config"]["yaml_content"]` espelhando o `config.yaml` (gitignored localmente).
+
+**Pattern reutilizável pra GSF (próximo passo):** mesmo design escala pra Estimativa CCEE do GSF — admin atualiza valores conforme a CCEE publica, usuários veem como baseline read-only (sem cenário pessoal porque GSF não é negociável). Linha tracejada pra estimativa, sólida pra dado oficial fechado — mesma regra "tem dado oficial?" = "linha sólida" da Receita por Empresa, que já funciona automaticamente conforme `_spread_trimestral()` passa a devolver dados pra trimestres antes futuros.
+
+**Validação:** compile-check OK em `tab_receita_modulacao.py`; smoke-test do round-trip BBI (save → reload → label `📊 ESTIMATIVA BBI` volta corretamente); preview toggle valida sem alterar dado persistido; comparação `_premissas_iguais` tolerante a `None`/float. Iterações de UX validadas com o usuário no Streamlit local (browser-automation indisponível nesta sessão).
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
