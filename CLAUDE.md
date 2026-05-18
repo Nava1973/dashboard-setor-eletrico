@@ -4646,6 +4646,30 @@ Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regress
 
 **Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
 
+### 5.87 GSF horário investigado e descartado — GARANTIA_FISICA_MRE é modulada intra-day
+
+**Contexto:** §9.4 do CLAUDE.md flagava GSF horário como pendência bloqueada na verificação se a CCEE publica oficial. Em 18/05/2026 reabrimos o tema com a percepção do usuário: "a fórmula é matemática, podemos aplicar horário usando o mesmo dataset". Fizemos backend + UI completos, mas o resultado empírico **invalidou** a feature como ferramenta analítica.
+
+**Implementação tentada (revertida):** backend ganhou `load_gsf_horario_dia(dia)` (24 linhas com sum 4 submercados por hora) e `gsf_horario_range_disponivel()` (range pra date_input). UI ganhou opção "Horário" no selectbox + branch dedicado `_render_gsf_horario` substituindo os 2 selectbox De/Até por 1 date_input "Dia" único, gráfico de 24 pontos no eixo X (tickformat="%Hh", dtick=1h), footnote "Calculado pelo BBI usando a fórmula da CCEE". Tudo funcional, sintaxe OK, dados batendo.
+
+**Descoberta empírica que motivou a reversão:** ao olhar os primeiros dias (24/03/2026, 31/03/2026), o GSF horário aparecia como **linha quase plana** em torno de 95%. Usuário questionou: "na teoria a rampa noturna deveria subir o GSF acima de 100%, por que não aparece?". Investigação direta no dataset (script ad-hoc rodado em scripts) revelou:
+
+```
+15/08/2025 SE submercado:
+  GF_MRE varia: 22.965 (12h) → 52.346 (18h)   ratio max/min = 2.28x
+  GERACAO_MRE varia: 13.651 (11h) → 28.802 (18h)   ratio max/min = 2.30x
+```
+
+A `GARANTIA_FISICA_MRE` **NÃO é constante intra-day**. A CCEE entrega o denominador horário já modulado pela curva esperada de demanda, na mesma proporção que a geração real segue (~2.3x do vale à ponta). Numerador e denominador andam casados → razão (=GSF horário) sai plana ou até **inversa** da intuição (no exemplo, GSF é mais BAIXO às 18h-22h que à madrugada).
+
+**Nuance vs §5.77:** o sprint original rejeitou `GARANTIA_FISICA_MODULADA_MRE` (que tem cap pós-modulação dando razão sempre ~100%) e escolheu `GARANTIA_FISICA_MRE` assumindo "GF não-modulada". Descobrimos agora que essa **também é modulada** intra-day, só não tem o cap. Em granularidade mensal isso é irrelevante (soma absorve a modulação — por isso 13/13 hits ±0.5pp) mas em horária é decisivo.
+
+**Caminhos alternativos considerados e não-escolhidos:**
+- **2 linhas separadas em MWh** (GERACAO_MRE sólida + GARANTIA_FISICA_MRE tracejada): preserva a "rampa visual" sem fingir que é GSF. Não escolhido — usuário preferiu remover de vez (escopo de uma sub-aba sobre GSF, não sobre componentes).
+- **GSF "teórico" usando GF mensal/24h plana** como denominador: faria a rampa aparecer mas inventa baseline, desvia da definição oficial. Não escolhido — confunde leitor.
+
+**Decisão final:** reverter backend e UI, manter apenas Mensal/Trimestral. Aprendizado registrado em memory (`project_gsf_horario_descartado.md`) pra evitar revisitar a ideia em sessão futura.
+
 ### 5.86 Fix CSS spinner — texto legível em dark mode (resolve item §9.4 spinner PLD horário)
 
 **Contexto:** §9.4 do CLAUDE.md flagava o spinner do PLD horário com "texto invisível" no tema dark do navegador. Investigação confirmou que `.streamlit/config.toml` força tema light fixo (`textColor=#313131`, `backgroundColor=#FFFFFF`), mas se o usuário/navegador injeta dark mode via `prefers-color-scheme:dark` (ou Streamlit Cloud sobrescreve em algum elemento de chrome), o `<p>` interno do `[data-testid="stSpinner"]` herda textColor cinza-claro do tema dark — invisível sobre o fundo branco fixo do app.
@@ -5587,9 +5611,8 @@ Pattern shadow state replicado em `components/tab_modulacao.py`. Detalhes em §5
 
 Itens documentados em §5.X que aguardam priorização:
 
-- **PLD nacional ponderado SIN** — habilitaria visão SIN agregada na
-  aba Modulação (hoje só 4 submercados — §5.61).
-- **MWM/GWH em Eneva Trimestral** — backlog futuro (§5.51).
+- ❌ ~~**PLD nacional ponderado SIN**~~ — **REJEITADO pelo usuário (18/05/2026):** não faz sentido analítico no contexto da aba Modulação. Encerrado.
+- ❌ ~~**MWM/GWH em Eneva Trimestral**~~ — **NÃO É PENDÊNCIA (18/05/2026):** funcionalidade já está implementada em col_meio. O que ficou em "backlog futuro" no §5.51 era apenas a movimentação visual pra row 2, descartada como decisão de design (Eneva Mensal tem em row 2, Trimestral em col_meio — intencional). Encerrado.
 - **Refator paleta Bauhaus → `utils/bauhaus_palette.py`** — bloqueado
   por circular import, backlog cresceu com Curtailment + Geração Grupo
   + Modulação duplicando constantes (§5.61, §5.33).
@@ -5601,14 +5624,7 @@ Itens documentados em §5.X que aguardam priorização:
 - **Modulação lazy loading** — avaliar se o padrão da Frente 3 do PLD
   (§5.71, modo recente vs completo + modal) se aplica também à
   Modulação. Pode virar "Frente 4" ou generalização reusável.
-- **GSF horário (granularidade adicional)** — usuário pediu opção de
-  granularidade "Horária" na aba GSF com seleção de Dia único (uma
-  caixa só, esconde o segundo selectbox de período). Pré-requisito
-  bloqueante: verificar se a CCEE publica GSF horário oficial. Se SIM
-  → implementar (~1h). Se NÃO (só publica mensal/MRE) → NÃO fazer
-  estimativa horária (decisão do usuário: "se não tem dado oficial
-  não fazemos estimativa"). Investigar fonte de dados antes de
-  qualquer implementação.
+- ❌ ~~**GSF horário (granularidade adicional)**~~ — **INVESTIGADO E DESCARTADO (18/05/2026).** Implementado backend (`load_gsf_horario_dia`) + UI (date_input "Dia" + gráfico 24 pontos) e validado empiricamente, mas o resultado é uma **linha plana sem valor analítico**: a CCEE entrega `GARANTIA_FISICA_MRE` pre-modulada intra-day no dataset `GERACAO_HORARIA_SUBMERCADO` (varia ~2.3x do vale à ponta — confirmado em 15/08/2025 SE), na mesma proporção que `GERACAO_MRE`. Resultado: numerador e denominador andam casados → GSF horário **não mostra a rampa** que a intuição esperaria. Detalhes em §5.87. Implementação revertida; mantemos só Mensal/Trimestral.
 
 ### 9.5 Pendências de Curtailment (sessão 11/05/2026)
 
