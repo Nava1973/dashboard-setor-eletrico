@@ -4646,6 +4646,18 @@ Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regress
 
 **Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
 
+### 5.84 Pendências §9.5 cosméticas — revisitadas (18/05/2026)
+
+Revisão dos 4 itens da §9.5 de Curtailment com o usuário. Resultado: 1 já estava feito, 1 aplicado, 2 rejeitados com regra de design explicitada pela primeira vez.
+
+**Aplicado — grafia Ribeiro Gonçalves:** sheet "Solar" do Excel `data/curtailment/unidades_geradoras.xlsx` tinha 2 ocorrências: linha 10 sem cedilha, linha 75 com cedilha. Padronizado pra com cedilha via script openpyxl (preserva formatação, validações). Backup `.bak.20260518` criado antes. Sheet "Eólica" não tem ocorrências.
+
+**Rejeitado — "Total (E+S)" no Curtailment:** o sufixo (E+S) significa "Eólica + Solar" e só faz sentido onde o "Total" agrega as duas fontes (Geração por Grupo). Na aba Curtailment as fontes são separadas — o "Total" do hover é por fonte. Aplicar ali introduziria ambiguidade em vez de remover. Padrão consolidado: usar (E+S) só em gráficos que somam E+S na mesma linha.
+
+**Rejeitado — Enel Green Power em `_GRUPOS_PRIORIZADOS`:** critério da lista é "listados em bolsa" (decisão de negócio do usuário). Lista hoje tem 8 grupos, todos negociados na B3 (Alupar, Auren, Copel, CPFL, Engie, Eneva, Equatorial, Neoenergia). Enel Green Power é subsidiária privada de holding italiana, não negociada — fica no "restante alfabético" mesmo tendo 9 usinas cadastradas. Regra antes vivia só na cabeça do usuário; agora registrada (memory + esta nota).
+
+**Já estava feito — "Histórico em cache" como footnote:** `tab_curtailment.py:1813` documenta a movimentação.
+
 ### 5.83 Migração `use_container_width` → `width` (resolve §9.3 item 2)
 
 **Contexto:** §9.3 item 2 do CLAUDE.md flagava o param `use_container_width=True/False` como deprecated, pra ser substituído por `width='stretch'/'content'`. Sem deadline anunciada, mas o warning poluía o console em qualquer página com gráficos/botões/tabelas. Migração mecânica feita em 18/05/2026.
@@ -5564,14 +5576,12 @@ Itens documentados em §5.X que aguardam priorização:
 
 ### 9.5 Pendências de Curtailment (sessão 11/05/2026)
 
-**Cosméticas:**
+**Cosméticas — revisitadas em 18/05/2026:**
 
-- Mover "Histórico em cache: XXX" pra footnote em `_render_visao_geral`.
-- Padronizar UX "Total (E+S)" na aba Curtailment (alinhar com label
-  introduzido em §5.60 pra Geração por Grupo).
-- Padronizar grafia "Ribeiro Goncalves" / "Ribeiro Gonçalves" no Excel
-  `data/curtailment/unidades_geradoras.xlsx`.
-- Adicionar Enel Green Power em `_GRUPOS_PRIORIZADOS`.
+- ~~Mover "Histórico em cache: XXX" pra footnote em `_render_visao_geral`.~~ ✅ Já estava feito (`tab_curtailment.py:1813` documenta a mudança).
+- ❌ ~~Padronizar UX "Total (E+S)" na aba Curtailment~~ — **REJEITADO pelo usuário (18/05/2026).** O sufixo (E+S) só faz sentido onde "Total" agrega Eólica + Solar no mesmo valor (aba Geração por Grupo). Na aba Curtailment as fontes são tratadas separadamente — o "Total" no hover é por fonte isolada, não soma das duas. Aplicar (E+S) ali confundiria em vez de esclarecer.
+- ✅ ~~Padronizar grafia "Ribeiro Goncalves" / "Ribeiro Gonçalves" no Excel~~ **RESOLVIDO (18/05/2026).** Sheet "Solar" tinha linha 10 com `Nome_Usina = "Ribeiro Goncalves"` (sem cedilha) e linha 75 com `"Ribeiro Gonçalves"` (com cedilha). Padronizado pra **com cedilha** em ambas via script openpyxl. Backup salvo como `unidades_geradoras.xlsx.bak.20260518`. Sheet "Eólica" não tem ocorrências.
+- ❌ ~~Adicionar Enel Green Power em `_GRUPOS_PRIORIZADOS`~~ — **REJEITADO pelo usuário (18/05/2026).** Critério de design (não documentado em código antes desta sessão): a lista só inclui grupos **listados em bolsa**. Enel Green Power é subsidiária privada da holding italiana, não é negociada na B3 — fica no "restante alfabético" mesmo tendo 9 usinas no Excel. Regra registrada em memory pra aplicar em decisões futuras.
 
 **Validações de dados (sem urgência mas importantes):**
 
