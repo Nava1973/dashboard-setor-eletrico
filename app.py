@@ -346,6 +346,19 @@ st.markdown(
         color: {BAUHAUS_BLACK} !important;
     }}
 
+    /* Spinner — Streamlit herda textColor do tema dark do navegador
+       (prefers-color-scheme:dark) ou de overrides do Cloud, deixando
+       o texto cinza-claro invisível sobre o fundo branco fixo do app.
+       Fix scoped: força COR_TEXTO Bradesco nos elementos textuais
+       internos (p/span/div). NÃO inclui wildcard * pra preservar SVG
+       (que usa fill/stroke próprios, não currentColor). Resolve §9.4
+       (texto invisível na aba PLD horário; valia pra todo spinner). */
+    [data-testid="stSpinner"] p,
+    [data-testid="stSpinner"] span,
+    [data-testid="stSpinner"] div {{
+        color: {BAUHAUS_BLACK} !important;
+    }}
+
     /* Botões principais (fora da sidebar) — altura igual aos date inputs.
        Seletor é DESCENDENTE (espaço, não `>`) com filtro [kind] pra cobrir
        2 estruturas DOM:

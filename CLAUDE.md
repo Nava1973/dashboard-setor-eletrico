@@ -4646,6 +4646,24 @@ Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regress
 
 **Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
 
+### 5.86 Fix CSS spinner — texto legível em dark mode (resolve item §9.4 spinner PLD horário)
+
+**Contexto:** §9.4 do CLAUDE.md flagava o spinner do PLD horário com "texto invisível" no tema dark do navegador. Investigação confirmou que `.streamlit/config.toml` força tema light fixo (`textColor=#313131`, `backgroundColor=#FFFFFF`), mas se o usuário/navegador injeta dark mode via `prefers-color-scheme:dark` (ou Streamlit Cloud sobrescreve em algum elemento de chrome), o `<p>` interno do `[data-testid="stSpinner"]` herda textColor cinza-claro do tema dark — invisível sobre o fundo branco fixo do app.
+
+**Fix:** regra CSS scoped adicionada no bloco global de `app.py` (dentro do `st.markdown(<style>...)` principal, logo após as regras de `stExpander`):
+
+```css
+[data-testid="stSpinner"] p,
+[data-testid="stSpinner"] span,
+[data-testid="stSpinner"] div {
+    color: {BAUHAUS_BLACK} !important;
+}
+```
+
+**Decisão importante — sem wildcard `*`:** considerei `[data-testid="stSpinner"] *` mas rejeitado pra preservar o SVG animado do spinner (que usa `fill`/`stroke` próprios, não `currentColor`). Aplicar `color: ...` em elementos SVG pode quebrar a animação visual mesmo que a propriedade não tenha efeito direto em `fill`. Restringido a `p`/`span`/`div` (todos os textuais).
+
+**Escopo da regra:** vale pra TODOS os spinners do app, não só PLD horário. Não vi razão pra escopar mais — todos os spinners usam o mesmo data-testid e todos podem sofrer o mesmo problema visual. Funcionalmente o spinner sempre funcionou; este fix é puramente visual.
+
 ### 5.85 Script de validação automatizada GSF — Sprint Fase 3 (resolve §9.1)
 
 **Contexto:** Sprint GSF (§5.77) deixou pendente a Fase 3, um script que rode a fórmula do **loader do projeto** contra os 15 pontos oficiais (9 Power BI público CCEE + 6 InfoPLD) coletados na Fase 0. Diferença vs `scripts/validacao_final_gsf.py` (que existia desde a Fase 0): aquele baixa do CKAN direto e roda a fórmula manual — era a prova de Fase 0. O novo `scripts/validar_gsf_calculado_vs_mre.py` valida o **loader que de fato roda em produção** (`data_loaders/ccee_gsf.load_gsf_mensal()`), servindo como regressão contra mudanças silenciosas no dataset CCEE ou quebras introduzidas no `_agregar_mensal` / `_carregar_ano_horario`.
@@ -5579,9 +5597,7 @@ Itens documentados em §5.X que aguardam priorização:
   release PDGD (~abr/2027) pra ter novo gold standard (§5.67).
 - **Itens registrados na §5.66** "pra próxima sessão" (DthAtualiza-
   CadastralEmpreend / loader MMGD dinâmico).
-- **Spinner CSS — texto invisível na aba PLD horário.** Investigar
-  seletor `[data-testid='stSpinner']` específico do tema dark.
-  Funcionalidade OK, problema é só visual.
+- ~~**Spinner CSS — texto invisível na aba PLD horário.**~~ ✅ **RESOLVIDO (18/05/2026)** — regra CSS scoped em `[data-testid="stSpinner"] p|span|div` força COR_TEXTO Bradesco. Detalhes em §5.86.
 - **Modulação lazy loading** — avaliar se o padrão da Frente 3 do PLD
   (§5.71, modo recente vs completo + modal) se aplica também à
   Modulação. Pode virar "Frente 4" ou generalização reusável.
