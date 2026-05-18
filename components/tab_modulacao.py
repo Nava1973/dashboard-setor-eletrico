@@ -318,6 +318,55 @@ def _calcular_spread(
     return out
 
 
+# =============================================================================
+# Shadow state — protege widget keys contra cleanup cross-tab
+# =============================================================================
+# Problema: ao navegar pra outra aba, Streamlit faz cleanup das widget keys
+# nao renderizadas (mod_granularidade, mod_data_ini, mod_data_fim). Keys
+# nao-widget (mod_datas_custom, mod_granularidade_anterior) sobrevivem,
+# criando estado inconsistente que pode resetar a UI pro default ao voltar.
+#
+# Solucao: espelhar as widget keys em keys "shadow" (prefixo mod_shadow_*),
+# que NAO sao widget keys e sobrevivem ao cleanup. Restaurar a partir do
+# shadow no INICIO do render se as widget keys sumiram.
+#
+# Pattern alinhado com CLAUDE.md §5.18 (backup paralelo) e replicado de
+# components/tab_gsf.py (§5.77 Fase 2D++). Pendencia §9.2 do CLAUDE.md.
+
+_SHADOW_MAP_MOD = {
+    "mod_granularidade": "mod_shadow_granularidade",
+    "mod_data_ini":      "mod_shadow_data_ini",
+    "mod_data_fim":      "mod_shadow_data_fim",
+}
+
+
+def _shadow_restore_mod() -> None:
+    """Detecta widget cleanup (key ausente mas shadow presente) e restaura.
+
+    Roda no INICIO do render, ANTES de qualquer setdefault — assim o
+    setdefault nao sobrescreve a restauracao com defaults.
+
+    Edge case 1a render absoluta: nem widget keys nem shadows existem;
+    restore eh no-op; init defaults rola normal.
+    """
+    for src, dst in _SHADOW_MAP_MOD.items():
+        if src not in st.session_state and dst in st.session_state:
+            st.session_state[src] = st.session_state[dst]
+
+
+def _shadow_sync_mod() -> None:
+    """Espelha widget keys → shadow keys.
+
+    Chamada no FIM do render (apos todas as mutacoes programaticas) e
+    sempre que o codigo muda widget keys (init, troca de granularidade,
+    clamp defensivo). on_change dos widgets NAO precisa chamar — o
+    proximo render acaba sincronizando aqui.
+    """
+    for src, dst in _SHADOW_MAP_MOD.items():
+        if src in st.session_state:
+            st.session_state[dst] = st.session_state[src]
+
+
 def clear_modulacao_disk_cache() -> None:
     """Limpa o cache da aba Modulação: RAM (`_calcular_spread`) + os 6
     parquets de disk-cache (recente + completo × 3 granularidades) + a
@@ -340,6 +389,9 @@ def clear_modulacao_disk_cache() -> None:
         "mod_historico_completo", "mod_data_ini", "mod_data_fim",
         "mod_periodo_preset", "_mod_pending_modal", "_mod_pending_max",
         "mod_datas_custom", "mod_granularidade_anterior",
+        # Shadows também — senão "Atualizar" só limpa widget keys e o
+        # shadow restauraria o estado antigo no próximo render.
+        *_SHADOW_MAP_MOD.values(),
     ):
         st.session_state.pop(k, None)
 
@@ -647,6 +699,12 @@ def _render_aba_modulacao_impl() -> None:
     As datas (`mod_data_ini`/`mod_data_fim` em session_state) são a fonte
     de verdade do recorte; os presets são atalhos que as setam. O destaque
     "primary" do botão é derivado das datas (None = janela custom)."""
+    # FIRST: restaura widget keys do shadow se Streamlit fez cleanup
+    # ao sair da aba (cross-tab navigation). Tem que vir ANTES de
+    # qualquer setdefault — senão o setdefault sobrescreveria a
+    # restauração com defaults. Pendência §9.2 do CLAUDE.md.
+    _shadow_restore_mod()
+
     # Título h1 + linha preta separadora (padrão final calibrado: -0.2rem
     # top compensa gap do Streamlit; 1.2rem bottom dá respiro pros controles;
     # 12px left alinha com padding-left do h1 global → gap entre barra
@@ -760,6 +818,11 @@ def _render_aba_modulacao_impl() -> None:
     st.session_state["mod_data_fim"] = min(
         max(st.session_state["mod_data_fim"], min_d), max_d
     )
+
+    # Sincroniza shadow após todas as mutações programáticas (init,
+    # troca de granularidade, clamp). Garante que cross-tab navegando
+    # depois disto restaura tudo corretamente. Pendência §9.2.
+    _shadow_sync_mod()
 
     # Preset ativo (destaque "primary") derivado das datas atuais — None
     # quando o usuário escolheu uma janela custom pelos date_inputs.

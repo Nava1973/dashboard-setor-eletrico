@@ -4646,6 +4646,19 @@ Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regress
 
 **Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
 
+### 5.82 Modulação · shadow state pattern (resolve §9.2)
+
+**Contexto:** §9.2 do CLAUDE.md flagava que as widget keys `mod_granularidade`, `mod_data_ini`, `mod_data_fim` em `components/tab_modulacao.py` eram estruturalmente vulneráveis ao cleanup do Streamlit ao trocar de aba — mesma família de bugs já resolvida no GSF (§5.77 Fase 2D++). Bug não tinha sido reportado em uso real, mas a vulnerabilidade existia. Resolvido em 18/05/2026 replicando o pattern do GSF.
+
+**Replicação 1-pra-1 do pattern GSF:** 3 funções helpers em `tab_modulacao.py:321`:
+  - `_SHADOW_MAP_MOD` — dict `{widget_key: shadow_key}` com prefixo `mod_shadow_*`.
+  - `_shadow_restore_mod()` — chamada no INÍCIO de `_render_aba_modulacao_impl` (antes do primeiro `setdefault`), restaura widget keys ausentes a partir do shadow.
+  - `_shadow_sync_mod()` — chamada no FIM (após o clamp defensivo das datas), espelha widget keys → shadow.
+
+**Detalhe importante:** `clear_modulacao_disk_cache()` ganhou as 3 shadow keys no loop de `pop()`. Sem isso, o botão "Atualizar" só limparia as widget keys, e a shadow restauraria estado antigo no próximo render — comportamento contra-intuitivo ("Atualizar" deveria zerar tudo).
+
+**Validação:** teste manual feito pelo usuário — abrir Modulação, mudar granularidade pra Trimestral, ajustar datas, navegar pra outra aba, voltar. Estado preservado (antes do fix voltaria pro default Mensal). Confirmado funcionando.
+
 ### 5.81 Carga · sub-view "Crescimento": spaghetti chart de anos sobrepostos
 
 **Contexto:** usuário pediu gráfico de crescimento de carga (YoY %) em granularidades mensal/trimestral/anual com pro-rata do período corrente. Durante o desenho da spec, levantou-se a quebra metodológica do MMGD em 29/04/2023 (ONS passou a incluir Micro/Minigeração Distribuída em `val_carga`) — qualquer YoY que cruze essa data fica contaminado. Discutidas 3 opções (anotar, reconstruir ex-MMGD via ANEEL, mostrar 2 séries). Usuário propôs ideia melhor que substituiu tudo: **spaghetti chart** com 1 linha por ano sobreposta no eixo Jan→Dez. Vantagens: o "salto" do MMGD aparece como elevação natural do envelope (não distorce nada), pro-rata vira não-questão (linha do ano corrente termina onde tem dado), e ganhamos leitura de sazonalidade de bônus.
@@ -5469,17 +5482,9 @@ correspondente — esta seção é o índice operacional.
   descartado por decisão UX. Sub-aba GSF fica sem KPIs. Mantido aqui
   pra posteridade caso alguém pergunte por que não tem.
 
-### 9.2 Modulação — bug widget cleanup pendente
+### 9.2 ~~Modulação — bug widget cleanup pendente~~ ✅ RESOLVIDO (18/05/2026)
 
-- **Aplicar shadow state pattern na Modulação.**
-  Mesma vulnerabilidade estrutural diagnosticada no GSF (§5.77 + §5.18):
-  `mod_granularidade`, `mod_data_ini`, `mod_data_fim` são widget keys
-  vulneráveis ao cleanup do Streamlit ao trocar de aba. Fix não
-  aplicado lá porque o bug não foi reportado em uso real (suspeita:
-  defaults entre granularidades são similares, então o reset é menos
-  visível). Replicar `_SHADOW_MAP_MOD` + `_shadow_restore_mod()` +
-  `_shadow_sync_mod()` seguindo o padrão de `components/tab_gsf.py`.
-  Esforço ~30 min.
+Pattern shadow state replicado em `components/tab_modulacao.py`. Detalhes em §5.82.
 
 ### 9.3 Deprecations Streamlit
 
