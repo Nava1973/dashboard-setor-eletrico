@@ -1828,6 +1828,67 @@ with st.sidebar:
             padding-top: 0.2rem !important;
             padding-bottom: 0.2rem !important;
         }
+
+        /* =================================================================
+           HOVER-REVEAL DAS SUB-VIEWS FANTASMAS — §5.88
+           Sub-views estao SEMPRE no DOM (refator do loop). Visibilidade
+           via CSS, 2 caminhos:
+             (a) aba pai ativa (button[kind="primary"]) -> visiveis (universal)
+             (b) hover na aba pai OU na sub (desktop only via
+                 @media hover:hover and pointer:fine) -> fantasma opacity 0.55
+           Em mobile/touch, a media query e falsa -> so caminho (a) =
+           comportamento original preservado.
+
+           max-height/opacity (nao display:none) pra permitir transition
+           suave e que o mouse possa "atravessar" da aba pra sub sem o
+           menu colapsar abruptamente (pattern classico de menus CSS). */
+
+        /* Default: TODAS as sub-views colapsadas. Override a regra
+           anterior `margin-bottom:-1rem` quando escondidas. */
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_term_"],
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_gen_"],
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_mod_"],
+        [data-testid="stSidebar"] [class*="st-key-nav_sub_carga_"] {
+            max-height: 0 !important;
+            opacity: 0 !important;
+            overflow: hidden !important;
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
+            transition: max-height 0.22s ease-out, opacity 0.18s ease-out;
+        }
+
+        /* Aba pai ATIVA -> expande sua familia (universal, mobile + desktop).
+           :has() local no container da aba pai (nao no stSidebar inteiro),
+           depois ~ pra alcancar as sub-views siblings com classe especifica.
+           Match parcial sem acento ("Gera" em vez de "Geração", "Modula"
+           em vez de "Modulação") pra ser robusto a encoding URI das classes
+           do Streamlit. "Despacho" e "Carga" nao tem acento. */
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_Despacho"]:has(button[kind="primary"]) ~ [class*="st-key-nav_sub_term_"],
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_Gera"]:has(button[kind="primary"]) ~ [class*="st-key-nav_sub_gen_"],
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_Modula"]:has(button[kind="primary"]) ~ [class*="st-key-nav_sub_mod_"],
+        [data-testid="stSidebar"] [class*="st-key-nav_aba_Carga"]:has(button[kind="primary"]) ~ [class*="st-key-nav_sub_carga_"] {
+            max-height: 4rem !important;
+            opacity: 1 !important;
+            margin-bottom: -1rem !important;
+        }
+
+        /* DESKTOP only: hover na aba pai OU na propria sub expande fantasma.
+           A regra `[sub]:hover` mantem expandido quando mouse desce da aba
+           pra clicar na sub (sem ela, menu colapsa antes do click chegar). */
+        @media (hover: hover) and (pointer: fine) {
+            [data-testid="stSidebar"] [class*="st-key-nav_aba_Despacho"]:hover ~ [class*="st-key-nav_sub_term_"],
+            [data-testid="stSidebar"] [class*="st-key-nav_sub_term_"]:hover,
+            [data-testid="stSidebar"] [class*="st-key-nav_aba_Gera"]:hover ~ [class*="st-key-nav_sub_gen_"],
+            [data-testid="stSidebar"] [class*="st-key-nav_sub_gen_"]:hover,
+            [data-testid="stSidebar"] [class*="st-key-nav_aba_Modula"]:hover ~ [class*="st-key-nav_sub_mod_"],
+            [data-testid="stSidebar"] [class*="st-key-nav_sub_mod_"]:hover,
+            [data-testid="stSidebar"] [class*="st-key-nav_aba_Carga"]:hover ~ [class*="st-key-nav_sub_carga_"],
+            [data-testid="stSidebar"] [class*="st-key-nav_sub_carga_"]:hover {
+                max-height: 4rem !important;
+                opacity: 0.55 !important;
+                margin-bottom: -1rem !important;
+            }
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1849,6 +1910,16 @@ with st.sidebar:
         "Geração", "Carga", "Curtailment", "Capacidade",
     ]
 
+    # Sub-views renderizadas SEMPRE no DOM (sem `and _is_active`) pra
+    # CSS poder fazer hover-reveal "fantasma" em desktop. Visibilidade
+    # controlada por CSS scoped (§5.88): escondido por default; revela
+    # quando aba pai ativa (universal) OU hover em desktop (@media
+    # hover:hover). Mobile/touch cai no fallback "só clique" porque a
+    # media query é falsa.
+    #
+    # Handler dos sub-buttons seta TAMBEM `aba_selecionada` (alem do
+    # subview): se usuário clica numa sub-view fantasma sem a aba pai
+    # estar ativa, navega direto em 1 clique pra aquela combinação.
     for _aba_opcao in abas_principais:
         _is_active = (st.session_state["aba_selecionada"] == _aba_opcao)
         if st.button(
@@ -1860,31 +1931,29 @@ with st.sidebar:
             st.session_state["aba_selecionada"] = _aba_opcao
             st.rerun()
 
-        # Sub-itens condicionais embaixo de "Despacho Térmico" (Fase Nav.2)
-        if _aba_opcao == "Despacho Térmico" and _is_active:
-            # Init termico_subview se ainda nao existir
+        # Sub-itens de "Despacho Térmico" (Eneva/Sistema)
+        if _aba_opcao == "Despacho Térmico":
             if "termico_subview" not in st.session_state:
                 st.session_state["termico_subview"] = "Eneva"
             _subviews = [("Eneva", "Eneva"), ("SIN", "Sistema")]
             for _label, _valor in _subviews:
-                _is_sub_active = (st.session_state["termico_subview"] == _valor)
-                # Indicador ativo: caractere │ amarelo antes do texto (Fase Nav.2)
+                _is_sub_active = (
+                    _is_active
+                    and st.session_state["termico_subview"] == _valor
+                )
                 _label_display = f"│ {_label}" if _is_sub_active else _label
                 if st.button(
                     _label_display,
-                    key=f"nav_sub_{_valor}",
+                    key=f"nav_sub_term_{_valor}",
                     type="primary" if _is_sub_active else "secondary",
                     width="stretch",
                 ):
+                    st.session_state["aba_selecionada"] = "Despacho Térmico"
                     st.session_state["termico_subview"] = _valor
                     st.rerun()
 
-        # Sub-itens condicionais embaixo de "Geração" (decisão 5.37 — pendente
-        # de doc): SIN (conteúdo histórico inalterado) + Eólica/Solar por Grupo +
-        # GSF (Fator de Ajuste do MRE, sprint GSF Fase 2A).
-        # Keys com prefixo `nav_sub_gen_` casam com o CSS `[class*="st-key-nav_sub_"]`
-        # via match por prefixo — sem CSS dedicado.
-        if _aba_opcao == "Geração" and _is_active:
+        # Sub-itens de "Geração" (SIN / Eólica·Solar por Grupo / GSF)
+        if _aba_opcao == "Geração":
             if "geracao_subview" not in st.session_state:
                 st.session_state["geracao_subview"] = "SIN"
             _subviews_gen = [
@@ -1894,7 +1963,8 @@ with st.sidebar:
             ]
             for _label, _valor in _subviews_gen:
                 _is_sub_active = (
-                    st.session_state["geracao_subview"] == _valor
+                    _is_active
+                    and st.session_state["geracao_subview"] == _valor
                 )
                 _label_display = (
                     f"│ {_label}" if _is_sub_active else _label
@@ -1905,12 +1975,12 @@ with st.sidebar:
                     type="primary" if _is_sub_active else "secondary",
                     width="stretch",
                 ):
+                    st.session_state["aba_selecionada"] = "Geração"
                     st.session_state["geracao_subview"] = _valor
                     st.rerun()
 
-        # Sub-itens condicionais embaixo de "Modulação": spread por
-        # submercado/fonte (aba original) + receita de modulação por empresa.
-        if _aba_opcao == "Modulação" and _is_active:
+        # Sub-itens de "Modulação" (Por Submercado/Fonte + Receita por Empresa)
+        if _aba_opcao == "Modulação":
             if "modulacao_subview" not in st.session_state:
                 st.session_state["modulacao_subview"] = "Submercado"
             _subviews_mod = [
@@ -1919,7 +1989,8 @@ with st.sidebar:
             ]
             for _label, _valor in _subviews_mod:
                 _is_sub_active = (
-                    st.session_state["modulacao_subview"] == _valor
+                    _is_active
+                    and st.session_state["modulacao_subview"] == _valor
                 )
                 _label_display = (
                     f"│ {_label}" if _is_sub_active else _label
@@ -1930,12 +2001,12 @@ with st.sidebar:
                     type="primary" if _is_sub_active else "secondary",
                     width="stretch",
                 ):
+                    st.session_state["aba_selecionada"] = "Modulação"
                     st.session_state["modulacao_subview"] = _valor
                     st.rerun()
 
-        # Sub-itens condicionais embaixo de "Carga": Geral (Viz 1 + Viz 2
-        # originais) + Crescimento (spaghetti chart anos sobrepostos).
-        if _aba_opcao == "Carga" and _is_active:
+        # Sub-itens de "Carga" (Visão Geral + Crescimento)
+        if _aba_opcao == "Carga":
             if "carga_subview" not in st.session_state:
                 st.session_state["carga_subview"] = "Geral"
             _subviews_carga = [
@@ -1944,7 +2015,8 @@ with st.sidebar:
             ]
             for _label, _valor in _subviews_carga:
                 _is_sub_active = (
-                    st.session_state["carga_subview"] == _valor
+                    _is_active
+                    and st.session_state["carga_subview"] == _valor
                 )
                 _label_display = (
                     f"│ {_label}" if _is_sub_active else _label
@@ -1955,6 +2027,7 @@ with st.sidebar:
                     type="primary" if _is_sub_active else "secondary",
                     width="stretch",
                 ):
+                    st.session_state["aba_selecionada"] = "Carga"
                     st.session_state["carga_subview"] = _valor
                     st.rerun()
 

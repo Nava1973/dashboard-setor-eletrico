@@ -4646,6 +4646,23 @@ Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regress
 
 **Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
 
+### 5.88 Sidebar — sub-views fantasmas no hover (descoberta passiva)
+
+**Contexto:** sidebar tinha 4 abas com sub-views (Despacho Térmico, Geração, Modulação, Carga) escondidas até o usuário clicar na aba pai. Usuário argumentou perda comercial (100 clientes usam o dash) — features grandes como GSF, Crescimento, Receita por Empresa ficavam invisíveis na exploração. Proposta: mostrar sub-views em "fantasma" cinza claro quando hover na aba pai; em mobile/touch (sem hover real) preservar comportamento atual.
+
+**Refator do loop (app.py:1852):** removida condição `and _is_active` dos 4 blocos de sub-views — agora todas as ~9 sub-views são SEMPRE renderizadas no DOM. Visibilidade passa a ser responsabilidade exclusiva do CSS. Custo: ~9 `st.button` extras por render (irrelevante em performance). Handlers dos sub-buttons ganharam `st.session_state["aba_selecionada"] = "<aba_pai>"` — clique direto na sub fantasma navega em 1 clique (sem precisar abrir a aba pai antes).
+
+**Renomeação `nav_sub_<v>` → `nav_sub_term_<v>`:** keys do Despacho Térmico ganharam prefixo `term_` pra consistência com `nav_sub_gen_`, `nav_sub_mod_`, `nav_sub_carga_`. CSS pode então usar 4 prefixos limpos pra escopar regras por família.
+
+**CSS em 3 camadas:**
+  - **Default:** sub-views colapsadas (`max-height: 0; opacity: 0; overflow: hidden`). Usado `max-height` + `opacity` em vez de `display: none` pra permitir transição suave (`transition: max-height 0.22s, opacity 0.18s`) e que o mouse possa atravessar da aba pra sub sem o menu colapsar abruptamente (pattern clássico de menus CSS).
+  - **Aba pai ATIVA (universal):** `[aba_pai]:has(button[kind="primary"]) ~ [sub_da_familia]` expande sua família (`max-height: 4rem; opacity: 1`). Sintaxe CSS `:has()` requer Safari 15.4+/Chrome 105+/Firefox 121+ — todos lançados ≥2 anos atrás, cobertura ~97% global.
+  - **Hover DESKTOP only:** dentro de `@media (hover: hover) and (pointer: fine)`, regra similar mas com `opacity: 0.55` (fantasma). Em mobile/tablet a media query é falsa → só o caminho "aba ativa" vale → UX original preservada. Inclui `[sub]:hover` no mesmo seletor pra manter expandido quando o mouse desce da aba pra clicar na sub (sem essa parte, o menu colapsaria antes do click chegar).
+
+**Bug fix mid-sessão:** primeira tentativa usou `[data-testid="stSidebar"]:has([class*="..._Geração"] button[kind="primary"]) [class*="..._sub_gen_"]` — escopo do `:has()` no stSidebar inteiro com cascade para descendente. Falhou: aba ativa não expandia sub-views. Corrigido movendo `:has()` pro próprio container do aba pai e usando `~` pra sibling: `[class*="..._Geração"]:has(button[kind="primary"]) ~ [class*="..._sub_gen_"]`. Match parcial também relaxado pra prefixos sem acento (`"_Gera"`, `"_Modula"`) por robustez ao encoding URI das classes Streamlit.
+
+**Resultado:** UX claramente melhor — sidebar mantém visual limpo (sub-views não poluem em estado idle) mas oferecem descoberta passiva imediata ao hover. Comportamento em touch idêntico ao anterior.
+
 ### 5.87 GSF horário investigado e descartado — GARANTIA_FISICA_MRE é modulada intra-day
 
 **Contexto:** §9.4 do CLAUDE.md flagava GSF horário como pendência bloqueada na verificação se a CCEE publica oficial. Em 18/05/2026 reabrimos o tema com a percepção do usuário: "a fórmula é matemática, podemos aplicar horário usando o mesmo dataset". Fizemos backend + UI completos, mas o resultado empírico **invalidou** a feature como ferramenta analítica.
