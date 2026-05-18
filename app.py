@@ -1920,6 +1920,31 @@ with st.sidebar:
                     st.session_state["modulacao_subview"] = _valor
                     st.rerun()
 
+        # Sub-itens condicionais embaixo de "Carga": Geral (Viz 1 + Viz 2
+        # originais) + Crescimento (spaghetti chart anos sobrepostos).
+        if _aba_opcao == "Carga" and _is_active:
+            if "carga_subview" not in st.session_state:
+                st.session_state["carga_subview"] = "Geral"
+            _subviews_carga = [
+                ("Visão Geral", "Geral"),
+                ("Crescimento", "Crescimento"),
+            ]
+            for _label, _valor in _subviews_carga:
+                _is_sub_active = (
+                    st.session_state["carga_subview"] == _valor
+                )
+                _label_display = (
+                    f"│ {_label}" if _is_sub_active else _label
+                )
+                if st.button(
+                    _label_display,
+                    key=f"nav_sub_carga_{_valor}",
+                    type="primary" if _is_sub_active else "secondary",
+                    use_container_width=True,
+                ):
+                    st.session_state["carga_subview"] = _valor
+                    st.rerun()
+
     aba = st.session_state["aba_selecionada"]
 
     st.divider()
@@ -7039,10 +7064,12 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "G
     from components.tab_gsf import render_aba_gsf
     render_aba_gsf(user)
 
-elif aba == "Carga":
+elif aba == "Carga" and st.session_state.get("carga_subview", "Geral") == "Geral":
     # -----------------------------------------------------------------------
-    # Aba Carga — demanda elétrica por subsistema (val_carga do balanço ONS).
-    # Reusa load_balanco_subsistema da Geração (mesmo dataset, mesmo cache).
+    # Aba Carga — sub-view "Geral": demanda elétrica por subsistema
+    # (val_carga do balanço ONS). Reusa load_balanco_subsistema da Geração
+    # (mesmo dataset, mesmo cache). Sub-view "Crescimento" abaixo (spaghetti
+    # de anos sobrepostos) usa o mesmo loader mas roteamento separado.
     # Sessão 4a entrega Setup + KPIs + Glossário + Viz 1 (total vs líquida)
     # + Viz 2 (decomposição com ordem da carga líquida).
     # Sessão 4b adicionará Viz 3/4/5 (comparação anual, LDC, histograma rampas).
@@ -8062,15 +8089,59 @@ penetração da solar centralizada.
     COR_INTERC_V2  = "#9B9B9B"  # cinza neutro (5.32)
     COR_CARGA_V2   = BAUHAUS_BLACK  # linha de fecho dotted
 
-    # Título Bauhaus (mesmo padrão da Viz 1).
+    # ----- Toggle Composição: Total vs Líquida -----
+    # Total (default): mostra TODAS as fontes (Solar + Eólica + Hidro +
+    # Térmica), linha de fecho = Carga Total. Resposta: "de onde vem
+    # TODA a energia?"
+    # Líquida: mostra só DESPACHÁVEIS (Hidro + Térmica), linha de fecho
+    # = Carga Líquida (= carga − solar − eólica). Resposta: "como o ONS
+    # está rodando o que ele controla?" — em períodos secos, térmica
+    # ocupa mais espaço do stack.
+    # Spacer pra separar visualmente do Glossário acima (sem isso, os
+    # botões colam no expander).
+    st.markdown(
+        '<div style="margin-top:1.8rem;"></div>', unsafe_allow_html=True,
+    )
+    carga_v2_modo = st.session_state.setdefault("carga_v2_modo", "total")
+    _col_v2t, _col_v2l, _ = st.columns([1, 1, 5])
+    with _col_v2t:
+        if st.button(
+            "Total",
+            type="primary" if carga_v2_modo == "total" else "secondary",
+            use_container_width=True,
+            key="btn_carga_v2_total",
+            help="Composição: Solar + Eólica + Hidro + Térmica = Carga Total.",
+        ):
+            st.session_state["carga_v2_modo"] = "total"
+            st.rerun()
+    with _col_v2l:
+        if st.button(
+            "Líquida",
+            type="primary" if carga_v2_modo == "liquida" else "secondary",
+            use_container_width=True,
+            key="btn_carga_v2_liquida",
+            help=(
+                "Composição: só despacháveis (Hidro + Térmica) = Carga "
+                "Líquida. Mostra como o ONS roda o que controla."
+            ),
+        ):
+            st.session_state["carga_v2_modo"] = "liquida"
+            st.rerun()
+
+    _viz2_titulo = (
+        "COMPOSIÇÃO DA CARGA TOTAL" if carga_v2_modo == "total"
+        else "COMPOSIÇÃO DA CARGA LÍQUIDA"
+    )
+
+    # Título Bauhaus (mesmo padrão da Viz 1) — adapta conforme o modo.
     st.markdown(
         f'<div style="display:flex; justify-content:space-between; '
         f'align-items:baseline; '
         f'font-family:\'Bebas Neue\', sans-serif; '
         f'font-size:1.1rem; letter-spacing:0.08em; color:{COR_TEXTO}; '
-        f'margin: 2.6rem 0 0.3rem 0; padding-bottom:3px; '
+        f'margin: 0.8rem 0 0.3rem 0; padding-bottom:3px; '
         f'border-bottom: 2px solid {COR_TEXTO};">'
-        f'<span>{label_sub_carga} · COMPOSIÇÃO DA CARGA TOTAL</span>'
+        f'<span>{label_sub_carga} · {_viz2_titulo}</span>'
         f'<span>{periodo_str_carga}</span>'
         f'</div>',
         unsafe_allow_html=True,
@@ -8095,47 +8166,51 @@ penetração da solar centralizada.
     #   independente de sigla curta (Solar/Hidro) ou longa
     #   (Intercâmbio, Carga total).
 
-    # Trace 1: SOLAR (camada de baixo do stack).
-    solar_lbl = "Solar".ljust(11).replace(" ", "&nbsp;")
-    fig_v2.add_trace(
-        go.Scatter(
-            x=pivot_sel_carga.index,
-            y=pivot_sel_carga["solar"].values,
-            name="Solar",
-            mode="lines",
-            stackgroup="oferta",
-            line=dict(color=COR_FONTE_SOLAR, width=0.5),
-            fillcolor=COR_FONTE_SOLAR,
-            hovertemplate=(
-                f'<span style="color:{COR_FONTE_SOLAR}; font-weight:700;">'
-                f'{solar_lbl}</span>'
-                '&nbsp;&nbsp;'
-                '<span style="color:#313131;">%{y:,.0f} MWmed</span>'
-                '<extra></extra>'
-            ),
+    # Traces Solar + Eólica APENAS no modo "Total" — no modo "Líquida",
+    # as renováveis variáveis são EXCLUÍDAS do stack (a carga líquida é
+    # justamente o que sobra depois de abatê-las).
+    if carga_v2_modo == "total":
+        # Trace 1: SOLAR (camada de baixo do stack).
+        solar_lbl = "Solar".ljust(11).replace(" ", "&nbsp;")
+        fig_v2.add_trace(
+            go.Scatter(
+                x=pivot_sel_carga.index,
+                y=pivot_sel_carga["solar"].values,
+                name="Solar",
+                mode="lines",
+                stackgroup="oferta",
+                line=dict(color=COR_FONTE_SOLAR, width=0.5),
+                fillcolor=COR_FONTE_SOLAR,
+                hovertemplate=(
+                    f'<span style="color:{COR_FONTE_SOLAR}; font-weight:700;">'
+                    f'{solar_lbl}</span>'
+                    '&nbsp;&nbsp;'
+                    '<span style="color:#313131;">%{y:,.0f} MWmed</span>'
+                    '<extra></extra>'
+                ),
+            )
         )
-    )
 
-    # Trace 2: EÓLICA (em cima da solar — completa renováveis variáveis).
-    eolica_lbl = "Eólica".ljust(11).replace(" ", "&nbsp;")
-    fig_v2.add_trace(
-        go.Scatter(
-            x=pivot_sel_carga.index,
-            y=pivot_sel_carga["eolica"].values,
-            name="Eólica",
-            mode="lines",
-            stackgroup="oferta",
-            line=dict(color=COR_FONTE_EOLICA, width=0.5),
-            fillcolor=COR_FONTE_EOLICA,
-            hovertemplate=(
-                f'<span style="color:{COR_FONTE_EOLICA}; font-weight:700;">'
-                f'{eolica_lbl}</span>'
-                '&nbsp;&nbsp;'
-                '<span style="color:#313131;">%{y:,.0f} MWmed</span>'
-                '<extra></extra>'
-            ),
+        # Trace 2: EÓLICA (em cima da solar — completa renováveis variáveis).
+        eolica_lbl = "Eólica".ljust(11).replace(" ", "&nbsp;")
+        fig_v2.add_trace(
+            go.Scatter(
+                x=pivot_sel_carga.index,
+                y=pivot_sel_carga["eolica"].values,
+                name="Eólica",
+                mode="lines",
+                stackgroup="oferta",
+                line=dict(color=COR_FONTE_EOLICA, width=0.5),
+                fillcolor=COR_FONTE_EOLICA,
+                hovertemplate=(
+                    f'<span style="color:{COR_FONTE_EOLICA}; font-weight:700;">'
+                    f'{eolica_lbl}</span>'
+                    '&nbsp;&nbsp;'
+                    '<span style="color:#313131;">%{y:,.0f} MWmed</span>'
+                    '<extra></extra>'
+                ),
+            )
         )
-    )
 
     # Trace 3: HIDRO (despachável, em cima das renováveis variáveis).
     hidro_lbl = "Hidro".ljust(11).replace(" ", "&nbsp;")
@@ -8214,15 +8289,30 @@ penetração da solar centralizada.
             )
         )
 
-    # Trace 6: CARGA TOTAL sobreposta — linha dotted preta fina.
-    # Adicionada POR ÚLTIMO pra ficar por cima de tudo (z-order).
-    # Em SIN, cola no topo do stack. Em submercado, gap = intercâmbio.
-    carga_lbl = "Carga total".ljust(11).replace(" ", "&nbsp;")
+    # Trace 6: linha de fecho sobreposta (dotted preta fina). Adicionada
+    # POR ÚLTIMO pra ficar por cima de tudo (z-order).
+    # Modo "Total": linha = Carga Total (cola no topo do stack em SIN;
+    #   gap pra topo do stack em submercado = intercâmbio).
+    # Modo "Líquida": linha = Carga Líquida (= carga − solar − eólica).
+    #   Cola no topo do stack hidro+térmica em SIN; gap = intercâmbio.
+    if carga_v2_modo == "total":
+        _carga_y = pivot_sel_carga["carga"].values
+        _carga_name = "Carga total"
+        _carga_lbl_raw = "Carga total"
+    else:
+        _carga_y = (
+            pivot_sel_carga["carga"].values
+            - pivot_sel_carga["solar"].values
+            - pivot_sel_carga["eolica"].values
+        )
+        _carga_name = "Carga líquida"
+        _carga_lbl_raw = "Carga líq."
+    carga_lbl = _carga_lbl_raw.ljust(11).replace(" ", "&nbsp;")
     fig_v2.add_trace(
         go.Scatter(
             x=pivot_sel_carga.index,
-            y=pivot_sel_carga["carga"].values,
-            name="Carga total",
+            y=_carga_y,
+            name=_carga_name,
             mode="lines",
             line=dict(color=COR_CARGA_V2, width=1.5, dash="dot"),
             hovertemplate=(
@@ -8326,6 +8416,356 @@ penetração da solar centralizada.
     st.plotly_chart(
         fig_v2, use_container_width=True,
         config={"displaylogo": False},
+    )
+
+elif aba == "Carga" and st.session_state.get("carga_subview", "Geral") == "Crescimento":
+    # -----------------------------------------------------------------------
+    # Aba Carga — sub-view "Crescimento": spaghetti chart com 1 linha por ano
+    # sobrepostas no eixo "dia do ano" (jan→dez). Mostra simultaneamente
+    # crescimento ao longo dos anos (envelope subindo) e sazonalidade.
+    #
+    # Layout: 2 gráficos empilhados.
+    #   - Em cima: Carga Total
+    #   - Embaixo: Carga Líquida (= total - eólica - solar)
+    #
+    # Estilo:
+    #   - 2016-2024 (9 anos históricos): cinza claro transparente, label
+    #     compartilhado "Histórico" (ano só no hover).
+    #   - 2025: cinza escuro, traço mais grosso.
+    #   - 2026 (ano corrente): azul Bauhaus, traço destacado; termina no
+    #     último dia com dado ONS (sem projeção).
+    #
+    # Suavização: média móvel de 7 dias na série diária consolidada (calc
+    # ANTES de separar por ano, pra evitar NaN nos primeiros 6 dias de cada
+    # ano — janela usa também dias do final do ano anterior).
+    #
+    # MMGD: ONS passou a incluir MMGD em val_carga em 29/04/2023. A "subida"
+    # observada nos anos recentes inclui esse efeito metodológico. Nota no
+    # rodapé dos DOIS gráficos (a líquida também é afetada porque val_carga
+    # é o ponto de partida do cálculo da líquida).
+    #
+    # Fonte: ONS — Balanço de Energia por Subsistema (horário). SIN = soma
+    # dos 4 subsistemas. Granularidade horária → diária via média de MWmed
+    # (não soma — valores já estão em MW médios).
+    # -----------------------------------------------------------------------
+    st.markdown("# CARGA · CRESCIMENTO")
+    st.markdown(
+        '<div style="border-bottom: 2px solid #313131; '
+        'margin: -0.2rem 0 1.2rem 12px;"></div>',
+        unsafe_allow_html=True,
+    )
+
+    # --- Carregar dados (compartilha cache com sub-view Geral e Geração) ---
+    historico_completo_cresc = st.session_state.get(
+        "gen_historico_completo", False
+    )
+    spinner_msg_cresc = "Carregando série histórica de carga..."
+    with st.spinner(spinner_msg_cresc):
+        try:
+            df_cresc = load_balanco_subsistema(
+                incluir_historico_completo=historico_completo_cresc,
+            )
+        except Exception as e:
+            st.error(f"Falha ao carregar dados do ONS (balanço): {e}")
+            st.stop()
+
+    if df_cresc.empty:
+        st.warning("Nenhum dado disponível.")
+        st.stop()
+
+    # --- Filtrar SIN e pivotar para colunas carga/eolica/solar ---
+    df_sin = df_cresc[df_cresc["submercado"] == "SIN"].copy()
+    if df_sin.empty:
+        st.warning("Sem dados do SIN no dataset.")
+        st.stop()
+
+    pivot_cresc = (
+        df_sin.pivot_table(
+            index="data_hora",
+            columns="fonte",
+            values="mwmed",
+            aggfunc="mean",
+        )
+        .reindex(columns=["carga", "eolica", "solar"])
+        .fillna(0)
+    )
+
+    # --- Agregar para diário (média de MWmed — valores já estão em MW
+    # médios, não converter para MWh). Depois MM7d na série completa antes
+    # de separar por ano (evita NaN nos primeiros 6 dias). ---
+    serie_diaria = pivot_cresc.resample("D").mean()
+    carga_total_diaria = serie_diaria["carga"]
+    carga_liquida_diaria = (
+        serie_diaria["carga"]
+        - serie_diaria["eolica"]
+        - serie_diaria["solar"]
+    )
+    mm7_total = carga_total_diaria.rolling(window=7, min_periods=7).mean()
+    mm7_liquida = carga_liquida_diaria.rolling(window=7, min_periods=7).mean()
+
+    # --- Janela de anos: últimos 10 cheios (2016-2024) + 2025 + 2026 ---
+    ANO_CORRENTE_CRESC = pd.Timestamp.now().year
+    ANO_DESTAQUE_RECENTE = ANO_CORRENTE_CRESC - 1
+    ANO_INI_HISTORICO = ANO_CORRENTE_CRESC - 10
+    anos_disponiveis = sorted(set(mm7_total.dropna().index.year))
+    anos_historicos = [
+        a for a in anos_disponiveis
+        if ANO_INI_HISTORICO <= a < ANO_DESTAQUE_RECENTE
+    ]
+    tem_recente = ANO_DESTAQUE_RECENTE in anos_disponiveis
+    tem_corrente = ANO_CORRENTE_CRESC in anos_disponiveis
+
+    # --- Eixo X: "dia do ano" como datetime em ano comum 2024 (bissexto)
+    # para alinhar todas as séries num mesmo eixo de 366 dias com labels
+    # de mês legíveis. Anos não-bissextos têm 365 pontos (29/fev fica em
+    # branco no traço). ---
+    ANO_BASE_EIXO = 2024
+
+    def _serie_ano_para_eixo_comum(serie, ano):
+        s = serie[serie.index.year == ano]
+        if s.empty:
+            return None, None
+        # Mapeia cada timestamp para a mesma data no ano-base 2024.
+        # Anos não-bissextos sem 29/fev geram só 365 pontos (sem buraco).
+        novas_datas = []
+        for ts in s.index:
+            try:
+                novas_datas.append(pd.Timestamp(ANO_BASE_EIXO, ts.month, ts.day))
+            except ValueError:
+                novas_datas.append(None)
+        # Remove eventual None (não deveria ocorrer pois 2024 é bissexto)
+        pares = [(d, v) for d, v in zip(novas_datas, s.values) if d is not None]
+        if not pares:
+            return None, None
+        xs = [p[0] for p in pares]
+        ys = [p[1] for p in pares]
+        return xs, ys
+
+    # --- Cores e estilos ---
+    CINZA_HISTORICO = "rgba(150, 150, 150, 0.35)"  # cinza claro transparente
+    CINZA_DESTAQUE_RECENTE = "#6B6B6B"               # cinza médio (não compete com 2026)
+    AZUL_CORRENTE = BAUHAUS_BLUE                     # azul Bradesco (#0078B7)
+
+    NOTA_MMGD_RODAPE = (
+        "Atenção: ONS passou a incluir MMGD (Micro/Minigeração "
+        "Distribuída) na carga oficial a partir de 29/04/2023. A elevação "
+        "observada nos anos 2023+ inclui esse efeito metodológico, não "
+        "apenas crescimento orgânico de demanda."
+    )
+    NOTA_FONTE_RODAPE = (
+        "Fonte: ONS — Balanço de Energia por Subsistema (SIN). "
+        "Série diária em MWmed com média móvel de 7 dias."
+    )
+
+    def _construir_spaghetti(serie_mm7, titulo, key_chart, mostrar_nota_rodape):
+        """Monta o spaghetti chart pra uma série (Total ou Líquida).
+
+        Sem legenda: usa annotations diretas nas pontas das linhas
+        destacadas (2025 cinza-escuro, 2026 azul). Anos históricos
+        ficam cinza-claros sem rótulo (o hover ainda mostra o ano).
+
+        mostrar_nota_rodape: se True, renderiza a nota MMGD+Fonte
+        embaixo do gráfico. Usamos True só no último gráfico, pra
+        evitar duplicar visualmente.
+        """
+        fig = go.Figure()
+
+        # Traços históricos cinzas (1 por ano, sem legenda).
+        for ano in anos_historicos:
+            xs, ys = _serie_ano_para_eixo_comum(serie_mm7, ano)
+            if xs is None:
+                continue
+            fig.add_trace(
+                go.Scatter(
+                    x=xs, y=ys,
+                    mode="lines",
+                    line=dict(color=CINZA_HISTORICO, width=1.4),
+                    name=str(ano),
+                    showlegend=False,
+                    hovertemplate=(
+                        f'<span style="color:#6B6B6B; font-weight:700;">'
+                        f'{ano}</span>'
+                        '&nbsp;&nbsp;'
+                        '<span style="color:#313131;">%{y:,.0f} MWmed</span>'
+                        '<extra></extra>'
+                    ),
+                )
+            )
+
+        # Coletamos endpoints (último x,y) das linhas destacadas pra
+        # criar annotations textuais — substituem a legenda.
+        endpoints_destaque = []
+
+        # Ano N-1 destacado (cinza escuro, mais grosso).
+        if tem_recente:
+            xs, ys = _serie_ano_para_eixo_comum(serie_mm7, ANO_DESTAQUE_RECENTE)
+            if xs is not None:
+                fig.add_trace(
+                    go.Scatter(
+                        x=xs, y=ys,
+                        mode="lines",
+                        line=dict(color=CINZA_DESTAQUE_RECENTE, width=2.4),
+                        name=str(ANO_DESTAQUE_RECENTE),
+                        showlegend=False,
+                        hovertemplate=(
+                            f'<span style="color:{CINZA_DESTAQUE_RECENTE}; '
+                            f'font-weight:700;">'
+                            f'{ANO_DESTAQUE_RECENTE}</span>'
+                            '&nbsp;&nbsp;'
+                            '<span style="color:#313131;">%{y:,.0f} MWmed</span>'
+                            '<extra></extra>'
+                        ),
+                    )
+                )
+                endpoints_destaque.append(
+                    (xs[-1], ys[-1], str(ANO_DESTAQUE_RECENTE),
+                     CINZA_DESTAQUE_RECENTE)
+                )
+
+        # Ano corrente destacadíssimo (azul Bauhaus, mais grosso).
+        if tem_corrente:
+            xs, ys = _serie_ano_para_eixo_comum(serie_mm7, ANO_CORRENTE_CRESC)
+            if xs is not None:
+                fig.add_trace(
+                    go.Scatter(
+                        x=xs, y=ys,
+                        mode="lines",
+                        line=dict(color=AZUL_CORRENTE, width=3.0),
+                        name=str(ANO_CORRENTE_CRESC),
+                        showlegend=False,
+                        hovertemplate=(
+                            f'<span style="color:{AZUL_CORRENTE}; '
+                            f'font-weight:700;">'
+                            f'{ANO_CORRENTE_CRESC}</span>'
+                            '&nbsp;&nbsp;'
+                            '<span style="color:#313131;">%{y:,.0f} MWmed</span>'
+                            '<extra></extra>'
+                        ),
+                    )
+                )
+                endpoints_destaque.append(
+                    (xs[-1], ys[-1], str(ANO_CORRENTE_CRESC), AZUL_CORRENTE)
+                )
+
+        # Annotations: labels diretos das linhas destacadas (substitui legenda).
+        # yshift separa verticalmente os 2 rótulos pra evitar sobreposição
+        # quando as linhas terminam em valores Y próximos: 2025 desce 14px,
+        # 2026 sobe 14px → ~28px de gap visual mesmo se as pontas coincidirem.
+        for x_end, y_end, rotulo, cor in endpoints_destaque:
+            if rotulo == str(ANO_CORRENTE_CRESC):
+                yshift_val = 14
+            else:
+                yshift_val = -14
+            fig.add_annotation(
+                x=x_end, y=y_end,
+                text=f"<b>{rotulo}</b>",
+                showarrow=False,
+                xanchor="left", yanchor="middle",
+                xshift=8,                  # afasta levemente do fim da linha
+                yshift=yshift_val,
+                font=dict(
+                    family="Bebas Neue, sans-serif",
+                    size=16, color=cor,
+                ),
+            )
+
+        fig.update_layout(
+            height=420,
+            margin=dict(l=20, r=60, t=20, b=20),  # +r pra caber label "2026"
+            paper_bgcolor=BAUHAUS_CREAM,
+            plot_bgcolor=BAUHAUS_CREAM,
+            separators=",.",
+            hovermode="x unified",
+            hoverlabel=dict(
+                bgcolor=BAUHAUS_CREAM,
+                bordercolor=BAUHAUS_BLACK,
+                font=dict(
+                    family="'IBM Plex Mono', 'Courier New', monospace",
+                    size=12, color=BAUHAUS_BLACK,
+                ),
+            ),
+            showlegend=False,   # legenda redundante: cores+labels diretos bastam
+            xaxis=dict(
+                title=None,
+                type="date",     # força tipo "date" — evita inferência errada
+                showgrid=False, showline=True,
+                linewidth=2, linecolor=BAUHAUS_BLACK,
+                ticks="outside", tickcolor=BAUHAUS_BLACK,
+                tickformat="%b",     # "Jan", "Fev", ... (locale do servidor)
+                dtick="M1",          # 1 tick por mês
+                hoverformat="%d/%b",
+                tickfont=dict(
+                    family="Inter, sans-serif",
+                    size=13, color=BAUHAUS_BLACK,
+                ),
+            ),
+            yaxis=dict(
+                title=None,
+                showgrid=True, gridcolor=BAUHAUS_LIGHT, gridwidth=1,
+                showline=True, linewidth=2, linecolor=BAUHAUS_BLACK,
+                ticks="outside", tickcolor=BAUHAUS_BLACK,
+                tickfont=dict(
+                    family="Inter, sans-serif",
+                    size=13, color=BAUHAUS_BLACK,
+                ),
+                zeroline=False,
+                tickformat=",.0f",
+            ),
+            font=dict(family="Inter, sans-serif", size=12),
+        )
+
+        # Título visual acima do gráfico (mesmo estilo Viz 1 da sub-view Geral).
+        st.markdown(
+            f'<div style="display:flex; justify-content:space-between; '
+            f'align-items:baseline; '
+            f'font-family:\'Bebas Neue\', sans-serif; '
+            f'font-size:1.1rem; letter-spacing:0.08em; color:{COR_TEXTO}; '
+            f'margin: 0.5rem 0 0.3rem 0; padding-bottom:3px; '
+            f'border-bottom: 2px solid {COR_TEXTO};">'
+            f'<span>SIN · {titulo}</span>'
+            f'<span>{ANO_INI_HISTORICO}-{ANO_CORRENTE_CRESC}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        # Tag de granularidade + unidade (padrão Viz 1 da sub-view Geral).
+        st.markdown(
+            f'<div style="font-family:\'Inter\', sans-serif; '
+            f'font-size:0.9rem; color:{COR_TEXTO}; font-weight:500; '
+            f'letter-spacing:0.04em; margin:0 0 0.5rem 0;">'
+            f'Média diária · MWmed (média móvel de 7 dias)'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        st.plotly_chart(
+            fig, use_container_width=True,
+            config={"displaylogo": False},
+            key=key_chart,
+        )
+        # Rodapé com nota MMGD + fonte só no último gráfico (carga líquida
+        # deriva de val_carga, então MMGD também a afeta — nota se aplica
+        # implicitamente a ambos).
+        if mostrar_nota_rodape:
+            st.markdown(
+                f'<div style="font-family:\'Inter\', sans-serif; '
+                f'font-size:0.78rem; color:#6B6B6B; font-style:italic; '
+                f'margin:-0.2rem 0 1.5rem 0; line-height:1.4;">'
+                f'{NOTA_MMGD_RODAPE}<br>{NOTA_FONTE_RODAPE}'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    # --- Renderiza os dois gráficos empilhados ---
+    _construir_spaghetti(
+        mm7_total,
+        titulo="CARGA TOTAL — ANOS SOBREPOSTOS",
+        key_chart="cresc_spaghetti_total",
+        mostrar_nota_rodape=False,
+    )
+    _construir_spaghetti(
+        mm7_liquida,
+        titulo="CARGA LÍQUIDA (= TOTAL − EÓLICA − SOLAR) — ANOS SOBREPOSTOS",
+        key_chart="cresc_spaghetti_liquida",
+        mostrar_nota_rodape=True,
     )
 
 elif aba == "Curtailment":

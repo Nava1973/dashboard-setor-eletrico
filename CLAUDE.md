@@ -4646,6 +4646,35 @@ Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regress
 
 **Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
 
+### 5.81 Carga · sub-view "Crescimento": spaghetti chart de anos sobrepostos
+
+**Contexto:** usuário pediu gráfico de crescimento de carga (YoY %) em granularidades mensal/trimestral/anual com pro-rata do período corrente. Durante o desenho da spec, levantou-se a quebra metodológica do MMGD em 29/04/2023 (ONS passou a incluir Micro/Minigeração Distribuída em `val_carga`) — qualquer YoY que cruze essa data fica contaminado. Discutidas 3 opções (anotar, reconstruir ex-MMGD via ANEEL, mostrar 2 séries). Usuário propôs ideia melhor que substituiu tudo: **spaghetti chart** com 1 linha por ano sobreposta no eixo Jan→Dez. Vantagens: o "salto" do MMGD aparece como elevação natural do envelope (não distorce nada), pro-rata vira não-questão (linha do ano corrente termina onde tem dado), e ganhamos leitura de sazonalidade de bônus.
+
+**Sub-view nova (`carga_subview = "Crescimento"`):** segue o pattern §5.79 das outras sub-views (Geração SIN/Grupo/GSF, Modulação Submercado/Receita). Botão na sidebar (`app.py:1922-1944`) abaixo de "Carga" com 2 opções: **"Visão Geral"** (valor interno `"Geral"`, conteúdo histórico Viz 1+Viz 2 intacto) e **"Crescimento"** (novo). `elif aba == "Carga"` antigo ganhou filtro `and st.session_state.get("carga_subview", "Geral") == "Geral"`; novo `elif` espelhado pra `"Crescimento"`. Label interno preservado como `"Geral"` mesmo após rename pra "Visão Geral" — evita tocar no roteamento.
+
+**Layout:** 2 spaghettis empilhados verticalmente — Carga Total em cima, Carga Líquida (= total − eólica − solar) embaixo. Cada um tem 11 linhas (2016-2024 cinzas + 2025 + 2026), eixo X Jan→Dez, eixo Y em MWmed com MM7d. Render via função local `_construir_spaghetti(serie_mm7, titulo, key_chart, mostrar_nota_rodape)` chamada 2x.
+
+**Hierarquia visual de destaque:**
+  - **2016-2024 (9 anos):** `rgba(150,150,150,0.35)` cinza claro transparente, width 1.4, sem legenda própria, hover mostra o ano.
+  - **2025 (N−1):** `#6B6B6B` cinza médio (`COR_TEXTO_SECUND` do paleta_bradesco), width 2.4. Primeira iteração usou `#313131` quase-preto — competia visualmente com o azul de 2026, abaixado pra cinza médio.
+  - **2026 (corrente):** `BAUHAUS_BLUE` (#0078B7), width 3.0, termina no último dia com dado ONS.
+
+**Sem legenda, labels diretos via `add_annotation`:** primeira versão usou trace fake `x=[None], y=[None]` pra criar entrada "Histórico" na legenda, mas isso causou bug — Plotly inferiu eixo X como linear (mostrou `-1..6` em vez de meses) provavelmente porque o trace fake era o primeiro e definiu o tipo do eixo antes dos traces reais com datetimes. **Solução**: removida a legenda inteira (`showlegend=False`), substituída por annotations textuais "2025" e "2026" nas pontas direitas das linhas correspondentes (xshift=8, yshift=±14 pra separar verticalmente quando os endpoints coincidem). Margem direita do plot bumped pra `r=60` pra caber o label "2026". Defesa redundante: `xaxis.type="date"` explícito mesmo sem trace fake.
+
+**Alinhamento de anos no eixo X (ano-base 2024):** função `_serie_ano_para_eixo_comum(serie, ano)` mapeia cada timestamp do ano original pra mesma data no ano 2024 (escolhido por ser bissexto — comporta 29/fev sem perder ponto). Anos não-bissextos geram 365 pontos (sem buraco visual, só pulam o 29/fev). Alternativa "dia-do-ano numérico 1-366" foi descartada porque perde o `tickformat="%b"` que rotula meses por nome ("Jan", "Fev", ...).
+
+**MM7d aplicado ANTES de separar por ano:** `mm7_total = carga_total_diaria.rolling(window=7, min_periods=7).mean()` calcula a média móvel na série diária consolidada inteira; só depois separamos por ano. Se calculássemos por ano, os primeiros 6 dias de cada ano viriam NaN — descontinuidade visual no eixo Jan. Janela usando dias do final do ano anterior é semanticamente correto pra MM7d (não há "reset" de carga em 1/jan).
+
+**Agregação horária→diária via `.mean()` (não `.sum()`):** dados ONS vêm em MWmed (potência média na hora, não energia), então média do dia é média das 24 médias horárias. Soma daria MWh, unidade errada. Mesma decisão documentada no `data_loader.py:1849` ("MWmed; nunca converter pra MWh").
+
+**Nota MMGD igual nos 2 gráficos, renderizada só 1 vez:** carga líquida = `val_carga − eólica − solar`, então MMGD (que entrou em `val_carga` em 29/04/2023) afeta tanto a Total quanto a Líquida — não dá pra simplesmente "ignorar MMGD na líquida" como instinto inicial sugeria. Decisão: mesma nota no rodapé, mas renderizada **apenas embaixo do 2º gráfico** (param `mostrar_nota_rodape=True` só na chamada da Líquida) — visualmente cobre os dois sem duplicar. Inclui também a fonte ONS (Balanço de Energia por Subsistema, SIN).
+
+**Bug de import (1 fix mid-sessão):** primeira tentativa usou `datetime.now().year` pra detectar ano corrente, mas `app.py` só tem `from datetime import timedelta` (não `datetime` o classe). Troca pra `pd.Timestamp.now().year` — pandas já está importado em todo o app, evita adicionar import novo. Lição: `app.py` evita o módulo `datetime` (decisão preexistente, não documentada explicitamente).
+
+**Compartilhamento de cache:** reusa `load_balanco_subsistema()` e a flag `gen_historico_completo` — mesma fonte de dados das sub-views Geral (Carga) e SIN (Geração). Default 15 anos cobre 2012-2026, suficiente pra janela 2016-2026 do spaghetti. Se admin clicar "Carregar histórico completo" em qualquer outra aba, os 27 anos estarão disponíveis aqui também (mas o spaghetti continua mostrando só os últimos 10 cheios + corrente).
+
+**Validação:** compile-check OK; iterações visuais com o usuário no Streamlit local (4 rounds: bug do eixo X "−1..6" → fix com `type="date"` + remoção do trace fake; cor de 2025 muito marcada → trocada pra cinza médio; label "2026" sobrepondo a linha de 2025 → yshift ±14; unidade MWmed faltando no header → adicionado subtítulo "Média diária · MWmed (média móvel de 7 dias)" no padrão Viz 1). Browser-automation indisponível nesta sessão.
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
