@@ -24,6 +24,8 @@ assets/logos/_preview_*.png
 
 # Config com credenciais reais — JAMAIS commitar
 config.yaml
+# Backups manuais antes de mexer no config (ex: config.yaml.bak.20260518)
+config.yaml.bak.*
 
 # Streamlit secrets (se existirem no futuro)
 .streamlit/secrets.toml
