@@ -4646,6 +4646,28 @@ Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regress
 
 **Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
 
+### 5.90 PLD mensal — mês corrente parcial via dataset diário
+
+**Contexto:** sequência da §5.89. Usuário pediu pra mostrar o mês corrente em curso (hoje maio/26) no gráfico mensal do PLD, mesmo sem a CCEE ter publicado o fechamento mensal. Valor seria a média dos dias já publicados no dataset diário. Aplicado nos presets 3M/6M/12M (não no 1M, que ainda mira nos meses fechados).
+
+**Regras de aderência:**
+  - **CCEE oficial sempre vence**: se o mês corrente já foi publicado no `load_pld_media_mensal()`, não sobrescrevo com média parcial — o oficial é mais confiável.
+  - **Threshold de 5 dias**: só adiciono o mês parcial se o `load_pld_media_diaria()` tiver ≥5 dias publicados naquele mês. Antes disso, ruído inicial de 1-2 dias pode distorcer; 5 dias dão uma semana útil de amostra.
+  - **Falha graciosa**: se loader diário falhar (timeout, S3 hiccup), pulo a feature silenciosamente — comportamento atual preservado.
+
+**Implementação:**
+1. **Helper inline em `app.py:~2155`** (logo após `df.empty` check): carrega `df_diario`, identifica mês corrente NÃO presente no mensal, computa média por submercado dos dias disponíveis, adiciona linha sintética ao `df` com flags `is_parcial=True`, `dias_disponiveis`, `ultimo_dia`. Resto do fluxo (min_d, max_d, filter, pivot) usa o `df` enriquecido automaticamente.
+2. **Captura de `_parcial_info`** antes do pivot: o pivot descarta colunas auxiliares, então salvo `{timestamp, ultimo_dia, dias}` num dict pra usar depois nos ticks e traces. None quando não há parcial (caminho legacy preservado).
+3. **Tick customizado**: ponto parcial vira `"Mai/26 (média até 18)"` no eixo X via `tickvals`/`ticktext`. Texto auto-explicativo dispensa qualquer mensagem extra no hover (header do hover unified usa o mesmo ticktext).
+4. **Trace dividido em 3 segmentos** (pattern alinhado com GSF/Receita por Empresa §5.78/§5.80):
+   - **Sólido**: do início até o último fechado inclusive, `mode="lines+markers"`, hover normal.
+   - **Ponte tracejada**: último fechado → parcial, `mode="lines"` SEM markers, `hoverinfo="skip"` — puramente visual.
+   - **Marker parcial**: 1 ponto só (parcial), `mode="markers"` sem linha, hover normal.
+
+**Iteração crítica durante a sessão:** primeira tentativa usou pattern de 2 traces (sólido + tracejado com markers), com `hovertemplate=[None, _hover_tpl]` no tracejado pra evitar hover duplicado no último fechado. **Sintoma observado:** Plotly suprimia TODO o hover unified naquela posição X (não só o do tracejado) — abril ficava sem hover. Causa: lista com `None` no hovertemplate aciona supressão global. **Fix:** pattern de 3 traces (sólido + ponte só-visual + marker parcial só-hover). Cada trace tem responsabilidade única, sem conflito.
+
+**Segunda iteração (UX):** primeira versão tinha trace ghost adicional injetando linha *"(parcial — média dos dias já publicados)"* no header do hover. Usuário sugeriu mover essa info diretamente pro ticktext: `"Mai/26 (até 18)"` → `"Mai/26 (média até 18)"`. Mais compacto, dispensa ghost, e a expressão "média até" é mais clara que "(parcial — ...)" repetido. Trace ghost removido na versão final.
+
 ### 5.89 PLD mensal — ticks por mês + markers nos pontos (2 fixes visuais)
 
 **Contexto:** usuário pediu pra ver todos os meses no eixo X do gráfico do PLD em granularidade Mensal (preset 12M mostrava só 6 ticks, a cada 2 meses, com sobra de espaço óbvia). Investigação revelou 3 problemas — fixes 1+2 entregues nesta nota; fix 3 (mês corrente parcial) fica pra próxima.

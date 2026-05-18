@@ -2150,6 +2150,50 @@ if aba == "PLD":
         st.warning("Nenhum dado disponível.")
         st.stop()
 
+    # =====================================================================
+    # Mes corrente parcial (granularidade mensal) — decisao 5.90.
+    # Adiciona linha sintetica do mes corrente ao df mensal calculando
+    # media dos dias ja publicados no dataset diario. Regras:
+    # (1) Soh adiciona se mes corrente NAO esta no mensal (CCEE oficial vence)
+    # (2) Soh adiciona se diario tem >= 5 dias do mes corrente (suaviza ruido)
+    # (3) Marca com is_parcial=True + dias_disponiveis pra UI customizar
+    #     label do tick ("Mai/26 (ate 18)") e visual da linha (tracejada).
+    # =====================================================================
+    if granularidade == "mensal":
+        try:
+            df_diario = load_pld_media_diaria()
+        except Exception:
+            df_diario = pd.DataFrame()  # falha graciosa: comportamento atual
+
+        if not df_diario.empty:
+            ult_mes_fechado = df["data"].max()
+            ult_dia_publicado = df_diario["data"].max()
+            mes_corr_ini = pd.Timestamp(
+                ult_dia_publicado.year, ult_dia_publicado.month, 1
+            )
+            # Soh prosseguir se mes corrente NAO estiver no oficial mensal.
+            if mes_corr_ini > ult_mes_fechado:
+                df_corr = df_diario[
+                    (df_diario["data"] >= mes_corr_ini)
+                    & (df_diario["data"] <= ult_dia_publicado)
+                ]
+                n_dias = int(df_corr["data"].dt.date.nunique())
+                if n_dias >= 5:
+                    medias = (
+                        df_corr.groupby("submercado")["pld"]
+                        .mean().reset_index()
+                    )
+                    medias["data"] = mes_corr_ini
+                    medias["is_parcial"] = True
+                    medias["dias_disponiveis"] = n_dias
+                    medias["ultimo_dia"] = int(ult_dia_publicado.day)
+                    # Garante colunas auxiliares no df_oficial (default False/0)
+                    if "is_parcial" not in df.columns:
+                        df = df.assign(
+                            is_parcial=False, dias_disponiveis=0, ultimo_dia=0,
+                        )
+                    df = pd.concat([df, medias], ignore_index=True)
+
     if st.session_state.get("_demo_mode"):
         st.warning(
             "⚠️ **Modo demonstração ativo** — dados sintéticos para teste. "
@@ -2417,6 +2461,20 @@ if aba == "PLD":
     )
 
     # --- Preparar dados ---
+    # Captura info do mes parcial ANTES do pivot (que descarta colunas
+    # auxiliares is_parcial/ultimo_dia). Usado depois pra customizar
+    # tickvals/ticktext do eixo X e fazer trace tracejado da ponte. None
+    # quando nao ha parcial (caminho legacy sem regressao). Decisao 5.90.
+    _parcial_info = None
+    if granularidade == "mensal" and "is_parcial" in dff.columns:
+        _dff_parcial = dff[dff["is_parcial"] == True]  # noqa: E712
+        if not _dff_parcial.empty:
+            _parcial_info = {
+                "timestamp": _dff_parcial["data"].iloc[0],
+                "ultimo_dia": int(_dff_parcial["ultimo_dia"].iloc[0]),
+                "dias": int(_dff_parcial["dias_disponiveis"].iloc[0]),
+            }
+
     pivot = dff.pivot_table(
         index="data", columns="submercado", values="pld", aggfunc="mean"
     ).sort_index()
@@ -2676,6 +2734,17 @@ if aba == "PLD":
     # pontos), markers poluiriam visualmente — fica so "lines".
     _trace_mode = "lines+markers" if granularidade == "mensal" else "lines"
 
+    # Quando ha mes parcial, quebra cada serie em 2 traces:
+    # (a) sólido do 1o ponto ate o ULTIMO FECHADO (penultimo do pivot)
+    # (b) tracejado do ULTIMO FECHADO ate o PARCIAL (ponte visual)
+    # Pattern alinhado com GSF/Receita por Empresa (§5.78/§5.80).
+    _idx_parcial = (
+        pivot.index.get_loc(_parcial_info["timestamp"])
+        if _parcial_info is not None
+           and _parcial_info["timestamp"] in pivot.index
+        else None
+    )
+
     for col in series_plot:
         if col not in pivot.columns:
             continue
@@ -2685,33 +2754,96 @@ if aba == "PLD":
         # Garante que "R$" comece na mesma coluna em todas as linhas
         # do hover unified.
         sigla_fix = col.ljust(3)
-        fig.add_trace(
-            go.Scatter(
-                x=pivot.index,
-                y=pivot[col],
-                name=col,
-                mode=_trace_mode,
-                line=dict(
-                    color=cor_linha,
-                    width=2.5,
-                    dash="solid",
-                ),
-                marker=dict(
-                    color=cor_linha,
-                    size=7,
-                    line=dict(color=BAUHAUS_CREAM, width=1),
-                ),
-                # Hover com fonte monoespaçada: &nbsp; tem largura fixa,
-                # garantindo que "R$" comece na mesma coluna em todas as linhas.
-                hovertemplate=(
-                    f'<span style="color:{cor_linha}; font-weight:700;">'
-                    f'{sigla_fix}</span>'
-                    '&nbsp;&nbsp;&nbsp;&nbsp;'
-                    '<span style="color:#313131;">R$ %{y:.0f}/MWh</span>'
-                    '<extra></extra>'
-                ),
-            )
+        _hover_tpl = (
+            f'<span style="color:{cor_linha}; font-weight:700;">'
+            f'{sigla_fix}</span>'
+            '&nbsp;&nbsp;&nbsp;&nbsp;'
+            '<span style="color:#313131;">R$ %{y:.0f}/MWh</span>'
+            '<extra></extra>'
         )
+
+        if _idx_parcial is not None and _idx_parcial >= 1:
+            # Pattern de 3 traces pra ter hover correto em todos os pontos
+            # SEM duplicar no ultimo fechado (sintoma observado quando
+            # tracejado tinha hovertemplate=[None,...]: Plotly suprimia
+            # TODO o hover unified naquela posicao X, nao so o do tracejado).
+            #
+            # 1. Solido: todos os pontos ate o ultimo fechado (INCLUSIVE) —
+            #    hover normal.
+            # 2. Ponte tracejada: ultimo fechado + parcial, SO LINHA (sem
+            #    markers) com hoverinfo=skip — puramente visual.
+            # 3. Marker parcial: 1 ponto so (parcial), so marker — hover OK
+            #    com o template padrao.
+
+            # _idx_parcial = indice do PARCIAL no pivot (ex: 5 se maio
+            # esta na ultima posicao). Ultimo fechado = _idx_parcial - 1
+            # (abril, indice 4).
+
+            # 1) Solido: todos ate o ULTIMO FECHADO (inclusive). slice
+            # [: _idx_parcial] pega indices 0..(_idx_parcial-1) = inclui
+            # abril. Hover normal aqui.
+            x_solid = pivot.index[: _idx_parcial]
+            y_solid = pivot[col].iloc[: _idx_parcial]
+            fig.add_trace(
+                go.Scatter(
+                    x=x_solid, y=y_solid,
+                    name=col, legendgroup=col,
+                    mode=_trace_mode,
+                    line=dict(color=cor_linha, width=2.5, dash="solid"),
+                    marker=dict(
+                        color=cor_linha, size=7,
+                        line=dict(color=BAUHAUS_CREAM, width=1),
+                    ),
+                    hovertemplate=_hover_tpl,
+                )
+            )
+            # 2) Ponte tracejada: ultimo fechado -> parcial (so visual).
+            x_dash = pivot.index[_idx_parcial - 1: _idx_parcial + 1]
+            y_dash = pivot[col].iloc[_idx_parcial - 1: _idx_parcial + 1]
+            fig.add_trace(
+                go.Scatter(
+                    x=x_dash, y=y_dash,
+                    name=col, legendgroup=col, showlegend=False,
+                    mode="lines",
+                    line=dict(color=cor_linha, width=2.5, dash="dash"),
+                    hoverinfo="skip",
+                )
+            )
+            # 3) Marker parcial (1 ponto, sem linha). Hover OK.
+            x_parc = [pivot.index[_idx_parcial]]
+            y_parc = [pivot[col].iloc[_idx_parcial]]
+            fig.add_trace(
+                go.Scatter(
+                    x=x_parc, y=y_parc,
+                    name=col, legendgroup=col, showlegend=False,
+                    mode="markers",
+                    marker=dict(
+                        color=cor_linha, size=7,
+                        line=dict(color=BAUHAUS_CREAM, width=1),
+                    ),
+                    hovertemplate=_hover_tpl,
+                )
+            )
+        else:
+            # Caminho legacy (sem parcial ou parcial e ÚNICO ponto):
+            # 1 trace só.
+            fig.add_trace(
+                go.Scatter(
+                    x=pivot.index, y=pivot[col],
+                    name=col,
+                    mode=_trace_mode,
+                    line=dict(color=cor_linha, width=2.5, dash="solid"),
+                    marker=dict(
+                        color=cor_linha, size=7,
+                        line=dict(color=BAUHAUS_CREAM, width=1),
+                    ),
+                    hovertemplate=_hover_tpl,
+                )
+            )
+
+    # Nota: a info "parcial — média até dia X" agora vai DIRETO no header
+    # do hover via ticktext customizado ("Mai/26 (média até 18)"), evitando
+    # a necessidade de trace ghost extra que repetia a mensagem.
 
     # Ghost trace pra mostrar "Semana: DD/MM a DD/MM/YYYY" no hover unified
     # (modo semanal). Pattern de trace invisível com customdata — análogo
@@ -2745,11 +2877,27 @@ if aba == "PLD":
     # nao desenha o ultimo tick quando coincide com o extremo direito do
     # range (sintoma observado no preset 6M, onde "Apr/26" sumia). tickvals
     # forca 1 tick exato em cada ponto do pivot — 100% garantido.
+    #
+    # Quando ha mes corrente parcial, ticktext customizado pro ultimo ponto
+    # vira "Mai/26 (ate 18)" — flag visual do que ele representa.
     _pld_mensal_curto = granularidade == "mensal" and len(pivot) <= 18
-    _xaxis_tick_extra = (
-        {"tickvals": list(pivot.index), "tickformat": "%b/%y"}
-        if _pld_mensal_curto else {}
-    )
+    if _pld_mensal_curto:
+        _tickvals_mensal = list(pivot.index)
+        _ticktext_mensal = [
+            (
+                f"{ts.strftime('%b/%y')} (média até {_parcial_info['ultimo_dia']})"
+                if _parcial_info is not None
+                   and ts == _parcial_info["timestamp"]
+                else ts.strftime("%b/%y")
+            )
+            for ts in _tickvals_mensal
+        ]
+        _xaxis_tick_extra = {
+            "tickvals": _tickvals_mensal,
+            "ticktext": _ticktext_mensal,
+        }
+    else:
+        _xaxis_tick_extra = {}
 
     # Layout Bauhaus — papel creme, tipografia impactante, geometria
     fig.update_layout(
