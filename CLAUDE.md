@@ -4646,6 +4646,25 @@ Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regress
 
 **Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
 
+### 5.91 Auth migrada pra email-as-username (3 admins) + sync Cloud secrets
+
+**Contexto:** Fagundes reportou falha no login em produção. Diagnóstico em 2 passos: (a) confirmei `bcrypt.checkpw("Fagundes2026", hash_local)` retorna True → senha estava certa, login funcionaria local; (b) §5.78 do CLAUDE.md já avisava que `st.secrets["auth_config"]["yaml_content"]` no Streamlit Cloud precisa ser atualizado manualmente quando o `config.yaml` local muda — não há sync automático. Cloud ainda tinha só o `nava` antigo, Fagundes nem existia lá. **Causa raiz**: divergência Local↔Cloud por design (config.yaml gitignored, secrets editado em UI separada).
+
+**Decisão arquitetural (preparando próxima sessão):** durante a investigação, usuário decidiu migrar de `nava`/`fagundes`/`caruso` (usernames simples) pra **email completo BBI como username**. Motivação: alinhamento com o futuro backend Google Sheets pra clientes externos (~100 usuários), onde email vai ser o ID universal. Faz sentido admins seguirem o mesmo padrão pra evitar exceção. Senhas em lowercase iguais ao sobrenome (`nava`, `fagundes`, `caruso`) — aceitável pra uso interno de 3 admins, mas **registrado como alerta** que clientes externos vão exigir senhas geradas (10+ chars aleatórios) pra resistir a ataques de dicionário.
+
+**Schema preservado:** o `name` no yaml continua capitalizado (`Nava`/`Fagundes`/`Caruso`) — assim o `ADMIN_USERS = {"Nava", "Fagundes", "Caruso"}` em `tab_gsf.py:105` e `tab_receita_modulacao.py` continua funcionando sem mudança no código. O `auth.py:377` retorna `name or username`, então o app vê os nomes capitalizados conforme antes. Migração é **puramente em config** — zero código tocado.
+
+**Detalhe importante do schema Cloud:**
+  - Cloud usava `pre-authorized` (com hífen). Local usava `preauthorized` (sem hífen). Trocado o local pra `pre-authorized` (com hífen) pra alinhar — streamlit-authenticator 0.4.x aceita ambos, mas consistência reduz superfície de erro.
+  - Cloud tinha campos extras por usuário (`failed_login_attempts: 0`, `logged_in: false`, `roles: [admin]`). Replicado no local. Esses campos são opcionais — streamlit-authenticator cria sob demanda se faltar — mas manter explícito facilita inspeção.
+  - `cookie.key`, `cookie.name`, `cookie.expiry_days` do Cloud preservados (não rotacionados) — evita derrubar sessões existentes desnecessariamente.
+
+**`.gitignore` ampliado:** novo padrão `config.yaml.bak.*` cobre backups manuais que possam ficar untracked após mudanças no config. Backups têm hashes bcrypt antigos (não trivial quebrar, mas evita exposição preventivamente). Commit `6f54bc4`.
+
+**Sync Local↔Cloud é problema estrutural recorrente:** cada vez que admin é adicionado/removido/tem senha resetada, são **2 passos manuais** (config.yaml local + secrets UI do Cloud), e o segundo é fácil de esquecer (causa direta desse bug). É exatamente isso que o backend Google Sheets resolverá em sessão dedicada (~6h estimado): **uma fonte de verdade única** que ambos os ambientes leem, dispensando step manual no Cloud.
+
+**Validação:** teste local com `bcrypt.checkpw` confirma 3 logins. Validação Cloud feita pelo Nava em produção (login com novo email funcionou). Fagundes e Caruso testam de forma assíncrona — como usam o mesmo schema/hash gerado pelo mesmo script Python, probabilidade alta de funcionar.
+
 ### 5.90 PLD mensal — mês corrente parcial via dataset diário
 
 **Contexto:** sequência da §5.89. Usuário pediu pra mostrar o mês corrente em curso (hoje maio/26) no gráfico mensal do PLD, mesmo sem a CCEE ter publicado o fechamento mensal. Valor seria a média dos dias já publicados no dataset diário. Aplicado nos presets 3M/6M/12M (não no 1M, que ainda mira nos meses fechados).
