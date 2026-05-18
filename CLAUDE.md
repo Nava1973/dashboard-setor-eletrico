@@ -5481,12 +5481,28 @@ correspondente — esta seção é o índice operacional.
   `_shadow_sync_mod()` seguindo o padrão de `components/tab_gsf.py`.
   Esforço ~30 min.
 
-### 9.3 Deprecations Streamlit (com deadlines)
+### 9.3 Deprecations Streamlit
 
-- **🔴 URGENTE — `st.components.v1.html` removido após 2026-06-01.**
-  Provável uso no drill-down térmico SIN (§5.56 — JS injection
-  cross-iframe). Substituir por `st.iframe`. Esforço ~1h. Deadline
-  em ~2 semanas.
+- **🟡 `st.components.v1.html` deprecated em 1.56.0, sem data de remoção anunciada.**
+  Tentativa de migração feita em 18/05/2026 e **revertida** após validação visual quebrar — registrado abaixo pra evitar repetir a mesma armadilha.
+
+  **Usos reais no projeto (2 lugares, NÃO é o drill-down térmico como versão anterior desta nota dizia):**
+  - `app.py:738` — JS injection que pinta de branco o bg de iframes da `streamlit-plotly-events` (workaround do tema dark do Streamlit). Acessa `window.parent.document.querySelectorAll('iframe[title*="streamlit_plotly_events"]')`, escapa o sandbox via `iframe.contentDocument` e injeta `<style>` cross-document.
+  - `app.py:786` — JS injection que substitui texto dos ícones Material (`keyboard_double_arrow_right` → `>>`, `keyboard_arrow_down` → `▼` etc.) quando a fonte Material Symbols não carrega. Acessa `window.parent.document` pra varrer botões da sidebar e expanders.
+
+  **Por que `st.html(..., unsafe_allow_javascript=True)` NÃO substitui:** doc oficial sugere `st.html` como replacement. Mas `st.html` renderiza HTML direto no parent DOM (sem iframe sandbox), e navegadores **não executam `<script>` inserido via `innerHTML`** — comportamento padrão de segurança DOM. O flag `unsafe_allow_javascript` é necessário mas insuficiente: o `<script>` aparece no DOM mas não roda. Confirmado empiricamente (sidebar ficou mostrando `keyboard_double_arrow_right` em vez de `>>` após migrar). Issue público discute: https://github.com/streamlit/streamlit/issues/10430.
+
+  **Por que `components.v1.html` continua funcionando:** ele cria iframe com `allow-scripts allow-same-origin`. Dentro do iframe o script *roda*, e depois escapa via `window.parent.document` (cross-frame access permitido pelo same-origin). Esse caminho é justamente o que o Streamlit considera inseguro — e por isso querem remover. Não há replacement oficial pra "JS no parent DOM" hoje.
+
+  **Caminhos pra remediar de verdade (quando virar urgente):**
+  - Criar custom React component próprio (`streamlit.components.v1.declare_component` — ironicamente também na v1, mas o `declare_component` não está marcado pra remoção). Esforço ~1 dia.
+  - Migrar workarounds pra CSS puro quando possível. Bloco 1 (bg fix plotly_events) é candidato — talvez `iframe[title*="streamlit_plotly_events"] { background: white !important; }` no CSS global funcione, dispensando JS. Não testado. Bloco 2 (ícones Material) é mais difícil em CSS puro porque depende de substituir texto.
+  - Esperar Streamlit publicar API nativa pra JS no parent DOM (em discussão nos issues #10430 e #12020).
+
+  **Critérios pra reavaliar:**
+  - Streamlit anunciar versão específica de remoção em release notes, OU
+  - Atualização do Streamlit no `requirements.txt` (hoje pinned 1.56.0) precisar subir por outro motivo, OU
+  - Surgir API nova nativa.
 
 - **🟡 `use_container_width=True/False` → `width='stretch'`/`'content'`.**
   Sem deadline anunciado. Warnings aparecem no console. Esforço ~1h
