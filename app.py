@@ -965,7 +965,7 @@ def _render_period_controls(
             else:
                 help_text = None
             if st.button(
-                label, use_container_width=True,
+                label, width="stretch",
                 key=f"{key_prefix}{label}", type=tipo,
                 help=help_text,
             ):
@@ -1011,7 +1011,7 @@ def _render_period_controls(
         # independente da ordem de execução do código.
         with cols[n + 2]:
             if st.button(
-                "Último dia", use_container_width=True,
+                "Último dia", width="stretch",
                 key=f"{key_prefix}sd_ultimo",
                 help="Volta pro último dia disponível",
             ):
@@ -1071,7 +1071,7 @@ def _render_period_controls_horaria(
         with cols[i]:
             tipo = "primary" if label == preset_atual else "secondary"
             if st.button(
-                label, use_container_width=True,
+                label, width="stretch",
                 key=f"{key_prefix}{label}", type=tipo,
             ):
                 st.session_state[session_key_window] = window
@@ -1245,10 +1245,10 @@ def _confirmar_historico_completo_gen():
         "e solar centralizada."
     )
     col1, col2 = st.columns(2)
-    if col1.button("Cancelar", use_container_width=True):
+    if col1.button("Cancelar", width="stretch"):
         st.rerun()
     if col2.button(
-        "Carregar", type="primary", use_container_width=True,
+        "Carregar", type="primary", width="stretch",
     ):
         st.session_state["gen_historico_completo"] = True
         st.rerun()
@@ -1268,10 +1268,10 @@ def _confirmar_historico_completo_pld_horario():
         "(análise recente), o default de 2 anos é mais rápido."
     )
     col1, col2 = st.columns(2)
-    if col1.button("Cancelar", use_container_width=True):
+    if col1.button("Cancelar", width="stretch"):
         st.rerun()
     if col2.button(
-        "Carregar", type="primary", use_container_width=True,
+        "Carregar", type="primary", width="stretch",
     ):
         st.session_state["pld_horaria_historico_completo"] = True
         st.rerun()
@@ -1842,7 +1842,7 @@ with st.sidebar:
             _aba_opcao,
             key=f"nav_aba_{_aba_opcao}",
             type="primary" if _is_active else "secondary",
-            use_container_width=True,
+            width="stretch",
         ):
             st.session_state["aba_selecionada"] = _aba_opcao
             st.rerun()
@@ -1861,7 +1861,7 @@ with st.sidebar:
                     _label_display,
                     key=f"nav_sub_{_valor}",
                     type="primary" if _is_sub_active else "secondary",
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     st.session_state["termico_subview"] = _valor
                     st.rerun()
@@ -1890,7 +1890,7 @@ with st.sidebar:
                     _label_display,
                     key=f"nav_sub_gen_{_valor}",
                     type="primary" if _is_sub_active else "secondary",
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     st.session_state["geracao_subview"] = _valor
                     st.rerun()
@@ -1915,7 +1915,7 @@ with st.sidebar:
                     _label_display,
                     key=f"nav_sub_mod_{_valor}",
                     type="primary" if _is_sub_active else "secondary",
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     st.session_state["modulacao_subview"] = _valor
                     st.rerun()
@@ -1940,7 +1940,7 @@ with st.sidebar:
                     _label_display,
                     key=f"nav_sub_carga_{_valor}",
                     type="primary" if _is_sub_active else "secondary",
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     st.session_state["carga_subview"] = _valor
                     st.rerun()
@@ -1948,7 +1948,7 @@ with st.sidebar:
     aba = st.session_state["aba_selecionada"]
 
     st.divider()
-    if st.button("Atualizar", use_container_width=True):
+    if st.button("Atualizar", width="stretch"):
         clear_cache()
         clear_modulacao_disk_cache()
         st.rerun()
@@ -2740,7 +2740,7 @@ if aba == "PLD":
             "renderização pode levar alguns segundos."
         )
 
-    st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
+    st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
 
     # --- KPIs + tabela de estatísticas: só em diário (Fase 4 adapta pras outras) ---
     if granularidade != "diario":
@@ -2974,7 +2974,7 @@ if aba == "PLD":
         data=csv,
         file_name=f"pld_{granularidade}_{data_ini}_{data_fim}.csv",
         mime="text/csv",
-        use_container_width=False,
+        width="content",
     )
 
 elif aba == "Reservatórios":
@@ -3203,7 +3203,7 @@ elif aba == "Reservatórios":
             font=dict(family="Inter, sans-serif", size=12),
         )
         st.plotly_chart(
-            fig, use_container_width=True, config={"displaylogo": False},
+            fig, width="stretch", config={"displaylogo": False},
         )
 
     # --- Export CSV ---
@@ -3225,7 +3225,7 @@ elif aba == "Reservatórios":
         data=csv,
         file_name=f"reservatorios_{data_ini}_{data_fim}.csv",
         mime="text/csv",
-        use_container_width=False,
+        width="content",
     )
 
 elif aba == "ENA/Chuva":
@@ -3548,7 +3548,7 @@ elif aba == "ENA/Chuva":
             font=dict(family="Inter, sans-serif", size=12),
         )
         st.plotly_chart(
-            fig, use_container_width=True, config={"displaylogo": False},
+            fig, width="stretch", config={"displaylogo": False},
         )
 
     # --- Export CSV ---
@@ -3574,7 +3574,7 @@ elif aba == "ENA/Chuva":
         data=csv,
         file_name=f"ena_{data_ini}_{data_fim}.csv",
         mime="text/csv",
-        use_container_width=False,
+        width="content",
     )
 
 elif aba == "Despacho Térmico":
@@ -4294,7 +4294,7 @@ elif aba == "Despacho Térmico":
                         with cols_anos[i]:
                             if st.button(
                                 str(ano),
-                                use_container_width=True,
+                                width="stretch",
                                 key=f"termico_sistema_btn_ano_{ano}",
                                 type="primary" if ativo_ano else "secondary",
                             ):
@@ -4328,7 +4328,7 @@ elif aba == "Despacho Térmico":
                     with cols_anos[5]:
                         if st.button(
                             "LTM",
-                            use_container_width=True,
+                            width="stretch",
                             key="termico_sistema_btn_ano_LTM",
                             type="primary" if ltm_marcado else "secondary",
                             help="Últimos 4 trimestres (móveis)",
@@ -4488,7 +4488,7 @@ elif aba == "Despacho Térmico":
                         tipo = "primary" if label == preset_atual else "secondary"
                         if st.button(
                             label,
-                            use_container_width=True,
+                            width="stretch",
                             key=f"termico_sistema_btn_p_{label}",
                             type=tipo,
                         ):
@@ -4921,7 +4921,7 @@ elif aba == "Despacho Térmico":
                         )
                         st.plotly_chart(
                             _fig_hora,
-                            use_container_width=True,
+                            width="stretch",
                             config={"displaylogo": False},
                         )
 
@@ -4982,7 +4982,7 @@ elif aba == "Despacho Térmico":
                     f"{data_fim_sis.strftime('%Y%m%d')}.csv"
                 ),
                 mime="text/csv",
-                use_container_width=False,
+                width="content",
             )
     else:
         # === Sub-view Eneva — Fase C.2.1 ===
@@ -5165,7 +5165,7 @@ elif aba == "Despacho Térmico":
                             "MWM",
                             key="termico_eneva_btn_mwm",
                             type="primary" if _unid == "MWm" else "secondary",
-                            use_container_width=True,
+                            width="stretch",
                         ):
                             st.session_state["termico_eneva_unidade"] = "MWm"
                             st.rerun()
@@ -5174,7 +5174,7 @@ elif aba == "Despacho Térmico":
                             "GWH",
                             key="termico_eneva_btn_gwh",
                             type="primary" if _unid == "GWh" else "secondary",
-                            use_container_width=True,
+                            width="stretch",
                         ):
                             st.session_state["termico_eneva_unidade"] = "GWh"
                             st.rerun()
@@ -5293,7 +5293,7 @@ elif aba == "Despacho Térmico":
                         tipo = "primary" if label == preset_atual else "secondary"
                         if st.button(
                             label,
-                            use_container_width=True,
+                            width="stretch",
                             key=f"termico_eneva_btn_p_{label}",
                             type=tipo,
                         ):
@@ -5317,7 +5317,7 @@ elif aba == "Despacho Térmico":
                         "MWM",
                         key="termico_eneva_btn_mwm",
                         type="primary" if _unid == "MWm" else "secondary",
-                        use_container_width=True,
+                        width="stretch",
                     ):
                         st.session_state["termico_eneva_unidade"] = "MWm"
                         st.rerun()
@@ -5326,7 +5326,7 @@ elif aba == "Despacho Térmico":
                         "GWH",
                         key="termico_eneva_btn_gwh",
                         type="primary" if _unid == "GWh" else "secondary",
-                        use_container_width=True,
+                        width="stretch",
                     ):
                         st.session_state["termico_eneva_unidade"] = "GWh"
                         st.rerun()
@@ -5357,7 +5357,7 @@ elif aba == "Despacho Térmico":
                         with cols_anos[i]:
                             if st.button(
                                 str(ano),
-                                use_container_width=True,
+                                width="stretch",
                                 key=f"termico_eneva_btn_ano_{ano}",
                                 type="primary" if ativo_ano else "secondary",
                             ):
@@ -5391,7 +5391,7 @@ elif aba == "Despacho Térmico":
                     with cols_anos[5]:
                         if st.button(
                             "LTM",
-                            use_container_width=True,
+                            width="stretch",
                             key="termico_eneva_btn_ano_LTM",
                             type="primary" if ltm_marcado else "secondary",
                             help="Últimos 4 trimestres (móveis)",
@@ -6000,7 +6000,7 @@ elif aba == "Despacho Térmico":
                 font=dict(family="Inter, sans-serif", size=12),
             )
 
-            st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
+            st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
 
         # Caption "Histórico em cache" — footnote pós-gráfico (Fase H.2 —
         # Ajuste 4). Indentado 8 espaços (nível subview Eneva), FORA
@@ -6070,7 +6070,7 @@ elif aba == "Despacho Térmico":
                     f"{data_fim.strftime('%Y%m%d')}.csv"
                 ),
                 mime="text/csv",
-                use_container_width=False,
+                width="content",
             )
 
 elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "SIN":
@@ -6833,7 +6833,7 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
     )
 
     st.plotly_chart(
-        fig_c, use_container_width=True,
+        fig_c, width="stretch",
         config={"displaylogo": False},
     )
 
@@ -7040,7 +7040,7 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
                 f"{data_ini_efetivo_gen}_a_{data_fim_gen}.csv"
             ),
             mime="text/csv",
-            use_container_width=False,
+            width="content",
         )
 
 elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "Grupo":
@@ -7889,7 +7889,7 @@ elif aba == "Carga" and st.session_state.get("carga_subview", "Geral") == "Geral
     )
 
     st.plotly_chart(
-        fig_v1, use_container_width=True,
+        fig_v1, width="stretch",
         config={"displaylogo": False},
     )
 
@@ -8108,7 +8108,7 @@ penetração da solar centralizada.
         if st.button(
             "Total",
             type="primary" if carga_v2_modo == "total" else "secondary",
-            use_container_width=True,
+            width="stretch",
             key="btn_carga_v2_total",
             help="Composição: Solar + Eólica + Hidro + Térmica = Carga Total.",
         ):
@@ -8118,7 +8118,7 @@ penetração da solar centralizada.
         if st.button(
             "Líquida",
             type="primary" if carga_v2_modo == "liquida" else "secondary",
-            use_container_width=True,
+            width="stretch",
             key="btn_carga_v2_liquida",
             help=(
                 "Composição: só despacháveis (Hidro + Térmica) = Carga "
@@ -8414,7 +8414,7 @@ penetração da solar centralizada.
     )
 
     st.plotly_chart(
-        fig_v2, use_container_width=True,
+        fig_v2, width="stretch",
         config={"displaylogo": False},
     )
 
@@ -8737,7 +8737,7 @@ elif aba == "Carga" and st.session_state.get("carga_subview", "Geral") == "Cresc
             unsafe_allow_html=True,
         )
         st.plotly_chart(
-            fig, use_container_width=True,
+            fig, width="stretch",
             config={"displaylogo": False},
             key=key_chart,
         )

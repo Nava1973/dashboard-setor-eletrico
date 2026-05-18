@@ -639,7 +639,7 @@ def _render_grafico_submercado(
     )
 
     st.plotly_chart(
-        fig, use_container_width=True, config={"displaylogo": False},
+        fig, width="stretch", config={"displaylogo": False},
     )
 
 
@@ -663,9 +663,9 @@ def _confirmar_historico_completo_modulacao() -> None:
         "rápido e cobre os períodos padrão de Mensal e Semanal."
     )
     col1, col2 = st.columns(2)
-    if col1.button("Cancelar", use_container_width=True):
+    if col1.button("Cancelar", width="stretch"):
         st.rerun()
-    if col2.button("Carregar", type="primary", use_container_width=True):
+    if col2.button("Carregar", type="primary", width="stretch"):
         st.session_state["mod_historico_completo"] = True
         # Consumida no próximo render: aplica a janela "Máx" sobre o
         # dataset completo recém-carregado.
@@ -841,7 +841,7 @@ def _render_aba_modulacao_impl() -> None:
             eh_max_lazy = label == "Máx" and not historico_completo
             if st.button(
                 label, key=f"btn_mod_{label}",
-                type=tipo, use_container_width=True,
+                type=tipo, width="stretch",
                 help=(
                     "Carregar histórico completo (desde 2022) — "
                     "1 a 2 min na 1ª vez"

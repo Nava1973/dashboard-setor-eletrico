@@ -438,7 +438,7 @@ def _render_modo_mensal(df_mensal: pd.DataFrame) -> None:
 
     st.plotly_chart(
         fig,
-        use_container_width=True,
+        width="stretch",
         config={"displaylogo": False},
     )
 
@@ -542,7 +542,7 @@ def _render_modo_mensal(df_mensal: pd.DataFrame) -> None:
         data=csv_bytes,
         file_name=filename,
         mime="text/csv",
-        use_container_width=False,
+        width="content",
         key="btn_cap_csv_mensal",
     )
 
@@ -881,7 +881,7 @@ def _render_aba_capacidade_impl() -> None:
 
     st.plotly_chart(
         fig,
-        use_container_width=True,
+        width="stretch",
         config={"displaylogo": False},
     )
 
@@ -979,7 +979,7 @@ def _render_aba_capacidade_impl() -> None:
         data=csv_bytes,
         file_name=filename,
         mime="text/csv",
-        use_container_width=False,
+        width="content",
         key="btn_cap_csv",
     )
 

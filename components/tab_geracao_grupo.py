@@ -254,7 +254,7 @@ def _render_period_controls_gen(
                 help_text = None
 
             if st.button(
-                label, use_container_width=True,
+                label, width="stretch",
                 key=f"{key_prefix}{label}", type=tipo, help=help_text,
             ):
                 if (
@@ -273,7 +273,7 @@ def _render_period_controls_gen(
         unidade_atual = st.session_state[unit_toggle_key]
         with cols[n + 1]:
             if st.button(
-                "MWm", use_container_width=True,
+                "MWm", width="stretch",
                 key=f"{key_prefix}unit_mwm",
                 type="primary" if unidade_atual == "mwm" else "secondary",
                 help="Mostrar gráfico em MWm (potência média)",
@@ -282,7 +282,7 @@ def _render_period_controls_gen(
                 st.rerun()
         with cols[n + 2]:
             if st.button(
-                "GWh", use_container_width=True,
+                "GWh", width="stretch",
                 key=f"{key_prefix}unit_gwh",
                 type="primary" if unidade_atual == "gwh" else "secondary",
                 help="Mostrar gráfico em GWh (energia)",
@@ -584,7 +584,7 @@ def _render_grafico_grupo(
     )
 
     st.plotly_chart(
-        fig, use_container_width=True, config={"displaylogo": False},
+        fig, width="stretch", config={"displaylogo": False},
     )
 
     # ------------------------------------------------------------------
@@ -648,7 +648,7 @@ def _render_grafico_grupo(
             data=csv,
             file_name=filename,
             mime="text/csv",
-            use_container_width=True,
+            width="stretch",
         )
 
 

@@ -4646,6 +4646,27 @@ Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regress
 
 **Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
 
+### 5.83 Migração `use_container_width` → `width` (resolve §9.3 item 2)
+
+**Contexto:** §9.3 item 2 do CLAUDE.md flagava o param `use_container_width=True/False` como deprecated, pra ser substituído por `width='stretch'/'content'`. Sem deadline anunciada, mas o warning poluía o console em qualquer página com gráficos/botões/tabelas. Migração mecânica feita em 18/05/2026.
+
+**Escopo:** 73 ocorrências em 7 arquivos:
+  - `app.py` (40)
+  - `components/tab_receita_modulacao.py` (9)
+  - `components/tab_curtailment.py` (7)
+  - `components/tab_geracao_grupo.py` (5)
+  - `components/tab_capacidade.py` (4)
+  - `components/tab_modulacao.py` (4)
+  - `components/tab_gsf.py` (4)
+
+**Mapping aplicado:**
+  - `use_container_width=True` → `width="stretch"` (66 ocorrências)
+  - `use_container_width=False` → `width="content"` (7 ocorrências, todas em `app.py` + `tab_capacidade.py`)
+
+**Validação prévia importante:** confirmado antes do replace que **todos** os widgets usados no projeto suportam o param `width` em Streamlit 1.56.0 (`button`, `plotly_chart`, `dataframe`, `data_editor`, `download_button`, `pyplot`, `altair_chart`). `st.columns` aceita só `width` (nunca teve `use_container_width`, API diferente). Comportamento 100% equivalente ao anterior.
+
+**Execução segura:** `replace_all=True` no Edit por arquivo, em 2 passos (True primeiro, depois False onde havia). Conferi antes que `use_container_width` não aparecia em comentários/docstrings (evita corromper texto humano). Pós-migração: zero `use_container_width` no projeto, 73 `width="stretch"|"content"` exatamente onde estavam, sintaxe OK em todos os arquivos. Validação visual feita pelo usuário em todas as abas — sem regressões.
+
 ### 5.82 Modulação · shadow state pattern (resolve §9.2)
 
 **Contexto:** §9.2 do CLAUDE.md flagava que as widget keys `mod_granularidade`, `mod_data_ini`, `mod_data_fim` em `components/tab_modulacao.py` eram estruturalmente vulneráveis ao cleanup do Streamlit ao trocar de aba — mesma família de bugs já resolvida no GSF (§5.77 Fase 2D++). Bug não tinha sido reportado em uso real, mas a vulnerabilidade existia. Resolvido em 18/05/2026 replicando o pattern do GSF.
@@ -5509,9 +5530,8 @@ Pattern shadow state replicado em `components/tab_modulacao.py`. Detalhes em §5
   - Atualização do Streamlit no `requirements.txt` (hoje pinned 1.56.0) precisar subir por outro motivo, OU
   - Surgir API nova nativa.
 
-- **🟡 `use_container_width=True/False` → `width='stretch'`/`'content'`.**
-  Sem deadline anunciado. Warnings aparecem no console. Esforço ~1h
-  (find/replace seguro).
+- **~~🟡 `use_container_width=True/False` → `width='stretch'`/`'content'`.~~ ✅ RESOLVIDO (18/05/2026)**
+  73 ocorrências migradas em 7 arquivos. Detalhes em §5.83.
 
 ### 9.4 Backlog de UX e refatores
 

@@ -524,7 +524,7 @@ def _editor_labels(key: str) -> None:
             "Região": st.column_config.TextColumn("Região", width="small"),
         },
         disabled=["Empresa", "Região"],
-        hide_index=True, use_container_width=True,
+        hide_index=True, width="stretch",
         height=_ALTURA_BLOCO, key=key,
     )
 
@@ -608,7 +608,7 @@ def _render_tabela_premissas(premissas_base, aloc_atual, spreads_auto,
                             format="%.1f", width="small"),
                     },
                     disabled=(["Spread"] if eh_real else []),
-                    hide_index=True, use_container_width=True,
+                    hide_index=True, width="stretch",
                     height=_ALTURA_BLOCO, key=f"receita_ed_{tri}",
                 )
                 for emp in EMPRESAS:
@@ -665,7 +665,7 @@ def _render_tabela_alocacao(premissas_base) -> dict:
                 }
                 edited = st.data_editor(
                     df_q, column_config=cfg,
-                    hide_index=True, use_container_width=True,
+                    hide_index=True, width="stretch",
                     height=_ALTURA_BLOCO, key=f"receita_ed_aloc_{tri}",
                 )
                 for emp in EMPRESAS:
@@ -968,7 +968,7 @@ def _render_grafico(df_receita: pd.DataFrame, empresa: str) -> None:
         ),
         font=dict(family="Inter, sans-serif", size=12),
     )
-    st.plotly_chart(fig, use_container_width=True,
+    st.plotly_chart(fig, width="stretch",
                     config={"displaylogo": False})
 
 
@@ -1138,13 +1138,13 @@ def _render_impl(user: str) -> None:
         col_a, col_b, _ = st.columns([1.3, 1.3, 2.4])
         with col_a:
             salvar_bbi = st.button(
-                "Salvar como Estimativa BBI", use_container_width=True,
+                "Salvar como Estimativa BBI", width="stretch",
                 type="primary",
                 help="Atualiza o baseline oficial visto por todos os usuários.",
             )
         with col_b:
             salvar = st.button(
-                "Salvar minhas premissas", use_container_width=True,
+                "Salvar minhas premissas", width="stretch",
                 help="Salva apenas no seu cenário pessoal (não afeta o BBI).",
             )
         if salvar_bbi:
@@ -1168,13 +1168,13 @@ def _render_impl(user: str) -> None:
         col_a, col_b, _ = st.columns([1.3, 1.6, 2.1])
         with col_a:
             salvar = st.button(
-                "Salvar minhas premissas", use_container_width=True,
+                "Salvar minhas premissas", width="stretch",
                 type="primary",
                 help="Salva o cenário pessoal só pra você.",
             )
         with col_b:
             reset_bbi = st.button(
-                "Resetar para Estimativa BBI", use_container_width=True,
+                "Resetar para Estimativa BBI", width="stretch",
                 help="Apaga suas premissas e volta a ver o baseline oficial.",
             )
         if salvar:
@@ -1238,7 +1238,7 @@ def _render_impl(user: str) -> None:
                 if st.button(
                     _emp, key=f"btn_receita_emp_{_emp}",
                     type="primary" if _ativo else "secondary",
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     st.session_state["receita_empresa"] = _emp
                     st.rerun()

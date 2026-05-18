@@ -431,7 +431,7 @@ def _render_period_controls_curt(
                 help_text = None
 
             if st.button(
-                label, use_container_width=True,
+                label, width="stretch",
                 key=f"{key_prefix}{label}", type=tipo, help=help_text,
             ):
                 # Expansão sob demanda: target_real ANTERIOR ao cache
@@ -475,7 +475,7 @@ def _render_period_controls_curt(
         unidade_atual = st.session_state[unit_toggle_key]
         with cols[n + 1]:
             if st.button(
-                "%", use_container_width=True,
+                "%", width="stretch",
                 key=f"{key_prefix}unit_pct",
                 type="primary" if unidade_atual == "pct" else "secondary",
                 help="Mostrar gráfico em % de curtailment",
@@ -484,7 +484,7 @@ def _render_period_controls_curt(
                 st.rerun()
         with cols[n + 2]:
             if st.button(
-                "GWh", use_container_width=True,
+                "GWh", width="stretch",
                 key=f"{key_prefix}unit_gwh",
                 type="primary" if unidade_atual == "gwh" else "secondary",
                 help="Mostrar gráfico em GWh frustrados (CNF + ENE + REL)",
@@ -593,9 +593,9 @@ def _confirmar_expansao_curt(modo_alvo: str):
         "disco em ~1s, sem novo download."
     )
     col1, col2 = st.columns(2)
-    if col1.button("Cancelar", use_container_width=True):
+    if col1.button("Cancelar", width="stretch"):
         st.rerun()
-    if col2.button("Carregar", type="primary", use_container_width=True):
+    if col2.button("Carregar", type="primary", width="stretch"):
         st.session_state["curt_janela_modo"] = modo_alvo
         st.rerun()
 
@@ -829,7 +829,7 @@ def _render_visao_geral(
     )
 
     st.plotly_chart(
-        fig, use_container_width=True, config={"displaylogo": False},
+        fig, width="stretch", config={"displaylogo": False},
     )
 
     # =========================================================================
@@ -941,7 +941,7 @@ def _render_visao_geral(
             data=csv,
             file_name=filename,
             mime="text/csv",
-            use_container_width=True,
+            width="stretch",
         )
 
 

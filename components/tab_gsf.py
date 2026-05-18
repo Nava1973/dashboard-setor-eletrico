@@ -334,7 +334,7 @@ def _render_editor_estimativas_ccee(
                          "ainda não tem estimativa pro mês.",
                 ),
             },
-            use_container_width=True,
+            width="stretch",
         )
 
         col_save, _ = st.columns([1.2, 4])
@@ -342,7 +342,7 @@ def _render_editor_estimativas_ccee(
             salvar = st.button(
                 "Salvar Estimativa CCEE",
                 key="gsf_btn_salvar_estimativas",
-                use_container_width=True, type="primary",
+                width="stretch", type="primary",
                 help="Grava as estimativas no arquivo data/"
                      "gsf_projecao_ccee.json (visível pra todos os usuários).",
             )
@@ -1075,7 +1075,7 @@ def render_aba_gsf(user: str | None = None) -> None:
 
     # Gráfico principal (df_grafico filtrado + granularidade pro eixo X).
     fig = _construir_figura_gsf(df_grafico, granularidade)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     # Legenda HTML custom (centralizada, 1 linha garantida com display:flex)
     # — substitui a legenda nativa do Plotly que insistia em quebrar.
@@ -1163,7 +1163,7 @@ def render_aba_gsf(user: str | None = None) -> None:
             data=csv_bytes,
             file_name=filename,
             mime="text/csv",
-            use_container_width=True,
+            width="stretch",
         )
 
     # ----- Bloco Admin: checkbox preview + editor expander -----
