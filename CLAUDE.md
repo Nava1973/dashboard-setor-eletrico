@@ -4567,6 +4567,85 @@ Validação: **12/12 hits ±0.5pp** contra os 15 pontos oficiais (3 fora do rang
 
 **Validação:** compile-check OK em `tab_receita_modulacao.py`; smoke-test do round-trip BBI (save → reload → label `📊 ESTIMATIVA BBI` volta corretamente); preview toggle valida sem alterar dado persistido; comparação `_premissas_iguais` tolerante a `None`/float. Iterações de UX validadas com o usuário no Streamlit local (browser-automation indisponível nesta sessão).
 
+### 5.79 Sprint UI multi-aba: linha preta padrão + reorganizações + ajustes
+
+**Contexto:** sessão dedicada a padronizar visual em todas as abas (linha preta abaixo do h1) e reorganizar layout pra colocar gráficos above-the-fold com info secundária (KPIs, captions, legendas) movida pra baixo. Pattern aplicado em 11 abas/sub-abas.
+
+**Linha preta padrão (padding-aware, sem "L colado"):** após várias iterações com o usuário, padrão final convergido pra `margin: -0.2rem 0 1.2rem 12px` no `<div border-bottom: 2px solid {COR_TEXTO}>` que segue o `st.markdown("# TITULO")`. Os 3 valores significam:
+  - **`-0.2rem` top:** compensa o gap default do `stVerticalBlock` que punha a linha visualmente abaixo do fim da barra vermelha (border-left do h1). Sem isso, a linha "desce" muito.
+  - **`1.2rem` bottom:** dá respiro pros labels dos controles (selectboxes com label "Granularidade", "Data inicial", etc.) — sem isso, labels colam visualmente na linha.
+  - **`12px` left:** alinha o início da linha com o `padding-left: 12px` do h1 global (`app.py:170`). Cria um gap horizontal de ~5px entre a barra vermelha vertical (7px wide) e a linha horizontal — visualmente mais limpo que o "L colado" anterior.
+
+**Exceções calibradas (mesma fórmula, valores diferentes):** algumas abas exigiram tweak por conta do conteúdo logo abaixo:
+  - **Despacho Térmico SIN:** `margin-bottom: -1rem` (KPIs cards compactos logo abaixo, não precisa de respiro).
+  - **Despacho Térmico Eneva:** `margin-bottom: -1rem` (mesmo SIN; o spacer histórico `0.3rem margin-top` que existia entre título e selectboxes foi REMOVIDO porque era legado de pills `Eneva|SIN` que já não existem).
+
+**Reorganizações de layout (info secundária movida pra rodapé):**
+  - **Capacidade:** nota descritiva ("Evolução da capacidade instalada...") movida de cima pra DEPOIS do gráfico, em ambos os modos (Anual e Mensal 12M).
+  - **Modulação (Por Submercado/Fonte):** caption ("Spread de modulação = PLD ponderado − PLD flat") movido pra DEPOIS do loop dos gráficos por submercado.
+  - **Curtailment:** 2 captions ("Restrições de geração..." + "Histórico em cache...") movidos pra dentro de `_render_visao_geral` ANTES do expander "Como é calculado" (signature da função ganhou param `data_ini_ampla_ui`).
+  - **CARGA:** bloco "Caption KPIs + 4 KPI cards + Glossário expander" movido de ANTES do Viz 1 pra ENTRE Viz 1 e Viz 2. Margin-top do Viz 1 reduzido (2.6rem → 0.5rem) pra colar nos controles.
+  - **Geração · SIN:** caption "Médias do período" + 4 KPIs movidos de ANTES pra DEPOIS do gráfico (insight visual primeiro, números consolidados depois). Título mudou de `GERAÇÃO` pra `GERAÇÃO · SIN` (uso do `·` padrão). KPI border mudou de `#313131` (preto) pra `#CCCCCC` (cinza claro, mesmo padrão PLD horário).
+  - **Receita por Empresa:** spacer entre botões de empresa (Auren/Axia/etc) e título do gráfico aumentado (1rem → 1.8rem). Linha preta ganhou margem padrão.
+  - **ENA/Chuva:** reorder dos 4 KPIs pra **Últimos 12 meses → Últimos 3 meses → Último mês → Período úmido mais recente** (info marginal de chuva mais próxima do canto direito = onde olho do leitor pousa). Label "Período úmido atual" virou "Período úmido mais recente" porque o período (1 nov → 30 abr) já terminou durante o uso típico.
+  - **Despacho Térmico SIN + Eneva:** títulos uniformizados com `·` (`SIN · Despacho Termelétrico Total`, `Eneva · Despacho Termelétrico`). Adicionado botão **Baixar dados filtrados (CSV)** no padrão Curtailment (PT-BR, separador `;`, decimal vírgula, UTF-8 BOM) — exporta `agg_sis` / `agg` (a agregação visível no gráfico) com 7 colunas de motivos renomeadas e unidade dinâmica (MWmed/GWh).
+  - **PLD:** font do "ÚLTIMO DIA" + data aumentada `0.72rem → 0.88rem` (header) e `0.82rem → 1rem` (data) pra ficar legível.
+
+**Cursor pointer nos gráficos clicáveis do termico SIN (tentativa abortada):** usuário pediu cursor mãozinha sobre os gráficos clicáveis do drill (mensal → diário → horário). Testado: (a) CSS `cursor: pointer` no wrapper do `streamlit-plotly-events` — só pegou nas bordas (chart renderizado em **iframe sandbox** bloqueia CSS externo); (b) `dragmode="pan"` no layout Plotly — virou cursor "move" (cruz com setas), não "grab"; (c) `dragmode=False` — voltou ao crosshair default. Decisão final: **revertido tudo, mantém comportamento original (crosshair).** Solução real seria migrar pra `st.plotly_chart` nativo com `on_select="rerun"` (Streamlit 1.31+, sem iframe), ~30min de refactor — pendência se virar prioridade.
+
+**Validação:** compile-check OK em todos os arquivos editados. Cada mudança validada visualmente pelo usuário no Streamlit local (vários screenshots iterativos). Browser-automation indisponível nesta sessão.
+
+### 5.80 GSF: Estimativa CCEE admin baseline + visualização tracejada
+
+**Contexto:** réplica do pattern §5.78 (Estimativa BBI da Receita por Empresa) aplicado ao GSF, com simplificação importante: **GSF não tem cenário pessoal** (usuário comum só lê, não edita). Razão: GSF é dado oficial da CCEE, não negociável — admin atualiza estimativas conforme a CCEE publica, todos veem.
+
+**Storage (`data/gsf_projecao_ccee.json`, gitignored):**
+```json
+{
+  "_versao": 1,
+  "estimativas": {
+    "2026-06": 85.2,
+    "2026-07": 88.5
+  }
+}
+```
+Helpers: `_carregar_estimativas_ccee()` + `_salvar_estimativas_ccee()`. Constantes: `ADMIN_USERS = {"Nava", "Fagundes", "Caruso"}` (mesmo set da Receita por Empresa), `_GSF_PROJECAO_VERSAO = 1`, `_GSF_HORIZONTE_ANO_FINAL = 2027` (admin edita até Dez/2027; CCEE costuma publicar só até Dez do ano corrente).
+
+**Merge automático (`_merge_estimativas_no_df`):** adiciona linhas com flag `is_estimativa=True` pros meses estimados; **mês com oficial sempre vence** (estimativa "expira" sozinha quando CCEE publica). GSF estimado vai como decimal (0.855 = 85.5%) pra ficar consistente com a coluna existente; `sum_geracao_mre_mwh` e `sum_gf_mre_mwh` ficam NaN nas linhas estimadas (CCEE publica só a %, não decompõe).
+
+**Trimestral agregado:** `_agregar_trimestral` propaga `is_estimativa` (True se QUALQUER mês do trim é estimado). Fórmula diferente conforme tipo:
+  - **Trimestres só com oficiais:** `sum_geracao / sum_gf` (semântica contábil correta, comportamento original preservado).
+  - **Trimestres com ≥1 mês estimado:** **MÉDIA SIMPLES dos GSFs mensais** (mistura oficial+estimativa) — sum/sum não funciona porque estimativas têm geração/GF nulos.
+
+**Chart com 3 traces pra linha principal** (pattern §5.78 herdado): quando `is_estimativa.any()`:
+  - **Real (sólida, hover padrão):** trimestres oficiais.
+  - **Ponte (tracejada, `hoverinfo="skip"`, sem markers):** liga último real ao primeiro estimado pra continuidade visual.
+  - **Estimativa CCEE (tracejada, hover diferenciado):** trimestres estimados; hover prefixado por `<i>(estimativa CCEE)</i><br>`.
+
+Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regressão.
+
+**Legenda HTML custom (substitui Plotly nativa):** Plotly `orientation="h"` insistia em quebrar pra 2 linhas mesmo com poucos itens. Solução contundente: `layout["showlegend"] = False` e legenda HTML via `st.markdown` com `display: flex; justify-content: center; white-space: nowrap;` ABAIXO do chart. 4 itens (Déficit, Secundária, GSF, Estimativa CCEE) — quadradinhos coloridos pras áreas + linhas com `border-top: dashed/solid` pras curvas. **Garantia matemática** de 1 linha (flex container não quebra com `nowrap`).
+
+**Subtítulo padrão do gráfico** (`FATOR DE AJUSTE DO MRE (GSF) · SIN` em Bebas Neue uppercase com `border-bottom: 2px solid` preto, granularidade à direita) — antes era título Plotly interno (`fig.update_layout(title=...)`), agora segue padrão de Capacidade/Modulação/Receita. Removido o título do figure pra evitar duplicação.
+
+**UI admin (expander fechado por default, abaixo do footnote da Fórmula):**
+  - Badge **MODO ADMIN** dentro do expander, antes da tabela.
+  - `st.data_editor` com 1 linha por mês entre próximo-mês-pós-oficial e Dez/2027 (até ~21 meses), CSS scoped pra centralizar valores numéricos (Glide Data Grid alinha à direita por default).
+  - Botão **Salvar Estimativa CCEE** primary com texto branco forçado via CSS scoped (cascata global perde dentro de expander).
+  - Checkbox **`👁️ Admin: Ver como usuário comum (preview)`** acima do expander — quando ativo, esconde o editor e mostra banner amarelo.
+
+**Tabela "Detalhamento — Últimos 12 meses":** highlight dos meses com GSF > 100% mudou de amarelo (`COR_FONTE_MMGD #FFE082`) pra **azul-céu** (`_FILL_SECUNDARIA = rgba(135, 206, 235, 0.30)` — MESMA cor da área Secundária no chart). Cria conexão visual: linha azul-claro na tabela = mês com energia secundária = área azul no chart.
+
+**Download CSV (padrão Curtailment):** botão "Baixar CSV" abaixo do footnote, exporta `df_grafico` filtrado em PT-BR (separador `;`, decimal vírgula, UTF-8 BOM). 5 colunas: Mês, GSF (%), Geração MRE (TWh), GF MRE (TWh), Fonte (`Oficial` ou `Estimativa CCEE`).
+
+**Default da janela:** `_default_janela_gsf` mudou de "últimos 12 meses" pra **`Jan/(ano-corrente − 1)` até `Dez/(ano-corrente)`** — cobre 2 anos cheios (ano anterior + corrente, incluindo estimativas futuras). Dinâmico: em 2027 vira Jan/2026 até Dez/2027 sozinho. Clamp aos limites reais do dataset.
+
+**Pendência relacionada (§9.4):** usuário pediu também granularidade "Horária" no GSF (com seleção de Dia único). Bloqueado por pré-requisito: verificar se CCEE publica GSF horário oficial. Decisão do usuário: **se não tem dado oficial, não fazemos estimativa horária**.
+
+**Bug fix correlato (`data_loader.py`):** `load_ena` não cacheia no disco se o ano corrente não foi baixado com sucesso. Antes, falha transiente no download do XLSX 2026 (S3 hiccup, timeout) gerava cache "incompleto" travado por 6h — usuário via dados só até 31/12/2025 mesmo já existindo dados novos no S3 (bug observado em 18/mai/2026 e reportado). Guarda nova: `tem_ano_corrente = (df["data"].dt.year == ano_corrente).any()`; só escreve disk cache se `True`.
+
+**Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
+
 ---
 
 ## 6. Fluxo de Desenvolvimento
@@ -5404,6 +5483,14 @@ Itens documentados em §5.X que aguardam priorização:
 - **Modulação lazy loading** — avaliar se o padrão da Frente 3 do PLD
   (§5.71, modo recente vs completo + modal) se aplica também à
   Modulação. Pode virar "Frente 4" ou generalização reusável.
+- **GSF horário (granularidade adicional)** — usuário pediu opção de
+  granularidade "Horária" na aba GSF com seleção de Dia único (uma
+  caixa só, esconde o segundo selectbox de período). Pré-requisito
+  bloqueante: verificar se a CCEE publica GSF horário oficial. Se SIM
+  → implementar (~1h). Se NÃO (só publica mensal/MRE) → NÃO fazer
+  estimativa horária (decisão do usuário: "se não tem dado oficial
+  não fazemos estimativa"). Investigar fonte de dados antes de
+  qualquer implementação.
 
 ### 9.5 Pendências de Curtailment (sessão 11/05/2026)
 
