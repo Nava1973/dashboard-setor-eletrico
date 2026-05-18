@@ -1397,8 +1397,23 @@ def load_ena() -> pd.DataFrame:
     df = df.drop_duplicates(subset=["data", "subsistema_code"], keep="last")
     df = df.sort_values(["subsistema_code", "data"]).reset_index(drop=True)
 
-    # Persiste no disco pra próxima cold start cair em ~1-2s.
-    _try_write_ena(df)
+    # Persiste no disco SÓ se o ano corrente foi baixado com sucesso.
+    # Sem esta guarda, uma falha transiente no download do ano corrente
+    # (S3 hiccup, timeout) gera cache "incompleto" que fica preso por 6h
+    # — usuário vê dados só até 31/12/ano-passado mesmo já existindo dados
+    # novos no S3 (bug observado em 18/mai/2026). Com a guarda, falha
+    # transiente força re-tentativa na próxima call em vez de cachear lixo.
+    tem_ano_corrente = (
+        not df.empty
+        and (df["data"].dt.year == ano_corrente).any()
+    )
+    if tem_ano_corrente:
+        _try_write_ena(df)
+    else:
+        st.session_state.setdefault("_debug_erros", []).append(
+            f"ENA: ano corrente ({ano_corrente}) ausente — cache NÃO gravado "
+            f"pra evitar travar dados incompletos por 6h. Próxima call retenta."
+        )
     return df
 
 
