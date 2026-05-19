@@ -2064,6 +2064,36 @@ with st.sidebar:
 # Assim a página ganha espaço vertical e a topbar nativa do Streamlit (3 pontos)
 # não compete com elementos customizados.
 if aba == "PLD":
+    # =====================================================================
+    # Shadow state pattern (§5.94) — protege widget keys do cleanup
+    # cross-tab. Replicado do GSF (§5.77) e Modulação (§9.2). Cobre 5 keys:
+    # granularidade + data_ini + data_fim + data_base (horário) + janela.
+    # _shadow_restore_pld() roda ANTES de qualquer setdefault.
+    # _shadow_sync_pld() roda DEPOIS de todas as mutações programáticas.
+    # =====================================================================
+    _SHADOW_MAP_PLD = {
+        "granularidade":             "pld_shadow_granularidade",
+        "data_ini":                  "pld_shadow_data_ini",
+        "data_fim":                  "pld_shadow_data_fim",
+        "data_base":                 "pld_shadow_data_base",
+        "pld_horaria_window_dias":   "pld_shadow_horaria_window",
+    }
+
+    def _shadow_restore_pld() -> None:
+        for src, dst in _SHADOW_MAP_PLD.items():
+            if src not in st.session_state and dst in st.session_state:
+                st.session_state[src] = st.session_state[dst]
+
+    def _shadow_sync_pld() -> None:
+        for src, dst in _SHADOW_MAP_PLD.items():
+            if src in st.session_state:
+                st.session_state[dst] = st.session_state[src]
+
+    # FIRST: restaura widget keys do shadow se Streamlit fez cleanup
+    # ao sair da aba. Tem que vir ANTES de setdefault — senão o
+    # setdefault sobrescreveria a restauração com defaults.
+    _shadow_restore_pld()
+
     # Título principal da aba, em destaque Bauhaus (barra vermelha lateral)
     st.markdown("# PLD")
     # Linha separadora preta abaixo do título.
@@ -2084,21 +2114,11 @@ if aba == "PLD":
     # on_change callback) antes do script rodar, então aqui já temos o
     # valor correto na session_state.
     #
-    # Backup paralelo (decisão 5.18) — defesa preventiva: se o
-    # widget-state cleanup do Streamlit descartar `granularidade` ao
-    # trocar de aba e voltar, o backup restaura. `granularidade` é
-    # gerenciada pelo callback do selectbox, não é widget-state direto,
-    # mas o pattern é barato e cobre cenários inesperados.
-    _PLD_GRAN_BACKUP = "_pld_granularidade_backup"
-    if (
-        "granularidade" not in st.session_state
-        and _PLD_GRAN_BACKUP in st.session_state
-    ):
-        st.session_state["granularidade"] = st.session_state[_PLD_GRAN_BACKUP]
-
+    # Shadow state (§5.94) substitui o backup §5.18 antigo — restore foi
+    # chamado no topo, sync mais abaixo após todas as mutações. Cobre
+    # granularidade + data_ini/fim + data_base + janela em 1 mapa só.
     st.session_state.setdefault("granularidade", "diario")
     granularidade = st.session_state["granularidade"]
-    st.session_state[_PLD_GRAN_BACKUP] = granularidade
 
     # Frente 3: modo do PLD horário (False=recente 2 anos, True=completo 6 anos).
     # Persistente em session_state; reset pelo clear_cache.
@@ -2286,6 +2306,10 @@ if aba == "PLD":
         _aplica_default_pld_inline(granularidade, min_d, max_d)
         st.session_state["_dataset_max"] = max_d
         st.session_state["_dataset_min"] = min_d
+
+    # Sync shadow state APÓS reset block (que pode mutar data_ini/fim) —
+    # garante que cross-tab navegando depois disto restaura tudo. §5.94.
+    _shadow_sync_pld()
 
     # --- Filtrar por data (usando session_state, não widgets) ---
     # Os widgets de Período ficam mais abaixo, mas o filtro precisa

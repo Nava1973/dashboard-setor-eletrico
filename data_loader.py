@@ -2074,6 +2074,15 @@ def clear_cache() -> None:
     st.session_state.pop("pld_horaria_historico_completo", None)
     st.session_state.pop("_pld_horaria_pending_modal", None)
 
+    # Limpa shadow state do PLD (§5.94). Sem isso, shadow restauraria o
+    # estado anterior no próximo render — "Atualizar" deveria zerar tudo.
+    for _k in (
+        "pld_shadow_granularidade", "pld_shadow_data_ini",
+        "pld_shadow_data_fim", "pld_shadow_data_base",
+        "pld_shadow_horaria_window",
+    ):
+        st.session_state.pop(_k, None)
+
     # Sinaliza pro reset block da aba Geração aplicar default da
     # granularidade atual (decisão 5.20). Cobre o caso "Atualizar sem
     # mudança de dataset" — sentinela _gen_dataset_max permanece OK,
