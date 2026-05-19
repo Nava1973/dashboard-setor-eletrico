@@ -1787,11 +1787,14 @@ with st.sidebar:
             width: 100% !important;
             justify-content: flex-start !important;
         }
-        /* Sub-item inativo (secondary): cinza discreto */
+        /* Sub-item inativo (secondary): cinza claro (legivel no hover
+           fantasma sobre fundo escuro da sidebar). Original era #999
+           que ficava muito sutil; #C0C0C0 da contraste suficiente sem
+           competir com o branco da sub-view ativa (que tem #FFFFFF). */
         [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button[kind="secondary"],
         [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button[kind="secondary"] * {
             background: transparent !important;
-            color: #999999 !important;
+            color: #C0C0C0 !important;
         }
         /* Sub-item ativo (primary): texto branco + caractere │ em vermelho Bradesco */
         [data-testid="stSidebar"] [class*="st-key-nav_sub_"] button[kind="primary"],
@@ -1835,7 +1838,7 @@ with st.sidebar:
            via CSS, 2 caminhos:
              (a) aba pai ativa (button[kind="primary"]) -> visiveis (universal)
              (b) hover na aba pai OU na sub (desktop only via
-                 @media hover:hover and pointer:fine) -> fantasma opacity 0.75
+                 @media hover:hover and pointer:fine) -> fantasma opacity 0.95
            Em mobile/touch, a media query e falsa -> so caminho (a) =
            comportamento original preservado.
 
@@ -1885,7 +1888,7 @@ with st.sidebar:
             [data-testid="stSidebar"] [class*="st-key-nav_aba_Carga"]:hover ~ [class*="st-key-nav_sub_carga_"],
             [data-testid="stSidebar"] [class*="st-key-nav_sub_carga_"]:hover {
                 max-height: 4rem !important;
-                opacity: 0.75 !important;
+                opacity: 0.95 !important;
                 margin-bottom: -1rem !important;
             }
         }
