@@ -100,14 +100,13 @@ def render_aba_admin(user: str | None = None) -> None:
     if "admin_subview" not in st.session_state:
         st.session_state["admin_subview"] = "Clientes"
 
-    # Ícones via :material/...: herdam cor do texto do botão (branco em
-    # botão primary vermelho Bauhaus), em vez de emojis Unicode que vêm
-    # com cor própria do font emoji do sistema.
+    # Botões de sub-view: texto puro (sem emoji nem icon=). Tentativa
+    # anterior usando icon=:material/...: renderizou como texto literal
+    # 'person'/'insights' nesta versão do Streamlit — fallback pra texto.
     col_btn1, col_btn2, _ = st.columns([1, 1, 4])
     with col_btn1:
         if st.button(
             "Clientes",
-            icon=":material/person:",
             type="primary" if st.session_state["admin_subview"] == "Clientes" else "secondary",
             width="stretch",
         ):
@@ -116,7 +115,6 @@ def render_aba_admin(user: str | None = None) -> None:
     with col_btn2:
         if st.button(
             "Log de Acesso",
-            icon=":material/insights:",
             type="primary" if st.session_state["admin_subview"] == "Log" else "secondary",
             width="stretch",
         ):
@@ -147,13 +145,15 @@ def _render_sub_clientes() -> None:
     st.markdown(
         """
         <style>
-        /* Header maior da seção de cadastro */
+        /* Sub-headers padronizados na sub-view Clientes do Admin. Bebas
+           Neue uppercase com letter-spacing — mesmo tamanho (1.3rem) em
+           todos os 3 headers da página pra harmonia visual. */
         .admin-section-header {
             font-family: 'Bebas Neue', sans-serif;
-            font-size: 1.6rem;
+            font-size: 1.3rem;
             letter-spacing: 0.06em;
             color: #313131;
-            margin: 0.5rem 0 1rem 0;
+            margin: 0.8rem 0 0.6rem 0;
         }
         /* Botões primary dentro dos forms do admin — texto branco forçado */
         [data-testid="stForm"] button[kind="primary"],
@@ -233,7 +233,10 @@ def _render_sub_clientes() -> None:
     st.divider()
 
     # ----- Tabela + reset de senha -----
-    st.subheader("Clientes cadastrados")
+    st.markdown(
+        '<div class="admin-section-header">CLIENTES CADASTRADOS</div>',
+        unsafe_allow_html=True,
+    )
     try:
         df = listar_clientes()
     except Exception as e:
@@ -354,7 +357,10 @@ def _render_sub_clientes() -> None:
                             st.error(f"❌ Erro ao atualizar: {e}")
 
     st.divider()
-    st.markdown("**Resetar senha de um cliente:**")
+    st.markdown(
+        '<div class="admin-section-header">RESETAR SENHA DE UM CLIENTE</div>',
+        unsafe_allow_html=True,
+    )
     col_reset1, col_reset2 = st.columns([3, 1])
     with col_reset1:
         email_reset = st.selectbox(
