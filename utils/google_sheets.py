@@ -247,6 +247,37 @@ def atualizar_cliente(
     return True
 
 
+def deletar_cliente(email: str) -> bool:
+    """Remove a linha do cliente da aba Clientes.
+
+    Args:
+        email: chave de busca (case-insensitive).
+
+    Returns:
+        True se deletou, False se cliente não encontrado.
+
+    Atenção: ação destrutiva. UI deve sempre confirmar com o admin
+    antes de chamar. O log de acesso histórico do cliente NÃO é
+    afetado (audit trail preservado — schema denormalizado §5.93
+    guarda snapshot dos dados no momento de cada acesso).
+    """
+    if not email:
+        return False
+    ws = _get_aba(ABA_CLIENTES)
+    emails_col = ws.col_values(_COL_EMAIL_IDX)
+    email_lower = email.strip().lower()
+    linha_idx = None
+    for i, e in enumerate(emails_col, start=1):
+        if e.strip().lower() == email_lower:
+            linha_idx = i
+            break
+    if linha_idx is None:
+        return False
+    ws.delete_rows(linha_idx)
+    listar_clientes.clear()
+    return True
+
+
 def atualizar_senha_hash(email: str, novo_hash: str) -> bool:
     """Atualiza só a coluna senha_hash do cliente com email dado.
 

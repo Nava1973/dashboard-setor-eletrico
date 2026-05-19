@@ -41,6 +41,7 @@ from utils.google_sheets import (
     atualizar_cliente,
     atualizar_senha_hash,
     buscar_cliente_por_email,
+    deletar_cliente,
     listar_clientes,
     listar_log_acesso,
 )
@@ -155,9 +156,16 @@ def _render_sub_clientes() -> None:
             color: #313131;
             margin: 0.8rem 0 0.6rem 0;
         }
-        /* Botões primary dentro dos forms do admin — texto branco forçado */
+        /* Botões primary dentro dos forms do admin — texto branco forçado.
+           Inclui stFormSubmitButton (selector mais específico do submit
+           button) e descendentes p/span/div pra evitar herança preta. */
         [data-testid="stForm"] button[kind="primary"],
-        [data-testid="stForm"] button[kind="primary"] * {
+        [data-testid="stForm"] button[kind="primary"] *,
+        [data-testid="stFormSubmitButton"] button[kind="primary"],
+        [data-testid="stFormSubmitButton"] button[kind="primary"] *,
+        [data-testid="stFormSubmitButton"] button[kind="primary"] p,
+        [data-testid="stFormSubmitButton"] button[kind="primary"] div,
+        [data-testid="stFormSubmitButton"] button[kind="primary"] span {
             color: #FFFFFF !important;
         }
         </style>
@@ -355,6 +363,86 @@ def _render_sub_clientes() -> None:
                                 st.error("❌ Cliente não encontrado.")
                         except Exception as e:
                             st.error(f"❌ Erro ao atualizar: {e}")
+
+    # ----- Excluir cliente (com confirmação em 2 cliques) -----
+    st.divider()
+    st.markdown(
+        '<div class="admin-section-header">EXCLUIR CLIENTE</div>',
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "Remove permanentemente o cliente da planilha (ação destrutiva). "
+        "O log histórico do cliente é preservado (audit trail)."
+    )
+
+    col_del1, col_del2 = st.columns([3, 1])
+    with col_del1:
+        email_del = st.selectbox(
+            "Selecione o cliente (digite sobrenome/código/email pra filtrar):",
+            options=["—"] + emails_lista,
+            format_func=_label_cliente,
+            key="admin_del_email_select",
+            label_visibility="collapsed",
+        )
+    with col_del2:
+        clicou_excluir = st.button(
+            "Excluir",
+            type="primary",
+            width="stretch",
+            disabled=(email_del == "—"),
+            key="admin_btn_excluir",
+        )
+
+    if clicou_excluir and email_del != "—":
+        # 1º clique: arma o pending state (mas NÃO deleta ainda)
+        st.session_state["_admin_delete_pending"] = email_del
+        st.rerun()
+
+    pending_email = st.session_state.get("_admin_delete_pending")
+    if pending_email:
+        # Aviso forte + 2 botões (Confirmar / Cancelar)
+        cliente_pending = buscar_cliente_por_email(pending_email)
+        nome_display = (
+            f"{cliente_pending.get('nome', '')} "
+            f"{cliente_pending.get('sobrenome', '')}".strip()
+            if cliente_pending else pending_email
+        )
+        st.warning(
+            f"⚠️ **Tem certeza?** Vai excluir permanentemente "
+            f"**{nome_display}** (`{pending_email}`) da planilha. "
+            "Essa ação não pode ser desfeita."
+        )
+        col_conf1, col_conf2, _ = st.columns([1, 1, 3])
+        with col_conf1:
+            clicou_confirmar = st.button(
+                "✅ Confirmar exclusão",
+                type="primary", width="stretch",
+                key="admin_btn_confirmar_del",
+            )
+        with col_conf2:
+            clicou_cancelar = st.button(
+                "Cancelar",
+                type="secondary", width="stretch",
+                key="admin_btn_cancelar_del",
+            )
+
+        if clicou_cancelar:
+            st.session_state.pop("_admin_delete_pending", None)
+            st.rerun()
+
+        if clicou_confirmar:
+            try:
+                ok = deletar_cliente(pending_email)
+                if ok:
+                    st.success(f"✅ Cliente **{pending_email}** excluído.")
+                    st.session_state.pop("_admin_delete_pending", None)
+                    st.rerun()
+                else:
+                    st.error(f"❌ Cliente `{pending_email}` não encontrado.")
+                    st.session_state.pop("_admin_delete_pending", None)
+            except Exception as e:
+                st.error(f"❌ Erro ao excluir: {e}")
+                st.session_state.pop("_admin_delete_pending", None)
 
     st.divider()
     st.markdown(
