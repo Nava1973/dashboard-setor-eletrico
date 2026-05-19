@@ -201,7 +201,15 @@ def _render_sub_clientes() -> None:
 
     # ----- Tabela + reset de senha -----
     st.subheader("Clientes cadastrados")
-    df = listar_clientes()
+    try:
+        df = listar_clientes()
+    except Exception as e:
+        st.error(
+            "🔌 **Não foi possível conectar à planilha do Google Sheets.** "
+            "Verifique sua conexão de internet e tente recarregar a página (F5).\n\n"
+            f"Detalhes técnicos: `{type(e).__name__}: {str(e)[:200]}`"
+        )
+        return
 
     if df.empty:
         st.info("Nenhum cliente cadastrado ainda. Use o formulário acima.")
@@ -356,7 +364,15 @@ def _render_sub_log() -> None:
     import plotly.graph_objects as go
 
     st.subheader("Log de Acesso")
-    df = listar_log_acesso()
+    try:
+        df = listar_log_acesso()
+    except Exception as e:
+        st.error(
+            "🔌 **Não foi possível conectar à planilha do Google Sheets.** "
+            "Verifique sua conexão de internet e tente recarregar a página (F5).\n\n"
+            f"Detalhes técnicos: `{type(e).__name__}: {str(e)[:200]}`"
+        )
+        return
     if df.empty:
         st.info(
             "Nenhum acesso registrado ainda. Os registros aparecerão aqui "
