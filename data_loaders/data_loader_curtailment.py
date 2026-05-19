@@ -531,7 +531,7 @@ def _gerar_meses(data_ini: date, data_fim: date) -> list[Tuple[int, int]]:
     return meses
 
 
-@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
+@st.cache_resource(ttl=60 * 60 * 6, show_spinner=False)
 def carregar_curtailment(
     data_inicio: date,
     data_fim: date,

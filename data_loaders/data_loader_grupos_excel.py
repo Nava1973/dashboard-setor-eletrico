@@ -123,7 +123,7 @@ def _registrar_erro(msg: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_resource(ttl=3600, show_spinner=False)
 def carregar_grupos_excel(caminho: str = EXCEL_DEFAULT_PATH) -> pd.DataFrame:
     """
     Carrega o Excel e retorna DataFrame consolidado com Solar + Eólica.
@@ -198,7 +198,7 @@ def carregar_grupos_excel(caminho: str = EXCEL_DEFAULT_PATH) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_resource(ttl=3600, show_spinner=False)
 def carregar_aliases(caminho: str = ALIASES_DEFAULT_PATH) -> dict:
     """
     Carrega aliases CSV. Retorna dict: {nome_norm_no_ons: nome_norm_no_excel}.

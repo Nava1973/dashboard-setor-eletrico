@@ -151,7 +151,7 @@ def _salvar_no_cache_disk(series: pd.Series, filename: str) -> None:
         pass  # Cache disk é best-effort
 
 
-@st.cache_data(ttl=_CACHE_TTL_SECONDS, show_spinner=False)
+@st.cache_resource(ttl=_CACHE_TTL_SECONDS, show_spinner=False)
 def load_mmgd_anual() -> pd.Series:
     """Versão SQL-backed do load_mmgd_anual (substitui anchor hardcoded como default).
 
@@ -207,7 +207,7 @@ def load_mmgd_anual() -> pd.Series:
     return fallback
 
 
-@st.cache_data(ttl=_CACHE_TTL_SECONDS, show_spinner=False)
+@st.cache_resource(ttl=_CACHE_TTL_SECONDS, show_spinner=False)
 def load_mmgd_mensal() -> pd.Series:
     """Carrega capacidade MMGD acumulada por mês (últimos 12 MESES FECHADOS).
 

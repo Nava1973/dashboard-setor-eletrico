@@ -4646,6 +4646,45 @@ Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regress
 
 **Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
 
+### 5.92 Otimização de RAM: cache_resource + histórico 15→10 + gc.collect (preventiva pré-100 clientes)
+
+**Contexto:** Streamlit Community Cloud notificou que o app estourou o limite de RAM (~1GB no free tier) e bloqueou acesso temporariamente. Diagnóstico em 3 frentes implementado em 19/05/2026 — preventivo pra escalar pros 100 clientes externos.
+
+**Frente A — `@st.cache_data` → `@st.cache_resource` em 16 loaders.** Diferença crítica entre os 2 decorators:
+  - `cache_data` faz **deepcopy a cada acesso** (pickle.dumps + pickle.loads). Cada user-session recebe sua própria cópia do DataFrame.
+  - `cache_resource` **compartilha a mesma referência** entre todas as sessions concorrentes.
+
+Pra dashboard hoje (1-3 users) a diferença é modesta. Pra futuro com 100 clientes simultâneos: `cache_data` × 100 sessions × ~100MB do balanço = ~10GB. `cache_resource` = 100MB (1 cópia compartilhada). **Diferença de 100x quando escalar.**
+
+Loaders migrados (todos sem mutação validada nos callers do app):
+  - `data_loader.py`: `load_pld_media_diaria`, `load_pld_media_semanal`, `load_pld_media_mensal`, `load_pld_horaria`, `load_reservatorios`, `load_ena`, `load_balanco_subsistema`.
+  - `data_loaders/ccee_gsf.py`: `load_gsf_mensal`.
+  - `data_loaders/data_loader_aneel_siga.py`: `load_siga`, `load_siga_anual`.
+  - `data_loaders/data_loader_termico.py`: `carregar_termico`.
+  - `data_loaders/data_loader_curtailment.py`: `carregar_curtailment`.
+  - `data_loaders/data_loader_aneel_mmgd_sql.py`: `load_mmgd_anual`, `load_mmgd_mensal`.
+  - `data_loaders/data_loader_agentes_aneel.py`: `carregar_agentes_aneel`.
+  - `data_loaders/data_loader_grupos_excel.py`: `carregar_grupos_excel`, `carregar_aliases`.
+
+Helpers internos (`_download_*_historico`) **mantidos como `cache_data`** — cada um é cache de 1 ano pequeno, ganho de cache_resource seria marginal e risco maior (esses passam pelo pipeline de normalização que pode mutar).
+
+**Auditoria de mutação:** grep direcionado em `app.py` por `df_gen[col] =`, `df_carga[col] =`, `df.loc[...] =` retornou zero matches. App usa loaders apenas pra leitura (filtros, pivots, agregações). Safe pra todos os 16.
+
+**API compat preservada:** `cache_resource.clear()` funciona igual ao `cache_data.clear()` — todos os `clear_cache()`, `clear_gsf_cache()` etc. continuam funcionais sem mudança.
+
+**Frente B — `_BALANCO_DEFAULT_HISTORICO_ANOS` 15 → 10.** Loader maior do projeto (balanço horário do ONS × 4 submercados × 5 fontes). Cada ano ≈ 7MB. 15a=104MB, 10a=70MB → **-34MB** na cópia única compartilhada via cache_resource. Cobertura mantida pra eólica em escala (2014+) e solar (2017+) — apenas perde acesso default pré-2015. Botão "Carregar histórico completo" segue oferecendo os 27 anos sob demanda.
+
+**Frente C — `gc.collect()` após operações de limpeza de cache.** Quando o user clica "Atualizar" (sidebar), `clear_cache()` libera DataFrames grandes mas eles ficam na heap até a próxima coleta natural do Python. `gc.collect()` no final força a liberação imediata da RAM. Adicionado em:
+  - `data_loader.clear_cache()` — limpeza global do app.
+  - `data_loaders/ccee_gsf.clear_gsf_cache()` — limpeza do GSF.
+  - `components/tab_modulacao.clear_modulacao_disk_cache()` — limpeza da Modulação.
+
+**Frente D NÃO-aplicada:** considerei reduzir TTLs de 6h/12h → 2h pra purgar RAM mais rápido. **Descartado** porque após Frente A (cache_resource), TTL menor adicionaria custo de UX (re-download de ~25s mais frequente) em troca de ganho marginal de RAM. Voltar a essa task SOMENTE se ainda houver OOM no Cloud após deploy desta sessão.
+
+**Bonus — novo script `scripts/profile_memory.py`:** mede RAM consumida por cada loader principal via `psutil.Process().memory_info().rss`. Roda standalone (`venv/Scripts/python.exe scripts/profile_memory.py`). Útil pra futuras investigações de OOM — identifica top culpados sem precisar instrumentar `app.py`.
+
+**Validação:** sintaxe OK em todos os arquivos editados. Smoke test confirma que os 16 loaders importam, `.clear()` funciona em todos, e `_BALANCO_DEFAULT_HISTORICO_ANOS=10`. Deploy no Cloud vai mostrar se o problema de RAM foi resolvido — monitorar nas próximas 48h.
+
 ### 5.91 Auth migrada pra email-as-username (3 admins) + sync Cloud secrets
 
 **Contexto:** Fagundes reportou falha no login em produção. Diagnóstico em 2 passos: (a) confirmei `bcrypt.checkpw("Fagundes2026", hash_local)` retorna True → senha estava certa, login funcionaria local; (b) §5.78 do CLAUDE.md já avisava que `st.secrets["auth_config"]["yaml_content"]` no Streamlit Cloud precisa ser atualizado manualmente quando o `config.yaml` local muda — não há sync automático. Cloud ainda tinha só o `nava` antigo, Fagundes nem existia lá. **Causa raiz**: divergência Local↔Cloud por design (config.yaml gitignored, secrets editado em UI separada).

@@ -258,7 +258,7 @@ def _padronizar(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-@st.cache_data(ttl=86400 * 7, show_spinner=False)  # cache de 7 dias
+@st.cache_resource(ttl=86400 * 7, show_spinner=False)  # cache de 7 dias
 def carregar_agentes_aneel() -> pd.DataFrame:
     """
     Carrega o dataset de agentes de geração da ANEEL.

@@ -837,7 +837,7 @@ def _load_dataset(
 # =============================================================================
 
 
-@st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
+@st.cache_resource(ttl=60 * 60 * 12, show_spinner=False)
 def load_pld_media_diaria() -> pd.DataFrame:
     """Baixa e consolida PLD diário de todos os anos.
 
@@ -861,7 +861,7 @@ def load_pld_media_diaria() -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
+@st.cache_resource(ttl=60 * 60 * 12, show_spinner=False)
 def load_pld_horaria(incluir_historico_completo: bool = False) -> pd.DataFrame:
     """Baixa e consolida PLD horário de todos os anos (2021+).
 
@@ -915,7 +915,7 @@ def load_pld_horaria(incluir_historico_completo: bool = False) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
+@st.cache_resource(ttl=60 * 60 * 12, show_spinner=False)
 def load_pld_media_semanal() -> pd.DataFrame:
     """Baixa e consolida PLD semanal (histórico 2001+).
 
@@ -933,7 +933,7 @@ def load_pld_media_semanal() -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
+@st.cache_resource(ttl=60 * 60 * 12, show_spinner=False)
 def load_pld_media_mensal() -> pd.DataFrame:
     """Baixa e consolida PLD mensal (histórico 2001+).
 
@@ -1094,7 +1094,7 @@ def _compute_sin_aggregate(raw_frames: list[pd.DataFrame]) -> pd.DataFrame:
     return out.dropna(subset=["data", "ear_pct"])
 
 
-@st.cache_data(ttl=60 * 60 * 2, show_spinner=False)
+@st.cache_resource(ttl=60 * 60 * 2, show_spinner=False)
 def load_reservatorios() -> pd.DataFrame:
     """
     Baixa e consolida EAR por subsistema do ONS + calcula linha SIN agregada.
@@ -1326,7 +1326,7 @@ def _compute_ena_sin_aggregate(subsistema_frames: list[pd.DataFrame]) -> pd.Data
     ]]
 
 
-@st.cache_data(ttl=60 * 60 * 2, show_spinner=False)
+@st.cache_resource(ttl=60 * 60 * 2, show_spinner=False)
 def load_ena() -> pd.DataFrame:
     """
     Baixa e consolida ENA por subsistema do ONS + calcula linha SIN agregada.
@@ -1822,13 +1822,17 @@ def _normalize_balanco(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # Janela default do "histórico curto" (Sessão 1.5b): N anos relativos ao
-# corrente. 15 anos cobre toda a fase moderna da matriz (eólica entrou em
-# escala em 2010-2011, solar em 2017). Pré-2011 é arqueológico — matriz
-# era ~85% hidro, dinâmica diferente, raramente útil pra análise atual.
-_BALANCO_DEFAULT_HISTORICO_ANOS = 15
+# corrente. 10 anos cobre eólica em escala (2014+) e solar (2017+).
+# Histórico completo (27 anos) ainda acessível via botão "Carregar
+# histórico completo" da UI. Reduzido de 15 -> 10 em 2026-05-19 pra
+# aliviar consumo de RAM no Streamlit Cloud free tier (§5.92): cada ano
+# do balanço horário × 4 submercados × 5 fontes ≈ ~7MB; 15a=~104MB,
+# 10a=~70MB. Diferença material no compartilhamento via cache_resource
+# entre sessions concorrentes (futuro 100 clientes).
+_BALANCO_DEFAULT_HISTORICO_ANOS = 10
 
 
-@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
+@st.cache_resource(ttl=60 * 60 * 6, show_spinner=False)
 def load_balanco_subsistema(
     incluir_historico_completo: bool = False,
 ) -> pd.DataFrame:
@@ -2068,3 +2072,9 @@ def clear_cache() -> None:
     # balanço com a Geração, então "Atualizar" deve resetar o reset block
     # de ambas. Consumida com pop pelo reset block da Carga.
     st.session_state["_carga_force_reset"] = True
+
+    # Força GC após liberar todos os caches — DataFrames grandes ficam
+    # órfãos na heap até a próxima coleta natural; gc.collect() libera
+    # imediatamente. §5.92 (otimização Streamlit Cloud OOM).
+    import gc
+    gc.collect()

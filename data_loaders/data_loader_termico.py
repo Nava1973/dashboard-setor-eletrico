@@ -426,7 +426,7 @@ def _gerar_meses(ano_ini: int, ano_fim: int) -> list[Tuple[int, int]]:
 # ---------------------------------------------------------------------------
 
 
-@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
+@st.cache_resource(ttl=60 * 60 * 6, show_spinner=False)
 def carregar_termico(
     ano_ini: int = 2022,
     ano_fim: Optional[int] = None,

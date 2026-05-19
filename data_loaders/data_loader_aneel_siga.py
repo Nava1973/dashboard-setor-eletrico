@@ -544,7 +544,7 @@ def _carregar_siga_demo() -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-@st.cache_data(ttl=60 * 60 * 24 * 30, show_spinner=False)
+@st.cache_resource(ttl=60 * 60 * 24 * 30, show_spinner=False)
 def load_siga() -> pd.DataFrame:
     """Carrega capacidade centralizada Brasil decomposta por fonte
     (SIGA/ANEEL) — fonte principal.
@@ -604,7 +604,7 @@ def load_siga() -> pd.DataFrame:
     return _empty_df_siga()
 
 
-@st.cache_data(ttl=60 * 60 * 24 * 30, show_spinner=False)
+@st.cache_resource(ttl=60 * 60 * 24 * 30, show_spinner=False)
 def load_siga_anual() -> pd.DataFrame:
     """Versão ANUAL do ``load_siga()`` — para a aba Capacidade.
 

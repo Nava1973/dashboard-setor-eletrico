@@ -385,7 +385,7 @@ def _agregar_mensal(df_horario: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-@st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
+@st.cache_resource(ttl=60 * 60 * 6, show_spinner=False)
 def load_gsf_mensal(
     incluir_historico_pre2023: bool = False,
 ) -> pd.DataFrame:
@@ -500,7 +500,7 @@ def load_gsf_historico_pre2023() -> pd.DataFrame:
 
 
 def clear_gsf_cache() -> None:
-    """Limpa cache RAM (st.cache_data) + apaga parquets por ano."""
+    """Limpa cache RAM (st.cache_resource) + apaga parquets por ano."""
     try:
         load_gsf_mensal.clear()
     except Exception:
@@ -515,6 +515,10 @@ def clear_gsf_cache() -> None:
                 p.unlink()
         except Exception as e:
             _registrar_erro(f"erro removendo {p.name}: {e}")
+
+    # Força GC após liberar DataFrames grandes do cache. §5.92.
+    import gc
+    gc.collect()
 
 
 def is_gsf_cache_fresh(ano: Optional[int] = None) -> bool:

@@ -395,6 +395,10 @@ def clear_modulacao_disk_cache() -> None:
     ):
         st.session_state.pop(k, None)
 
+    # Força GC após liberar DataFrames grandes do cache de spread. §5.92.
+    import gc
+    gc.collect()
+
 
 # =============================================================================
 # Resolver janela (data_ini, data_fim) a partir do preset
