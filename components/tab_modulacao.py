@@ -472,15 +472,44 @@ def _render_grafico_submercado(
 
     df_periodo = df_periodo.sort_values("periodo_inicio").copy()
 
+    # ----- Detectar último período parcial (não-completo) -----
+    # `_calcular_spread()` dropa períodos parciais EXCETO o último —
+    # então só o último ponto pode ser parcial. Comparamos n_horas da
+    # linha com horas esperadas do período completo. Se for parcial,
+    # adicionamos sufixo "(até dia XX)" no label do tick (e no título)
+    # pra deixar claro pro leitor que não é mês/trim/semana fechado.
+    # Pattern análogo ao PLD §5.90 (mês corrente parcial).
+    _ts_ultimo = df_periodo["periodo_inicio"].max()
+    _n_horas_ultimo = int(
+        df_periodo[df_periodo["periodo_inicio"] == _ts_ultimo]
+        ["n_horas"].iloc[0]
+    )
+    if granularidade == "mensal":
+        _horas_esperadas = pd.Timestamp(_ts_ultimo).days_in_month * 24
+    elif granularidade == "trimestral":
+        _ts_pd = pd.Timestamp(_ts_ultimo)
+        _fim_trim = _ts_pd + pd.DateOffset(months=3) - pd.Timedelta(days=1)
+        _horas_esperadas = ((_fim_trim.date() - _ts_pd.date()).days + 1) * 24
+    else:  # semanal
+        _horas_esperadas = 7 * 24
+
+    _eh_parcial = _n_horas_ultimo < _horas_esperadas
+    # Último dia coberto: 24h por dia, arredondado pra cima quando há
+    # horas parciais (ex: 444h = 18.5 dias → dia 19).
+    _ultimo_dia_parc = (
+        (_n_horas_ultimo - 1) // 24 + 1 if _eh_parcial else None
+    )
+
     # --- Título Bauhaus (padrão tab_curtailment.py:636) ---
     # longo=True: no semanal o título mostra DD/MM/AA (tem espaço e o ano
-    # evita ambiguidade); mensal/trimestral já trazem o ano.
+    # evita ambiguidade); mensal/trimestral já trazem o ano. Período final
+    # ganha sufixo "(até dia XX)" se for parcial — consistência com eixo X.
     periodo_min = _fmt_periodo(
         df_periodo["periodo_inicio"].min(), granularidade, longo=True,
     )
-    periodo_max = _fmt_periodo(
-        df_periodo["periodo_inicio"].max(), granularidade, longo=True,
-    )
+    periodo_max = _fmt_periodo(_ts_ultimo, granularidade, longo=True)
+    if _eh_parcial:
+        periodo_max = f"{periodo_max} (até {_ultimo_dia_parc})"
     periodo_str = (
         periodo_min if periodo_min == periodo_max
         else f"{periodo_min} a {periodo_max}"
@@ -511,10 +540,14 @@ def _render_grafico_submercado(
         unsafe_allow_html=True,
     )
 
+    def _label_x(ts):
+        base = _fmt_periodo(ts, granularidade)
+        if _eh_parcial and ts == _ts_ultimo:
+            return f"{base} (até {_ultimo_dia_parc})"
+        return base
+
     # X labels pré-formatados (categorial — preserva ordem cronológica).
-    df_periodo["x_label"] = df_periodo["periodo_inicio"].apply(
-        lambda ts: _fmt_periodo(ts, granularidade)
-    )
+    df_periodo["x_label"] = df_periodo["periodo_inicio"].apply(_label_x)
 
     fig = go.Figure()
 
