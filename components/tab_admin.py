@@ -100,10 +100,14 @@ def render_aba_admin(user: str | None = None) -> None:
     if "admin_subview" not in st.session_state:
         st.session_state["admin_subview"] = "Clientes"
 
+    # Ícones via :material/...: herdam cor do texto do botão (branco em
+    # botão primary vermelho Bauhaus), em vez de emojis Unicode que vêm
+    # com cor própria do font emoji do sistema.
     col_btn1, col_btn2, _ = st.columns([1, 1, 4])
     with col_btn1:
         if st.button(
-            "👤 Clientes",
+            "Clientes",
+            icon=":material/person:",
             type="primary" if st.session_state["admin_subview"] == "Clientes" else "secondary",
             width="stretch",
         ):
@@ -111,7 +115,8 @@ def render_aba_admin(user: str | None = None) -> None:
             st.rerun()
     with col_btn2:
         if st.button(
-            "📊 Log de Acesso",
+            "Log de Acesso",
+            icon=":material/insights:",
             type="primary" if st.session_state["admin_subview"] == "Log" else "secondary",
             width="stretch",
         ):
@@ -135,8 +140,36 @@ def render_aba_admin(user: str | None = None) -> None:
 
 def _render_sub_clientes() -> None:
     """Form de cadastro + tabela + reset de senha."""
+    # CSS scoped pra esta sub-view: força texto branco em botões primary
+    # dentro do form de cadastro/edição (Streamlit às vezes herda texto
+    # preto dentro de st.form mesmo em type='primary' — pattern §5.80).
+    # Também aumenta o tamanho do header "Cadastrar novo cliente".
+    st.markdown(
+        """
+        <style>
+        /* Header maior da seção de cadastro */
+        .admin-section-header {
+            font-family: 'Bebas Neue', sans-serif;
+            font-size: 1.6rem;
+            letter-spacing: 0.06em;
+            color: #313131;
+            margin: 0.5rem 0 1rem 0;
+        }
+        /* Botões primary dentro dos forms do admin — texto branco forçado */
+        [data-testid="stForm"] button[kind="primary"],
+        [data-testid="stForm"] button[kind="primary"] * {
+            color: #FFFFFF !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     # ----- Form de cadastro -----
-    st.subheader("Cadastrar novo cliente")
+    st.markdown(
+        '<div class="admin-section-header">CADASTRAR NOVO CLIENTE</div>',
+        unsafe_allow_html=True,
+    )
     with st.form("admin_form_cadastro", clear_on_submit=False):
         col1, col2 = st.columns(2)
         with col1:
@@ -320,6 +353,7 @@ def _render_sub_clientes() -> None:
                         except Exception as e:
                             st.error(f"❌ Erro ao atualizar: {e}")
 
+    st.divider()
     st.markdown("**Resetar senha de um cliente:**")
     col_reset1, col_reset2 = st.columns([3, 1])
     with col_reset1:
