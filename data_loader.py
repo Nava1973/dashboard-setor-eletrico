@@ -2014,6 +2014,18 @@ def clear_cache() -> None:
     load_ena.clear()
     load_balanco_subsistema.clear()
 
+    # Helpers do backend Google Sheets (§5.93) — invalidar pra que
+    # "Atualizar" no Cloud reflita imediatamente cadastros/edicoes/resets
+    # feitos por outro processo (admin local OU outro user do Cloud).
+    # Sem isso, cache TTL 5min do `listar_clientes` mantinha hash velho
+    # após regenerar senha — Alison não conseguia logar com nova senha.
+    try:
+        from utils.google_sheets import listar_clientes, listar_log_acesso
+        listar_clientes.clear()
+        listar_log_acesso.clear()
+    except Exception:
+        pass  # Ambiente sem credencial gspread — silencioso
+
     # Disk-caches: best-effort delete (consolidados + por-ano dos PLDs)
     for get_path in (
         _get_balanco_15a_path,
