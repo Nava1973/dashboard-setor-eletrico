@@ -495,10 +495,21 @@ def _render_grafico_submercado(
 
     _eh_parcial = _n_horas_ultimo < _horas_esperadas
     # Último dia coberto: 24h por dia, arredondado pra cima quando há
-    # horas parciais (ex: 444h = 18.5 dias → dia 19).
-    _ultimo_dia_parc = (
-        (_n_horas_ultimo - 1) // 24 + 1 if _eh_parcial else None
-    )
+    # horas parciais (ex: 444h = 18.5 dias → dia 19). Em mensal mostra
+    # só o número do dia (1-31, contexto óbvio "mai/26"). Em trimestral
+    # e semanal mostra DD/MM (sem o número de dia-do-trimestre tipo
+    # "47" que confunde — não é uma data legível).
+    if _eh_parcial:
+        _dias_decorridos = (_n_horas_ultimo - 1) // 24 + 1
+        _data_final = pd.Timestamp(_ts_ultimo) + pd.Timedelta(
+            days=_dias_decorridos - 1
+        )
+        if granularidade == "mensal":
+            _sufixo_parcial = f"até {_data_final.day}"
+        else:  # trimestral ou semanal
+            _sufixo_parcial = f"até {_data_final.strftime('%d/%m')}"
+    else:
+        _sufixo_parcial = None
 
     # --- Título Bauhaus (padrão tab_curtailment.py:636) ---
     # longo=True: no semanal o título mostra DD/MM/AA (tem espaço e o ano
@@ -509,7 +520,7 @@ def _render_grafico_submercado(
     )
     periodo_max = _fmt_periodo(_ts_ultimo, granularidade, longo=True)
     if _eh_parcial:
-        periodo_max = f"{periodo_max} (até {_ultimo_dia_parc})"
+        periodo_max = f"{periodo_max} ({_sufixo_parcial})"
     periodo_str = (
         periodo_min if periodo_min == periodo_max
         else f"{periodo_min} a {periodo_max}"
@@ -543,7 +554,7 @@ def _render_grafico_submercado(
     def _label_x(ts):
         base = _fmt_periodo(ts, granularidade)
         if _eh_parcial and ts == _ts_ultimo:
-            return f"{base} (até {_ultimo_dia_parc})"
+            return f"{base} ({_sufixo_parcial})"
         return base
 
     # X labels pré-formatados (categorial — preserva ordem cronológica).
