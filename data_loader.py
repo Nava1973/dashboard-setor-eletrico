@@ -2103,6 +2103,18 @@ def clear_cache() -> None:
     # de ambas. Consumida com pop pelo reset block da Carga.
     st.session_state["_carga_force_reset"] = True
 
+    # Cache da Receita Eneva (Parnaíba) — invalidar @st.cache_resource
+    # + cache disco do CVU. "Atualizar" deve refazer cálculo com PLD/gen/CVU
+    # mais recentes. Import lazy + try pra não quebrar se módulo estiver
+    # ausente em build mínimo (cenário hipotético).
+    try:
+        from data_loaders.data_loader_receita_eneva import (
+            clear_receita_eneva_cache,
+        )
+        clear_receita_eneva_cache()
+    except Exception:
+        pass
+
     # Força GC após liberar todos os caches — DataFrames grandes ficam
     # órfãos na heap até a próxima coleta natural; gc.collect() libera
     # imediatamente. §5.92 (otimização Streamlit Cloud OOM).

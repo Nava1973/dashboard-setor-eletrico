@@ -6400,6 +6400,245 @@ elif aba == "Despacho Térmico":
                 width="content",
             )
 
+        # ====================================================================
+        # Receita Estimada — Parnaíba consolidado (Fase Receita Eneva).
+        # Gráfico independente do gráfico principal acima — escopo fixo
+        # 1T23 → trimestre/mês corrente (parcial), valores em R$ milhões,
+        # agregado total das 5 Parnaíba sem breakdown por usina. Toggle
+        # Mensal/Trimestral com state próprio (não compartilha com
+        # `gran_atual` do gráfico de despacho acima). Detalhe ACR/SPOT/
+        # EXPORT vai no tooltip. Pattern de "(parcial até DD/MM)" igual
+        # §5.96 (aba Modulação). Backend: data_loaders/data_loader_receita_eneva.py
+        # ====================================================================
+        from data_loaders.data_loader_receita_eneva import (
+            carregar_cvu_parnaibas,
+            carregar_geracao_horaria_parnaibas,
+            carregar_pld_norte_horaria,
+            calcular_receita_horaria,
+            agregar_receita_mensal,
+            agregar_receita_trimestral,
+        )
+
+        # Init state Mensal/Trimestral — independente do toggle do gráfico
+        # principal (gran_atual) pra não acoplar UX.
+        if "receita_eneva_gran" not in st.session_state:
+            st.session_state["receita_eneva_gran"] = "Trimestral"
+
+        # Header da seção — mesmo pattern de _render_termico_chart_caption
+        # (sub_label à esquerda, data range à direita), com sub-caption
+        # "Valor estimado · R$ milhões".
+        with st.spinner("Calculando receita estimada Eneva…"):
+            try:
+                _df_cvu = carregar_cvu_parnaibas(ano_ini=2023)
+                _df_gen_h = carregar_geracao_horaria_parnaibas(ano_ini=2023)
+                _df_pld_n = carregar_pld_norte_horaria()
+                _df_rec_h = calcular_receita_horaria(_df_gen_h, _df_cvu, _df_pld_n)
+            except Exception as _e:
+                _df_rec_h = pd.DataFrame()
+                st.warning(f"Falha ao calcular receita Eneva: {_e}")
+
+        if _df_rec_h.empty:
+            st.info("Sem dados disponíveis para o cálculo de receita.")
+        else:
+            # ate_data = min(max(gen), max(pld)) — limita ao último dia com
+            # ambos os inputs cobertos (evita receita_spot zerada no rabo
+            # quando PLD adianta gen ou vice-versa).
+            _ate_data = min(
+                pd.Timestamp(_df_gen_h["data_hora"].max()),
+                pd.Timestamp(_df_pld_n["data"].max()),
+            )
+
+            _df_m = agregar_receita_mensal(_df_rec_h, ate_data=_ate_data)
+            _df_q = agregar_receita_trimestral(_df_rec_h, ate_data=_ate_data)
+
+            # Header (sub_label) — período fica em branco pra Receita
+            # (escopo é fixo, 1T23 → corrente, não é configurável).
+            st.markdown(
+                f'<div style="display: flex; '
+                f'justify-content: space-between; '
+                f'align-items: baseline; '
+                f'font-family: \'Bebas Neue\', sans-serif; '
+                f'font-size: 1.1rem; '
+                f'letter-spacing: 0.08em; '
+                f'color: {COR_TEXTO}; '
+                f'margin: 3rem 0 0.3rem 0; '
+                f'padding-bottom: 3px; '
+                f'border-bottom: 2px solid {COR_TEXTO};">'
+                f'<span>RECEITA ESTIMADA · PARNAÍBA CONSOLIDADO</span>'
+                f'<span>1T23 — {_ate_data.strftime("%d/%m/%Y")}</span>'
+                f'</div>'
+                f'<div style="font-family: \'Inter\', sans-serif; '
+                f'font-style: italic; color: #6B6B6B; font-size: 0.85rem; '
+                f'margin: 0.4rem 0 0.6rem 0;">'
+                f'Valor estimado · R$ milhões · ACR + SPOT + Exportação '
+                f'(soma das 5 unidades Parnaíba I/II/III+VI/IV/V)'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+            # Toggle Mensal/Trimestral — 2 botões side-by-side
+            _gran_rec = st.session_state["receita_eneva_gran"]
+            _col_btn_m, _col_btn_q, _col_btn_sp = st.columns([1, 1, 8])
+            with _col_btn_m:
+                if st.button(
+                    "MENSAL",
+                    key="receita_eneva_btn_m",
+                    type="primary" if _gran_rec == "Mensal" else "secondary",
+                    width="stretch",
+                ):
+                    st.session_state["receita_eneva_gran"] = "Mensal"
+                    st.rerun()
+            with _col_btn_q:
+                if st.button(
+                    "TRIMESTRAL",
+                    key="receita_eneva_btn_q",
+                    type="primary" if _gran_rec == "Trimestral" else "secondary",
+                    width="stretch",
+                ):
+                    st.session_state["receita_eneva_gran"] = "Trimestral"
+                    st.rerun()
+
+            _df_plot = _df_q if _gran_rec == "Trimestral" else _df_m
+            if _df_plot.empty:
+                st.info("Sem dados para o período selecionado.")
+            else:
+                # Cor padrão (Bradesco vermelho) + cor "atenuada" pro período
+                # parcial (mesma cor com alpha menor, plotly aceita rgba).
+                _cor_principal = BAUHAUS_RED  # #CC092F
+                _cor_parcial = "rgba(204, 9, 47, 0.45)"
+
+                _cores_barras = [
+                    _cor_parcial if eh_p else _cor_principal
+                    for eh_p in _df_plot["eh_parcial"]
+                ]
+                _labels_x = _df_plot["label"].tolist()
+
+                # Customdata pra tooltip: ACR, SPOT, EXPORT, TOTAL, ate_dia
+                _customdata = list(zip(
+                    _df_plot["receita_acr_mn"].round(2),
+                    _df_plot["receita_spot_mn"].round(2),
+                    _df_plot["receita_export_mn"].round(2),
+                    _df_plot["receita_total_mn"].round(2),
+                    _df_plot["ate_dia"].fillna("").astype(str),
+                    _df_plot["eh_parcial"].astype(int),
+                ))
+
+                # Label do eixo X — adiciona "*" no parcial pra reforço visual
+                _labels_x_anotados = [
+                    f"{lbl} *" if eh_p else lbl
+                    for lbl, eh_p in zip(_labels_x, _df_plot["eh_parcial"])
+                ]
+
+                _fig_rec = go.Figure()
+                _fig_rec.add_trace(go.Bar(
+                    x=_labels_x_anotados,
+                    y=_df_plot["receita_total_mn"],
+                    marker=dict(color=_cores_barras, line=dict(
+                        color=BAUHAUS_BLACK, width=1,
+                    )),
+                    text=[f"R$ {v:,.0f}".replace(",", ".") for v in _df_plot["receita_total_mn"]],
+                    textposition="outside",
+                    textfont=dict(family="Inter, sans-serif", size=11, color=BAUHAUS_BLACK),
+                    customdata=_customdata,
+                    hovertemplate=(
+                        "<b>%{x}</b><br>"
+                        "ACR: R$ %{customdata[0]:,.2f} mn<br>"
+                        "SPOT: R$ %{customdata[1]:,.2f} mn<br>"
+                        "Exportação: R$ %{customdata[2]:,.2f} mn<br>"
+                        "<b>Total: R$ %{customdata[3]:,.2f} mn</b>"
+                        "<extra></extra>"
+                    ),
+                    name="Receita Total",
+                ))
+
+                _altura_grafico = 460
+                _fig_rec.update_layout(
+                    height=_altura_grafico,
+                    margin=dict(l=10, r=10, t=10, b=40),
+                    paper_bgcolor=BAUHAUS_CREAM,
+                    plot_bgcolor=BAUHAUS_CREAM,
+                    showlegend=False,
+                    hovermode="x",
+                    xaxis=dict(
+                        showgrid=False,
+                        showline=True, linewidth=2, linecolor=BAUHAUS_BLACK,
+                        ticks="outside", tickcolor=BAUHAUS_BLACK,
+                        tickfont=dict(family="Inter, sans-serif", size=11, color=BAUHAUS_BLACK),
+                        zeroline=False,
+                    ),
+                    yaxis=dict(
+                        title=dict(
+                            text="R$ milhões",
+                            font=dict(family="Inter, sans-serif", size=12, color=BAUHAUS_BLACK),
+                        ),
+                        showgrid=True, gridcolor=BAUHAUS_LIGHT, gridwidth=1,
+                        showline=True, linewidth=2, linecolor=BAUHAUS_BLACK,
+                        ticks="outside", tickcolor=BAUHAUS_BLACK,
+                        tickfont=dict(family="Inter, sans-serif", size=12, color=BAUHAUS_BLACK),
+                        zeroline=False,
+                        tickformat=",.0f",
+                    ),
+                    font=dict(family="Inter, sans-serif", size=12),
+                )
+
+                st.plotly_chart(
+                    _fig_rec, width="stretch",
+                    config={"displaylogo": False},
+                )
+
+                # Legenda do "*" — só aparece se houver período parcial.
+                if _df_plot["eh_parcial"].any():
+                    _ultimo_parcial = _df_plot[_df_plot["eh_parcial"]].iloc[-1]
+                    _gran_lbl = (
+                        "trimestre" if _gran_rec == "Trimestral" else "mês"
+                    )
+                    st.markdown(
+                        f'<div style="font-family:\'Inter\', sans-serif; '
+                        f'font-size:0.85rem; color:#6B6B6B; '
+                        f'font-style:italic; margin:0.4rem 0 0 0;">'
+                        f'* {_ultimo_parcial["label"]} é {_gran_lbl} '
+                        f'parcial (até {_ultimo_parcial["ate_dia"]}). '
+                        f'Atualização diária conforme ONS publica '
+                        f'geração térmica e PLD horário.'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                # ---- Botão CSV da Receita ----
+                try:
+                    _df_csv_rec = _df_plot[[
+                        "label", "receita_acr_mn", "receita_spot_mn",
+                        "receita_export_mn", "receita_total_mn",
+                        "eh_parcial", "ate_dia",
+                    ]].rename(columns={
+                        "label": "Período",
+                        "receita_acr_mn": "Receita ACR (R$ mn)",
+                        "receita_spot_mn": "Receita SPOT (R$ mn)",
+                        "receita_export_mn": "Receita Exportação (R$ mn)",
+                        "receita_total_mn": "Receita Total (R$ mn)",
+                        "eh_parcial": "Período Parcial",
+                        "ate_dia": "Cobertura até",
+                    })
+                    _csv_rec_bytes = _df_csv_rec.to_csv(
+                        index=False, sep=";", decimal=",",
+                    ).encode("utf-8-sig")
+                    _gran_slug_rec = (
+                        "trimestral" if _gran_rec == "Trimestral" else "mensal"
+                    )
+                    st.download_button(
+                        label="Baixar receita estimada (CSV)",
+                        data=_csv_rec_bytes,
+                        file_name=(
+                            f"receita_eneva_parnaiba_{_gran_slug_rec}_"
+                            f"{_ate_data.strftime('%Y%m%d')}.csv"
+                        ),
+                        mime="text/csv",
+                        width="content",
+                        key="receita_eneva_download",
+                    )
+                except Exception as _e_csv:
+                    st.warning(f"Falha ao gerar CSV de receita: {_e_csv}")
+
 elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "SIN":
     # Shadow state pattern (§5.94) — protege as 5 widget keys da Geração
     # SIN contra cleanup cross-tab. Restore ANTES de qualquer setdefault.
