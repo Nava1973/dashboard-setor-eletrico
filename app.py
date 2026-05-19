@@ -3272,6 +3272,16 @@ if aba == "PLD":
     )
 
 elif aba == "Reservatórios":
+    # Shadow state pattern (§5.94) — protege res_data_ini/fim contra
+    # cleanup cross-tab. Restore ANTES de init, sync DEPOIS.
+    _SHADOW_MAP_RES = {
+        "res_data_ini": "res_shadow_data_ini",
+        "res_data_fim": "res_shadow_data_fim",
+    }
+    for _src, _dst in _SHADOW_MAP_RES.items():
+        if _src not in st.session_state and _dst in st.session_state:
+            st.session_state[_src] = st.session_state[_dst]
+
     # Título + linha preta separadora (padrão final calibrado: -0.2rem top
     # compensa gap do Streamlit; 1.2rem bottom dá respiro pros controles;
     # 12px left alinha com padding-left do h1 global → gap entre barra
@@ -3316,6 +3326,11 @@ elif aba == "Reservatórios":
         st.session_state["res_data_fim"] = max_d
         st.session_state["_res_dataset_max"] = max_d
         st.session_state["_res_dataset_min"] = min_d
+
+    # Sync shadow (§5.94) APÓS init — restaura sobrevive cross-tab.
+    for _src, _dst in _SHADOW_MAP_RES.items():
+        if _src in st.session_state:
+            st.session_state[_dst] = st.session_state[_src]
 
     data_ini = st.session_state["res_data_ini"]
     data_fim = st.session_state["res_data_fim"]
@@ -3523,6 +3538,16 @@ elif aba == "Reservatórios":
     )
 
 elif aba == "ENA/Chuva":
+    # Shadow state pattern (§5.94) — protege ena_data_ini/fim contra
+    # cleanup cross-tab. Restore ANTES de init, sync DEPOIS.
+    _SHADOW_MAP_ENA = {
+        "ena_data_ini": "ena_shadow_data_ini",
+        "ena_data_fim": "ena_shadow_data_fim",
+    }
+    for _src, _dst in _SHADOW_MAP_ENA.items():
+        if _src not in st.session_state and _dst in st.session_state:
+            st.session_state[_src] = st.session_state[_dst]
+
     # Título + linha preta separadora (padrão final calibrado: -0.2rem top
     # compensa gap do Streamlit; 1.2rem bottom dá respiro pros controles;
     # 12px left alinha com padding-left do h1 global → gap entre barra
@@ -3567,6 +3592,11 @@ elif aba == "ENA/Chuva":
         st.session_state["ena_data_fim"] = max_d
         st.session_state["_ena_dataset_max"] = max_d
         st.session_state["_ena_dataset_min"] = min_d
+
+    # Sync shadow (§5.94) APÓS init — restaura sobrevive cross-tab.
+    for _src, _dst in _SHADOW_MAP_ENA.items():
+        if _src in st.session_state:
+            st.session_state[_dst] = st.session_state[_src]
 
     data_ini = st.session_state["ena_data_ini"]
     data_fim = st.session_state["ena_data_fim"]

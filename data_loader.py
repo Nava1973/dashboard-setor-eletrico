@@ -2074,12 +2074,18 @@ def clear_cache() -> None:
     st.session_state.pop("pld_horaria_historico_completo", None)
     st.session_state.pop("_pld_horaria_pending_modal", None)
 
-    # Limpa shadow state do PLD (§5.94). Sem isso, shadow restauraria o
-    # estado anterior no próximo render — "Atualizar" deveria zerar tudo.
+    # Limpa shadow state do PLD + Reservatórios + ENA (§5.94). Sem isso,
+    # shadow restauraria o estado anterior no próximo render —
+    # "Atualizar" deveria zerar tudo.
     for _k in (
+        # PLD
         "pld_shadow_granularidade", "pld_shadow_data_ini",
         "pld_shadow_data_fim", "pld_shadow_data_base",
         "pld_shadow_horaria_window",
+        # Reservatórios
+        "res_shadow_data_ini", "res_shadow_data_fim",
+        # ENA
+        "ena_shadow_data_ini", "ena_shadow_data_fim",
     ):
         st.session_state.pop(_k, None)
 
