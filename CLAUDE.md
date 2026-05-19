@@ -4646,6 +4646,52 @@ Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regress
 
 **Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
 
+### 5.95 Painel Admin: polishing UX + Editar + Deletar + selectbox enriquecido
+
+**Contexto:** sequência da §5.93 (backend Google Sheets). Várias melhorias do painel Admin descobertas durante uso real com Alison Ribeiro (cliente teste) e refino do fluxo de cadastro/gestão.
+
+**Features novas:**
+
+- **Botão Editar cliente** (`atualizar_cliente()`): novo expander "Editar dados de um cliente" entre tabela e Resetar senha. Selectbox enriquecido + form pré-preenchido + Salvar. Email NÃO é editável (chave de identificação + preserva audit trail no log denormalizado). Senha continua só via Regenerar. Helper aceita kwargs opcionais (`None` = preserva valor atual) e detecta "nenhuma alteração" pra evitar chamada desnecessária ao Sheets API.
+
+- **Botão Deletar cliente com confirmação em 2 cliques**: nova seção "EXCLUIR CLIENTE" entre Editar e Resetar senha. Pattern de pending state via `_admin_delete_pending` em session_state — clique no botão arma o pending, próximo render mostra warning amarelo com nome do cliente + 2 botões (Confirmar / Cancelar). Confirmar chama `deletar_cliente()` que faz `ws.delete_rows()` + invalida cache. Cancelar limpa pending sem efeito colateral. Log de acesso histórico do cliente é PRESERVADO (audit trail intocado).
+
+- **Selectbox enriquecido com busca**: 3 selectboxes do painel (Editar / Resetar senha / Excluir) ganharam `format_func=_label_cliente` que mostra `"Sobrenome, Nome (codigo) — email"` em vez de só email. Streamlit filtra ao digitar em qualquer parte do texto, então admin busca por sobrenome, nome, código OU email sem precisar de radio "buscar por". Lista ordenada por sobrenome case-insensitive.
+
+- **Tratamento resiliente de falha Sheets**: try/except em `listar_clientes()` e `listar_log_acesso()` no painel substitui stack trace feio por mensagem amigável ("🔌 Não foi possível conectar à planilha do Google Sheets..."). Cobre os casos comuns (DNS travado após troca de rede, Cloud secrets stale, Sheets API rate-limit).
+
+**Polishing UX:**
+
+- **3 sub-headers padronizados** ("CADASTRAR NOVO CLIENTE", "CLIENTES CADASTRADOS", "EXCLUIR CLIENTE", "RESETAR SENHA DE UM CLIENTE") em Bebas Neue 1.3rem uppercase com letter-spacing — harmonia visual.
+- **Botões superiores "Clientes" / "Log de Acesso"** sem ícone (primeira tentativa com `icon=:material/...:` renderizou texto literal `person`/`insights` nesta versão do Streamlit — fallback pra texto puro).
+- **Texto branco no Salvar/Confirmar** (st.form_submit_button): CSS scoped pegando `[data-testid="stForm"] button[kind="primary"]` E `[data-testid="stFormSubmitButton"] button[kind="primary"]` (Streamlit usa wrappers diferentes pros 2 casos, descoberto em iteração com usuário).
+- **Senha gerada com 6 chars** (em vez de 12) — decisão UX do usuário (clientes copiam do email, mais amigável). Tradeoff: ~15bi combinações, aceitável pro contexto interno BBI; revisitar se virar produto público.
+
+**Bug crítico corrigido mid-sessão (`clear_cache`):** versão de §5.93 do `clear_cache()` invalidava só os loaders PLD/ENA/etc., mas NÃO os helpers Sheets (`listar_clientes`, `listar_log_acesso`). Após regenerar senha de cliente, o cache TTL 5min do Cloud mantinha o hash velho → cliente não conseguia logar com nova senha por até 5min. Sintoma observado quando Alison não logou após regen. Fix: adicionar `.clear()` desses helpers no `clear_cache()`, com try/except pra ambientes sem gspread.
+
+### 5.94 Shadow state pattern uniformizado em mais 4 abas (PLD, Reservatórios, ENA, Geração SIN)
+
+**Contexto:** §5.77 (GSF) e §9.2 (Modulação) já tinham shadow state. Bug reportado de cross-tab causando estado inconsistente em Geração SIN (granularidade preservada mas datas resetadas) levou à uniformização do pattern em 4 abas restantes que ainda usavam o §5.16/5.18 antigo (backup paralelo mais simples).
+
+**Pattern aplicado:** mapa `_SHADOW_MAP_<ABA>` com pares `widget_key → shadow_key`. 2 helpers inline na aba: restore no INÍCIO (antes de qualquer `setdefault`) e sync APÓS as mutações programáticas (reset blocks, init, clamps). Limpeza centralizada no `clear_cache()` do `data_loader.py` — "Atualizar" zera shadows de TODAS as abas de uma vez.
+
+**Aplicado em:**
+  - **PLD** (5 keys): `granularidade`, `data_ini`, `data_fim`, `data_base`, `horaria_window`. Substitui o backup §5.18 antigo (que cobria só granularidade).
+  - **Reservatórios** (2 keys): `data_ini`, `data_fim`. Simples — sem granularidade ou janela.
+  - **ENA/Chuva** (2 keys): mesmo schema do Reservatórios.
+  - **Geração SIN** (6 keys): `granularidade`, `submercado`, `data_ini`, `data_fim`, `data_base`, `horaria_window`. Mais complexo — convive com reset block §5.16/5.20 existente (mecanismos complementares: shadow restaura state, reset block valida coerência entre granularidade ↔ janela).
+
+**Bug crítico introduzido + corrigido (Geração SIN):** primeira tentativa colocou o for loop do sync com 4 espaços de indentação, mas as linhas seguintes (presets + `_render_period_controls`) mantiveram 8 espaços — Python interpretou tudo como dentro do `for`, fazendo `_render_period_controls` rodar 6 vezes por render (1 vez por par do `_SHADOW_MAP_GEN`) → `StreamlitDuplicateElementKey: key='btn_gen_1M'`. Fix em commit subsequente: sync movido pra fora do `else:` (4 espaços) com indentação correta, executado uma única vez após branch horária/outras.
+
+**Estado final do pattern (10 abas):**
+
+| Aba | Shadow state |
+|---|---|
+| PLD, Reservatórios, ENA, Modulação, GSF, Geração SIN | ✅ §5.94 (uniformizado) |
+| Geração Grupo, Carga, Despacho Térmico, Curtailment, Capacidade | Sem bug reportado — pattern §5.16/5.18 atual suficiente |
+
+Se aparecer bug em alguma das restantes, aplicar o mesmo pattern (5-10 linhas por aba).
+
 ### 5.93 Backend Google Sheets: cadastro de clientes + log de acesso + painel Admin
 
 **Contexto:** sessão dedicada (19/05/2026) pra resolver 2 problemas estruturais antes de lançar pros 100 clientes externos:
