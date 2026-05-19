@@ -6398,6 +6398,23 @@ elif aba == "Despacho Térmico":
             )
 
 elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "SIN":
+    # Shadow state pattern (§5.94) — protege as 5 widget keys da Geração
+    # SIN contra cleanup cross-tab. Restore ANTES de qualquer setdefault.
+    # Convive com o reset block §5.16/5.20 existente (mecanismos
+    # complementares: shadow restaura state, reset block valida coerência
+    # entre granularidade e janela).
+    _SHADOW_MAP_GEN = {
+        "gen_granularidade":         "gen_shadow_granularidade",
+        "gen_submercado":            "gen_shadow_submercado",
+        "gen_data_ini":              "gen_shadow_data_ini",
+        "gen_data_fim":              "gen_shadow_data_fim",
+        "gen_data_base":             "gen_shadow_data_base",
+        "gen_horaria_window_dias":   "gen_shadow_horaria_window",
+    }
+    for _src, _dst in _SHADOW_MAP_GEN.items():
+        if _src not in st.session_state and _dst in st.session_state:
+            st.session_state[_src] = st.session_state[_dst]
+
     # -----------------------------------------------------------------------
     # Aba Geração — sub-view SIN (default). Stacked area de geração por fonte
     # (térmica/hidro/eólica/solar) + linha tracejada de carga verificada.
@@ -6674,6 +6691,13 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
         if data_ini_gen > data_fim_gen:
             st.error("A data inicial não pode ser posterior à data final.")
             st.stop()
+
+    # Sync shadow state (§5.94) — APÓS reset block + branch horária/outras
+    # terem podido mutar as keys. Garante cross-tab navigation preserva
+    # state coerente entre granularidade ↔ janela ↔ datas.
+    for _src, _dst in _SHADOW_MAP_GEN.items():
+        if _src in st.session_state:
+            st.session_state[_dst] = st.session_state[_src]
 
         # Mensal sem "1M": 1 mês dá 1 ponto, cai no guard de <2 pontos.
         # Sessão 1.5b: presets revisados — Mensal ganha 10A; Diária
