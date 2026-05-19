@@ -6692,13 +6692,6 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
             st.error("A data inicial não pode ser posterior à data final.")
             st.stop()
 
-    # Sync shadow state (§5.94) — APÓS reset block + branch horária/outras
-    # terem podido mutar as keys. Garante cross-tab navigation preserva
-    # state coerente entre granularidade ↔ janela ↔ datas.
-    for _src, _dst in _SHADOW_MAP_GEN.items():
-        if _src in st.session_state:
-            st.session_state[_dst] = st.session_state[_src]
-
         # Mensal sem "1M": 1 mês dá 1 ponto, cai no guard de <2 pontos.
         # Sessão 1.5b: presets revisados — Mensal ganha 10A; Diária
         # ganha 10A. "Máx" continua respeitando o range do dataset (15a ou
@@ -6747,6 +6740,13 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
         )
         data_ini_gen = st.session_state["gen_data_ini"]
         data_fim_gen = st.session_state["gen_data_fim"]
+
+    # Sync shadow state (§5.94) — APÓS branch horária/outras terem mutado
+    # as keys. Garante cross-tab navigation preserva state coerente entre
+    # granularidade ↔ janela ↔ datas.
+    for _src, _dst in _SHADOW_MAP_GEN.items():
+        if _src in st.session_state:
+            st.session_state[_dst] = st.session_state[_src]
 
     # --- Botão "Estender histórico para 2000" (Sessão 1.5b + 4a) ---
     # Eixo separado dos presets de período: presets navegam DENTRO do range
