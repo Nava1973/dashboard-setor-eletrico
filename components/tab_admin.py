@@ -221,13 +221,34 @@ def _render_sub_clientes() -> None:
     df_display = df[cols_visiveis].copy()
     st.dataframe(df_display, width="stretch", hide_index=True)
 
-    # ----- Reset de senha por email -----
+    # ----- Helper local: monta options + format_func pros selectboxes -----
+    # Resultado armazenado = email (chave). Label exibido = "Sobrenome,
+    # Nome (codigo) — email". Streamlit filtra ao digitar em qualquer
+    # parte do texto, então busca funciona por sobrenome, nome, código
+    # ou email — sem precisar de radio "buscar por".
+    df_ord = df.sort_values(
+        by="sobrenome", key=lambda c: c.astype(str).str.lower(),
+    ).reset_index(drop=True)
+    emails_lista = df_ord["email"].astype(str).tolist()
+    labels_map = {"—": "—"}
+    for _, row in df_ord.iterrows():
+        e = str(row.get("email", "")).strip()
+        nome = str(row.get("nome", "")).strip()
+        sobr = str(row.get("sobrenome", "")).strip()
+        cod = str(row.get("codigo", "")).strip()
+        partes_nome = f"{sobr}, {nome}" if sobr else nome or "(sem nome)"
+        partes_cod = f" ({cod})" if cod else ""
+        labels_map[e] = f"{partes_nome}{partes_cod} — {e}"
+
+    def _label_cliente(e: str) -> str:
+        return labels_map.get(e, e)
+
     # ----- Editar dados do cliente -----
     with st.expander("✏️ Editar dados de um cliente (código/nome/sobrenome/empresa)"):
-        emails_edit = ["—"] + sorted(df["email"].astype(str).tolist())
         email_edit = st.selectbox(
-            "Selecione o email do cliente:",
-            options=emails_edit,
+            "Selecione o cliente (digite sobrenome/código/email pra filtrar):",
+            options=["—"] + emails_lista,
+            format_func=_label_cliente,
             key="admin_edit_email_select",
         )
 
@@ -302,10 +323,10 @@ def _render_sub_clientes() -> None:
     st.markdown("**Resetar senha de um cliente:**")
     col_reset1, col_reset2 = st.columns([3, 1])
     with col_reset1:
-        emails_opcoes = ["—"] + sorted(df["email"].astype(str).tolist())
         email_reset = st.selectbox(
-            "Selecione o email:",
-            options=emails_opcoes,
+            "Selecione o cliente (digite sobrenome/código/email pra filtrar):",
+            options=["—"] + emails_lista,
+            format_func=_label_cliente,
             key="admin_reset_email_select",
             label_visibility="collapsed",
         )
