@@ -4646,6 +4646,30 @@ Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regress
 
 **Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
 
+### 5.96 Modulação · período corrente parcial + sub-view fantasma com legibilidade
+
+**Modulação — label "(até XX)" no período corrente parcial:** pattern análogo ao PLD §5.90. O `_calcular_spread()` já preservava o último período mesmo se parcial (não dropa como os intermediários), mas a UI mostrava só `mai/26` ou `2T26` sem indicar até quando vai o cálculo — confundia com período fechado.
+
+Implementação em `_render_grafico_submercado`:
+  - Detecta período parcial comparando `n_horas` da última linha com horas esperadas:
+    - Mensal: `days_in_month(periodo_inicio) * 24`
+    - Trimestral: `(fim_trim - periodo_inicio).days + 1) * 24` (soma dias dos 3 meses)
+    - Semanal: `7 * 24 = 168`
+  - Calcula último dia coberto: `(n_horas - 1) // 24 + 1`.
+  - Sufixo adapta por granularidade (1ª iteração mostrava só número, confundia em trim/sem):
+    - **Mensal** → `(até DD)` (ex: `mai/26 (até 18)`) — número do dia, contexto óbvio do mês.
+    - **Trimestral** → `(até DD/MM)` (ex: `2T26 (até 17/05)`) — data legível, não dia-do-trimestre tipo "47".
+    - **Semanal** → `(até DD/MM)` (ex: `18/05 (até 19/05)`) — data legível.
+  - Sufixo aplicado em 2 lugares: tick do eixo X (no ponto parcial) + header do gráfico (período max). Consistência visual.
+
+**Nota sobre semana corrente "faltando":** usuário reportou que a semana 18/05 não aparecia mesmo com hoje sendo 19/05. **Não é bug** — `balanco-energia-subsistema` tem **defasagem D-2**. Dia 19/05 (segunda), último dado disponível é 17/05 (sábado). Semana 18-24/05 ainda sem nenhum dia. Aparece naturalmente quando ONS publicar 18/05 (terça/quarta). Decisão: NÃO adicionar nota visual avisando — admins sabem; cliente externo provavelmente nem nota.
+
+**Sub-view fantasma da sidebar — legibilidade (refinamento §5.88):** sub-views no hover (cinza claro sobre fundo escuro #313131) estavam ilegíveis com a config original (`#999999` + opacity 0.55). 2 iterações de ajuste com usuário:
+  - **1ª**: opacity 0.55 → 0.75. Pouco efeito perceptível.
+  - **2ª** (final): cor base `#999999` → **`#C0C0C0`** + opacity 0.75 → **`0.95`**. Sub-views fantasmas ficam **legíveis** mas ainda distinguíveis da ativa (que tem `#FFFFFF` cheio + indicador `│` vermelho).
+
+Hierarquia visual final: ativa (`#FFF` + bordas) > fantasma (`#C0C0C0` opacity 0.95) > inativa fora de hover (`#C0C0C0` opacity 0 — colapsada).
+
 ### 5.95 Painel Admin: polishing UX + Editar + Deletar + selectbox enriquecido
 
 **Contexto:** sequência da §5.93 (backend Google Sheets). Várias melhorias do painel Admin descobertas durante uso real com Alison Ribeiro (cliente teste) e refino do fluxo de cadastro/gestão.
