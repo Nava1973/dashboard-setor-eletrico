@@ -1835,7 +1835,7 @@ with st.sidebar:
            via CSS, 2 caminhos:
              (a) aba pai ativa (button[kind="primary"]) -> visiveis (universal)
              (b) hover na aba pai OU na sub (desktop only via
-                 @media hover:hover and pointer:fine) -> fantasma opacity 0.55
+                 @media hover:hover and pointer:fine) -> fantasma opacity 0.75
            Em mobile/touch, a media query e falsa -> so caminho (a) =
            comportamento original preservado.
 
@@ -1885,7 +1885,7 @@ with st.sidebar:
             [data-testid="stSidebar"] [class*="st-key-nav_aba_Carga"]:hover ~ [class*="st-key-nav_sub_carga_"],
             [data-testid="stSidebar"] [class*="st-key-nav_sub_carga_"]:hover {
                 max-height: 4rem !important;
-                opacity: 0.55 !important;
+                opacity: 0.75 !important;
                 margin-bottom: -1rem !important;
             }
         }
