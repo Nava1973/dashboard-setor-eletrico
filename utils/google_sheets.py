@@ -186,6 +186,67 @@ def adicionar_cliente(
     listar_clientes.clear()
 
 
+def atualizar_cliente(
+    email: str,
+    *,
+    codigo: str | None = None,
+    nome: str | None = None,
+    sobrenome: str | None = None,
+    empresa: str | None = None,
+) -> bool:
+    """Atualiza dados do cliente (mas NÃO email nem senha_hash).
+
+    Args:
+        email: chave de busca (case-insensitive).
+        codigo, nome, sobrenome, empresa: novos valores. None = não altera
+            (mantém valor atual).
+
+    Email é a chave de identificação, não muda — pra trocar email,
+    apagar + cadastrar de novo. Senha continua só via `atualizar_senha_hash`.
+
+    Retorna True se atualizou, False se cliente não encontrado.
+    """
+    if not email:
+        return False
+
+    ws = _get_aba(ABA_CLIENTES)
+    # Acha a linha do cliente pelo email
+    emails_col = ws.col_values(_COL_EMAIL_IDX)
+    email_lower = email.strip().lower()
+    linha_idx = None
+    for i, e in enumerate(emails_col, start=1):
+        if e.strip().lower() == email_lower:
+            linha_idx = i
+            break
+    if linha_idx is None:
+        return False
+
+    # Mapping coluna 1-indexed pra valor novo. Só atualiza colunas
+    # que receberam valor (None = preserva atual).
+    updates = []
+    valores = {
+        "codigo": codigo,
+        "nome": nome,
+        "sobrenome": sobrenome,
+        "empresa": empresa,
+    }
+    for nome_col, valor_novo in valores.items():
+        if valor_novo is None:
+            continue
+        col_idx_1based = COLUNAS_CLIENTES.index(nome_col) + 1
+        updates.append((col_idx_1based, str(valor_novo)))
+
+    if not updates:
+        return False  # nada pra atualizar
+
+    # Batch update em vez de N chamadas — economiza rate limit do Sheets
+    for col_idx, valor in updates:
+        ws.update_cell(linha_idx, col_idx, valor)
+
+    listar_clientes.clear()
+    return True
+
+
 def atualizar_senha_hash(email: str, novo_hash: str) -> bool:
     """Atualiza só a coluna senha_hash do cliente com email dado.
 

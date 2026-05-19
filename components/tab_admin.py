@@ -38,6 +38,7 @@ from utils.admin import eh_admin
 from utils.google_sheets import (
     COLUNAS_CLIENTES,
     adicionar_cliente,
+    atualizar_cliente,
     atualizar_senha_hash,
     buscar_cliente_por_email,
     listar_clientes,
@@ -213,6 +214,83 @@ def _render_sub_clientes() -> None:
     st.dataframe(df_display, width="stretch", hide_index=True)
 
     # ----- Reset de senha por email -----
+    # ----- Editar dados do cliente -----
+    with st.expander("✏️ Editar dados de um cliente (código/nome/sobrenome/empresa)"):
+        emails_edit = ["—"] + sorted(df["email"].astype(str).tolist())
+        email_edit = st.selectbox(
+            "Selecione o email do cliente:",
+            options=emails_edit,
+            key="admin_edit_email_select",
+        )
+
+        if email_edit and email_edit != "—":
+            # Carrega dados atuais pra preencher o form
+            cliente_atual = buscar_cliente_por_email(email_edit)
+            if cliente_atual is None:
+                st.error("Cliente não encontrado (recarregue a página).")
+            else:
+                st.caption(
+                    f"Editando: **{email_edit}** "
+                    f"(email não pode ser alterado — use Cadastrar+Excluir se precisar)"
+                )
+                with st.form("admin_form_editar", clear_on_submit=False):
+                    col_e1, col_e2 = st.columns(2)
+                    with col_e1:
+                        novo_codigo = st.text_input(
+                            "Código",
+                            value=str(cliente_atual.get("codigo", "")),
+                            key="admin_edit_codigo",
+                        )
+                        novo_nome = st.text_input(
+                            "Nome",
+                            value=str(cliente_atual.get("nome", "")),
+                            key="admin_edit_nome",
+                        )
+                    with col_e2:
+                        novo_sobrenome = st.text_input(
+                            "Sobrenome",
+                            value=str(cliente_atual.get("sobrenome", "")),
+                            key="admin_edit_sobrenome",
+                        )
+                        nova_empresa = st.text_input(
+                            "Empresa",
+                            value=str(cliente_atual.get("empresa", "")),
+                            key="admin_edit_empresa",
+                        )
+
+                    salvou = st.form_submit_button(
+                        "Salvar alterações", type="primary", width="stretch",
+                    )
+
+                if salvou:
+                    # Compara com atual pra evitar update desnecessário
+                    mudou = (
+                        str(cliente_atual.get("codigo", "")) != novo_codigo
+                        or str(cliente_atual.get("nome", "")) != novo_nome
+                        or str(cliente_atual.get("sobrenome", "")) != novo_sobrenome
+                        or str(cliente_atual.get("empresa", "")) != nova_empresa
+                    )
+                    if not mudou:
+                        st.info("Nenhuma alteração detectada.")
+                    else:
+                        try:
+                            ok = atualizar_cliente(
+                                email_edit,
+                                codigo=novo_codigo.strip(),
+                                nome=novo_nome.strip(),
+                                sobrenome=novo_sobrenome.strip(),
+                                empresa=nova_empresa.strip(),
+                            )
+                            if ok:
+                                st.success(
+                                    f"✅ Dados de **{email_edit}** atualizados!"
+                                )
+                                st.rerun()
+                            else:
+                                st.error("❌ Cliente não encontrado.")
+                        except Exception as e:
+                            st.error(f"❌ Erro ao atualizar: {e}")
+
     st.markdown("**Resetar senha de um cliente:**")
     col_reset1, col_reset2 = st.columns([3, 1])
     with col_reset1:
