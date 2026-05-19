@@ -149,7 +149,9 @@ _DEFAULT_ALOC = {"hidro": 100.0, "eolica": 0.0, "solar": 0.0}
 # Usuários com permissão de editar a Estimativa BBI (baseline oficial visto
 # por todos). Demais usuários veem o baseline como ponto de partida e podem
 # montar cenários pessoais em cima — sem afetar o BBI.
-ADMIN_USERS = {"Nava", "Fagundes", "Caruso"}
+# ADMIN_USERS migrado pra utils.admin (centralizado). Mantemos referência
+# importada local pra preservar imports/tipos no resto do arquivo.
+from utils.admin import ADMIN_USERS, eh_admin  # noqa: E402
 
 # Key especial no JSON pra Estimativa BBI. Prefixo `_` separa de usernames
 # reais (que nunca começam com `_`).
@@ -1036,7 +1038,7 @@ def _render_impl(user: str) -> None:
     # Permissão: admin pode gravar na Estimativa BBI; demais só na própria
     # seção. Baseline BBI carregado direto do disco pra detectar se o que
     # o user está vendo agora é o BBI puro ou se já divergiu pro cenário dele.
-    is_admin = user in ADMIN_USERS
+    is_admin = eh_admin(user)
     bbi_baseline = _carregar_baseline_bbi()
 
     chart_box = st.container()      # gráfico no topo (renderizado depois)

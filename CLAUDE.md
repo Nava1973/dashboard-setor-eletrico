@@ -4646,6 +4646,36 @@ Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regress
 
 **Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
 
+### 5.93 Backend Google Sheets: cadastro de clientes + log de acesso + painel Admin
+
+**Contexto:** sessão dedicada (19/05/2026) pra resolver 2 problemas estruturais antes de lançar pros 100 clientes externos:
+  - **Sync Local↔Cloud** (causou o bug do Fagundes em §5.91): adicionar admin exigia editar `config.yaml` local + `st.secrets` do Cloud separadamente, fácil de esquecer o 2º passo.
+  - **Escalar pra 100 clientes**: editar 100 entries em YAML/secrets é impraticável.
+
+**Solução:** Google Sheets como fonte de verdade única. Service Account autentica via gspread; auth lê hashes da Sheet em vez do YAML. Painel admin no app permite cadastro/reset de senha via UI sem mexer em config.
+
+**Setup Google Cloud (manual, ~30 min):** conta pessoal do usuário (`francisco.ugarte.navarrete@gmail.com`), projeto `My First Project` (ID `refreshing-well-399215`), Service Account `dashboard-streamlit@refreshing-well-399215.iam.gserviceaccount.com`. Google Sheets API habilitada. Chave JSON baixada e convertida pra `secrets.toml` formato `[gcp_service_account]` via script one-shot. 2FA da conta Google obrigatório (Google passou a exigir em mai/2025).
+
+**Planilha (`Dashboard Setor Elétrico — Clientes`):** ID `13lWJhqWePlZ35edIjm4DIt4axS5W_zo3cX4266G98Y4`. 2 abas:
+  - **Clientes**: `codigo | nome | sobrenome | empresa | email | senha_hash | data_cadastro` (7 colunas).
+  - **Log_Acesso**: `codigo | nome | sobrenome | empresa | email | data | hora_acesso` (7 colunas, **denormalizado** por decisão do usuário — planilha autocontida, preserva snapshot dos dados do cliente no momento do acesso, vs JOIN no app).
+
+**Implementação (5 arquivos novos + 4 modificados):**
+  - **`utils/google_sheets.py` (novo):** helpers gspread cached. Funções públicas: `listar_clientes`, `buscar_cliente_por_email`, `adicionar_cliente`, `atualizar_senha_hash`, `listar_log_acesso`, `registrar_acesso`. Cache 5min em leituras, `.clear()` em writes. Cliente cached como `@st.cache_resource` (1 conexão compartilhada entre sessions §5.92).
+  - **`utils/admin.py` (novo):** `eh_admin(user)` centralizado. `ADMIN_EMAILS` (preferido) + `ADMIN_USERS` (legacy compat). Migração de checagem `if user in ADMIN_USERS` em `tab_gsf.py` e `tab_receita_modulacao.py`.
+  - **`components/tab_admin.py` (novo):** aba "Admin" visível só pra `eh_admin`. Sub-views Clientes (form cadastro + tabela + reset senha) e Log de Acesso (3 métricas + gráfico barras 30d + tabela filtrável). Senha gerada com `secrets.choice` (CSPRNG), tamanho default 6 chars (decisão UX do usuário — clientes copiam do email; tradeoff: ~15bi combinações, aceitável pra contexto interno BBI). bcrypt hash via `bcrypt.hashpw`.
+  - **`auth.py` (modificado):** `_load_config()` agora faz **merge** Sheet + YAML. YAML é base (cookie + pre-authorized + admins legacy), Sheet sobrescreve `usernames` por chave. Resolve transição admins-no-YAML → admins-na-Sheet sem ninguém ficar fora. `registrar_acesso(username)` chamado na transição `auth_status` None→True, best-effort com try/except (login não falha se Sheets indisponível).
+  - **`app.py` (modificado):** menu sidebar adiciona "Admin" só pra `eh_admin(user)`; roteamento `elif aba == "Admin"`.
+  - **`scripts/migrar_admins_pra_sheet.py` (novo):** ferramenta one-shot pra migrar 3 admins do `config.yaml` pra aba Clientes preservando senhas atuais. Idempotente (skip se email já existe). Códigos `ADMIN-001/002/003`, nome/sobrenome inferidos do email BBI.
+
+**Bug arquitetural corrigido mid-sessão:** versão inicial do `_load_config()` substituía YAML pela Sheet quando havia QUALQUER usuário na Sheet — Nava (não migrado) sumia da auth ao cadastrar o 1º cliente teste. Sintoma: tela de login não renderizava. Fix: merge em vez de substituição. Sheet ainda ganha em chaves coincidentes (admin que migrou usa hash da Sheet), mas YAML preserva quem não migrou.
+
+**Schema de log denormalizado:** primeira versão usava só `email | data | hora_primeiro_acesso` (normalizado). Usuário pediu enriquecimento (incluir codigo/nome/sobrenome/empresa) pra planilha ser autocontida. Reescrita do `registrar_acesso(email)`: agora busca cliente via `buscar_cliente_por_email`, grava 7 colunas. Admins ainda não migrados → colunas extras vazias, log ainda registra (audit trail). Renomeação `hora_primeiro_acesso` → `hora_acesso`.
+
+**Validação:** smoke test fim-a-fim local OK (imports, gspread conecta, senha gera, hash bate, auth merge retorna 4 usuários — 3 YAML + 1 Sheet). Usuário cadastrou cliente teste "Alison Ribeiro" pelo painel — gravado na Sheet com hash bcrypt válido. Login do Nava registrou linha no Log_Acesso (após migração pra Sheet, dados completos). Edição de cliente: pendente (decisão do usuário — opção de adicionar botão "Editar" no painel fica em backlog).
+
+**Pendência pré-deploy Cloud:** atualizar `st.secrets` no Streamlit Cloud com `[gcp_service_account]` (cópia integral do conteúdo de `.streamlit/secrets.toml` local). Sem isso, o Cloud cai no fallback YAML, login funciona mas painel Admin trava ao tentar ler Sheet.
+
 ### 5.92 Otimização de RAM: cache_resource + histórico 15→10 + gc.collect (preventiva pré-100 clientes)
 
 **Contexto:** Streamlit Community Cloud notificou que o app estourou o limite de RAM (~1GB no free tier) e bloqueou acesso temporariamente. Diagnóstico em 3 frentes implementado em 19/05/2026 — preventivo pra escalar pros 100 clientes externos.

@@ -102,7 +102,9 @@ _DEFAULT_OFFSET_MESES = {
 # Quando a CCEE publica o valor final do mês, o mês migra automaticamente
 # pra linha sólida (lógica de "tem dado oficial? → sólido, senão → tracejado").
 
-ADMIN_USERS = {"Nava", "Fagundes", "Caruso"}
+# ADMIN_USERS migrado pra utils.admin (centralizado). Mantemos referência
+# importada local pra preservar imports/tipos no resto do arquivo.
+from utils.admin import ADMIN_USERS, eh_admin  # noqa: E402
 
 _GSF_PROJECAO_PATH = (
     Path(__file__).resolve().parent.parent
@@ -907,7 +909,7 @@ def render_aba_gsf(user: str | None = None) -> None:
     # Mergeia estimativas CCEE (admin) no df oficial → meses futuros sem
     # dado oficial ganham linha is_estimativa=True. Mês que tem ambos
     # (oficial + estimativa) → oficial vence, estimativa é ignorada.
-    is_admin = user in ADMIN_USERS
+    is_admin = eh_admin(user)
     # Preview mode (admin-only): permite ao admin ver a tela exatamente
     # como um usuário comum (sem badge, sem editor). Pattern espelhando
     # §5.78 (Receita Modulação). Lido AQUI, antes do merge/render.

@@ -42,10 +42,123 @@ except Exception:
 
 def _load_config() -> dict:
     """
-    Prioridade:
-    1. st.secrets["auth_config"]["yaml_content"] (produção)
-    2. config.yaml local (desenvolvimento)
+    Carrega config de autenticação (formato streamlit-authenticator).
+
+    Prioridade (decisão 5.93 — backend Google Sheets):
+      1. Google Sheets (aba "Clientes" via gspread) — fonte de verdade
+         única pra ~100 clientes externos + 3 admins. Atualizações via
+         painel Admin no app, sem precisar mexer em config/secrets.
+      2. st.secrets["auth_config"]["yaml_content"] (fallback produção
+         antiga — preserva login no Cloud durante migração caso o
+         gspread falhe por qualquer motivo).
+      3. config.yaml local (fallback desenvolvimento sem internet ou
+         sem credencial gspread configurada).
+
+    Cookie config sempre vem do YAML (Sheets só guarda credenciais de
+    usuários, não config de cookie/preauth). Quando a 1ª prioridade
+    bate, fundimos credentials da Sheet com cookie/preauth do YAML.
     """
+    # 1) Carrega ambas as fontes
+    sheet_creds = _carregar_credenciais_da_sheet()  # dict ou None
+    yaml_cfg = _carregar_yaml_config()              # dict completo ou None
+
+    if yaml_cfg is None and sheet_creds is None:
+        raise RuntimeError(
+            "Configuração de autenticação não encontrada. "
+            "Configure st.secrets['gcp_service_account'] + planilha Clientes, "
+            "OU st.secrets['auth_config']['yaml_content'], "
+            "OU config.yaml local."
+        )
+
+    # 2) Merge: YAML é a base (preserva admins, cookie, pre-authorized);
+    # credenciais da Sheet ADICIONAM/SOBRESCREVEM por chave (email).
+    #
+    # Decisão (§5.93 fix mid-sessão): durante a transição admins-no-YAML
+    # → admins-na-Sheet (Fase E), AMBAS as fontes precisam coexistir pra
+    # ninguém ficar fora do login. Substituição pura quebrava admins
+    # ainda não migrados pra Sheet.
+    #
+    # Após Fase E (admins na Sheet), o YAML pode ser deprecado, mas
+    # mantemos o merge defensivamente — Sheet sempre ganha em conflito
+    # (mais "fresca" / sob admin control via painel).
+    base_usernames = {}
+    base_cookie = {"name": "auth_session", "key": "fallback", "expiry_days": 1}
+    base_preauth = {"emails": []}
+
+    if yaml_cfg is not None:
+        base_usernames = dict(
+            yaml_cfg.get("credentials", {}).get("usernames", {})
+        )
+        base_cookie = yaml_cfg.get("cookie", base_cookie)
+        base_preauth = yaml_cfg.get(
+            "pre-authorized",
+            yaml_cfg.get("preauthorized", base_preauth),
+        )
+
+    if sheet_creds is not None:
+        # Sheet ganha em chaves coincidentes (admin que migrou pra Sheet
+        # vai usar a Sheet em vez do YAML).
+        base_usernames.update(sheet_creds)
+
+    return {
+        "credentials": {"usernames": base_usernames},
+        "cookie": base_cookie,
+        "pre-authorized": base_preauth,
+    }
+
+
+def _carregar_credenciais_da_sheet() -> dict | None:
+    """Lê linhas da aba Clientes e retorna dict no formato
+    streamlit-authenticator. None se gspread/sheet indisponível.
+
+    Schema de retorno:
+        {email: {name, email, password, failed_login_attempts,
+                 logged_in, roles}}
+
+    Onde:
+      - 'password' é o hash bcrypt da coluna senha_hash.
+      - 'name' é montado como "{nome} {sobrenome}".
+      - 'roles' default ["user"]; admin é controlado pelo `ADMIN_USERS`
+        set hardcoded em components/tab_*.py (não vive na planilha).
+    """
+    try:
+        from utils.google_sheets import listar_clientes
+    except ImportError:
+        return None
+
+    try:
+        df = listar_clientes()
+    except Exception:
+        # Sem credencial, sem internet, ou planilha inacessível —
+        # cai pro fallback silenciosamente.
+        return None
+
+    if df is None or df.empty:
+        return None
+
+    usernames = {}
+    for _, row in df.iterrows():
+        email = str(row.get("email", "")).strip()
+        senha_hash = str(row.get("senha_hash", "")).strip()
+        if not email or not senha_hash:
+            continue  # linha incompleta, pula
+        nome = str(row.get("nome", "")).strip()
+        sobrenome = str(row.get("sobrenome", "")).strip()
+        nome_display = f"{nome} {sobrenome}".strip() or email
+        usernames[email] = {
+            "email": email,
+            "name": nome_display,
+            "password": senha_hash,
+            "failed_login_attempts": 0,
+            "logged_in": False,
+            "roles": ["user"],
+        }
+    return usernames if usernames else None
+
+
+def _carregar_yaml_config() -> dict | None:
+    """Lê config YAML de st.secrets["auth_config"]["yaml_content"] ou
+    config.yaml local. None se nada disponível."""
     try:
         if "auth_config" in st.secrets:
             yaml_text = st.secrets["auth_config"]["yaml_content"]
@@ -57,11 +170,7 @@ def _load_config() -> dict:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             return yaml.load(f, Loader=SafeLoader)
 
-    raise RuntimeError(
-        "Configuração de autenticação não encontrada. "
-        "Em desenvolvimento, crie config.yaml. "
-        "Em produção, defina st.secrets['auth_config']['yaml_content']."
-    )
+    return None
 
 
 def _inject_login_css():
@@ -361,6 +470,15 @@ def require_login() -> str | None:
     # rerun, o cookie pode não ser persistido de forma confiável → na
     # próxima reconexão/refresh o usuário "desloga".
     if auth_status is True and auth_status_before is not True:
+        # Registra acesso no log antes do rerun (Fase D §5.93). Best-effort:
+        # se gspread falhar, login continua OK — log é instrumentação, não
+        # gating. Idempotente por (email, hoje) — múltiplos logins/dia
+        # contam 1 só (decisão do usuário).
+        try:
+            from utils.google_sheets import registrar_acesso
+            registrar_acesso(username)
+        except Exception:
+            pass
         st.rerun()
 
     if auth_status is False:

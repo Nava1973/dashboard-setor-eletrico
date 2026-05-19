@@ -1905,10 +1905,16 @@ with st.sidebar:
     if "aba_selecionada" not in st.session_state:
         st.session_state["aba_selecionada"] = "PLD"
 
+    # "Admin" só aparece pra ADMIN_EMAILS — filtrada na build da lista
+    # (em vez de check posterior no loop, pra a sidebar nem renderizar
+    # o botão pra não-admins). Decisão 5.93.
+    from utils.admin import eh_admin as _eh_admin_aux  # noqa: E402
     abas_principais = [
         "PLD", "Modulação", "Reservatórios", "ENA/Chuva", "Despacho Térmico",
         "Geração", "Carga", "Curtailment", "Capacidade",
     ]
+    if _eh_admin_aux(user):
+        abas_principais.append("Admin")
 
     # Sub-views renderizadas SEMPRE no DOM (sem `and _is_active`) pra
     # CSS poder fazer hover-reveal "fantasma" em desktop. Visibilidade
@@ -9043,6 +9049,13 @@ elif aba == "Modulação":
 
 elif aba == "Capacidade":
     render_aba_capacidade()
+
+elif aba == "Admin":
+    # Aba Admin (Fase C+D §5.93) — gerenciamento de clientes e log de acesso.
+    # Visibilidade já filtrada na sidebar via eh_admin(), mas a função
+    # render_aba_admin() faz double-check defensivo.
+    from components.tab_admin import render_aba_admin
+    render_aba_admin(user)
 
 # =============================================================================
 # RODAPÉ — com espaçamento claro para evitar sobreposição
