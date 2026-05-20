@@ -119,6 +119,16 @@ LABELS_GRANULARIDADE = {
     "semanal":    "Semanal",
 }
 
+# Rótulos curtos — só pro selectbox de granularidade. No mobile a caixa
+# é estreita; "Trimestral" estourava / cortava com reticências. Estes
+# cabem inteiros. O subtítulo do gráfico segue usando LABELS_GRANULARIDADE
+# (forma longa, lê melhor: "Trimestral · (R$/MWh)").
+LABELS_GRANULARIDADE_CURTO = {
+    "mensal":     "Mês",
+    "trimestral": "Trim.",
+    "semanal":    "Semana",
+}
+
 # Presets de período por granularidade.
 # Tupla: (label, n_periodos) — n_periodos=None significa "Máx" (todo dataset).
 PRESETS_POR_GRANULARIDADE = {
@@ -814,7 +824,7 @@ def _render_aba_modulacao_impl() -> None:
         granularidade = st.selectbox(
             "Granularidade",
             options=gran_opts,
-            format_func=lambda g: LABELS_GRANULARIDADE[g],
+            format_func=lambda g: LABELS_GRANULARIDADE_CURTO[g],
             key="mod_granularidade",
             label_visibility="collapsed",
         )

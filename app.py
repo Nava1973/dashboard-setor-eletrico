@@ -485,10 +485,19 @@ st.markdown(
        úmido) viram grade 2×2; o número grande encolhe pra não encavalar
        no texto; e a nota "ENA em % da MLT…" vai pro fim da página.
        Desktop (>768px) não é afetado. */
+    /* Nota ENA (render-twice): a cópia do FIM da página (ena_nota_bottom)
+       fica escondida no DESKTOP — só aparece no mobile (@media abaixo). */
+    [class*="st-key-ena_nota_bottom"] {{
+        display: none;
+    }}
     @media (max-width: 768px) {{
         [data-testid="stHorizontalBlock"]:has(.ena-kpi-card) {{
             flex-wrap: wrap !important;
-            gap: 0.3rem !important;
+            /* row-gap maior (0.7rem) afasta a linha de cima (12m/3m) da
+               de baixo (último mês/período úmido) — antes os números
+               encavalavam no texto da linha seguinte por falta de espaço.
+               column-gap fica enxuto (0.3rem). */
+            gap: 0.7rem 0.3rem !important;
         }}
         [data-testid="stHorizontalBlock"]:has(.ena-kpi-card)
             [data-testid="stColumn"] {{
@@ -499,8 +508,12 @@ st.markdown(
         .ena-kpi-value {{
             font-size: 1.05rem !important;
         }}
-        [class*="st-key-ena_nota"] {{
-            order: 100 !important;
+        /* Render-twice da nota: esconde a do topo, mostra a do fim. */
+        [class*="st-key-ena_nota_top"] {{
+            display: none !important;
+        }}
+        [class*="st-key-ena_nota_bottom"] {{
+            display: block !important;
         }}
     }}
 
@@ -516,12 +529,47 @@ st.markdown(
             flex: 1 1 1rem !important;
             min-width: 0 !important;
         }}
+        /* Granularidade (1ª coluna) — base maior pra caber "Semana"/"Trim."
+           inteiros sem reticências. */
+        [class*="st-key-periodctrl_mod"]
+            [data-testid="stColumn"]:nth-child(1) {{
+            flex: 1 1 42% !important;
+        }}
+        /* Presets de período (colunas 2-4) — base menor; sobram lado a
+           lado à direita da granularidade na mesma linha. */
+        [class*="st-key-periodctrl_mod"]
+            [data-testid="stColumn"]:nth-child(2),
+        [class*="st-key-periodctrl_mod"]
+            [data-testid="stColumn"]:nth-child(3),
+        [class*="st-key-periodctrl_mod"]
+            [data-testid="stColumn"]:nth-child(4) {{
+            flex: 1 1 16% !important;
+        }}
         [class*="st-key-periodctrl_mod"]
             [data-testid="stColumn"]:nth-last-child(3) {{
             flex: 0 0 100% !important;
             height: 0 !important;
             min-height: 0 !important;
             padding: 0 !important;
+        }}
+    }}
+
+    /* Modulação · Receita por Empresa (MOBILE): os 6 botões de empresa
+       fluem 3 por linha (Streamlit empilharia 1/linha em tela estreita).
+       A 7ª coluna (spacer ratio 3) some no mobile. Desktop intacto. */
+    @media (max-width: 768px) {{
+        [class*="st-key-receita_emp_btns"]
+            [data-testid="stHorizontalBlock"] {{
+            flex-wrap: wrap !important;
+            gap: 0.3rem !important;
+        }}
+        [class*="st-key-receita_emp_btns"] [data-testid="stColumn"] {{
+            flex: 1 1 30% !important;
+            min-width: 0 !important;
+        }}
+        [class*="st-key-receita_emp_btns"]
+            [data-testid="stColumn"]:nth-child(7) {{
+            display: none !important;
         }}
     }}
 
@@ -3860,26 +3908,29 @@ elif aba == "ENA/Chuva":
     # tooltip do gráfico já mostra o valor real, então era redundante.
     # Margem de baixo enxuta (0.15rem) aproxima os gráficos do texto.
     ultima_data_ds = df_ena["data"].max().date()
-    # Nota envolta em container keyed (ena_nota) pra que o CSS @media
-    # possa jogá-la pro fim da página NO MOBILE (order alto). No desktop
-    # fica aqui mesmo (sem order).
-    with st.container(key="ena_nota"):
-        st.markdown(
-            f'<div style="font-family:\'Inter\', sans-serif; '
-            f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-            f'margin:0.4rem 0 0 0;">'
-            f'ENA em % da MLT (Média de Longo Termo — ONS). '
-            f'100% indica a média histórica do mês. '
-            f'Dados atualizados diariamente pelo ONS. '
-            f'Última atualização: {ultima_data_ds.strftime("%d/%m/%Y")}.'
-            f'</div>'
-            f'<div style="font-family:\'Inter\', sans-serif; '
-            f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-            f'margin:0 0 0.15rem 0;">'
-            f'Faixas azuis: período úmido hidrológico (1º nov – 30 abr).'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
+    # Nota explicativa renderizada DUAS vezes (render-twice): no topo
+    # (container ena_nota_top, visível só no DESKTOP) e no fim da página
+    # (container ena_nota_bottom, visível só no MOBILE). A tentativa
+    # anterior de mover via CSS `order` falhou — a classe `st-key-` cai
+    # num elemento interno, não no flex-item do bloco — então duplicamos
+    # e alternamos visibilidade por @media. Ver <style> global do app.py.
+    _ena_nota_html = (
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+        f'margin:0.4rem 0 0 0;">'
+        f'ENA em % da MLT (Média de Longo Termo — ONS). '
+        f'100% indica a média histórica do mês. '
+        f'Dados atualizados diariamente pelo ONS. '
+        f'Última atualização: {ultima_data_ds.strftime("%d/%m/%Y")}.'
+        f'</div>'
+        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
+        f'margin:0 0 0.15rem 0;">'
+        f'Faixas azuis: período úmido hidrológico (1º nov – 30 abr).'
+        f'</div>'
+    )
+    with st.container(key="ena_nota_top"):
+        st.markdown(_ena_nota_html, unsafe_allow_html=True)
 
     # --- 5 gráficos empilhados ---
     CORES_SUBSISTEMA_ENA = {
@@ -4100,6 +4151,12 @@ elif aba == "ENA/Chuva":
         st.plotly_chart(
             fig, width="stretch", config={"displaylogo": False},
         )
+
+    # Nota explicativa — cópia pro MOBILE (fim da página, depois do último
+    # gráfico). Render-twice: ver bloco _ena_nota_html no topo. Este
+    # container é escondido no desktop pelo <style> global.
+    with st.container(key="ena_nota_bottom"):
+        st.markdown(_ena_nota_html, unsafe_allow_html=True)
 
     # --- Export CSV ---
     # Valores em % MLT (mesma métrica dos gráficos). Colunas mantêm nomes

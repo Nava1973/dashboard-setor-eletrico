@@ -1233,17 +1233,22 @@ def _render_impl(user: str) -> None:
         # já dá o respiro padrão. Spacer extra aqui empurrava os botões pra
         # baixo desnecessariamente.
         st.session_state.setdefault("receita_empresa", EMPRESAS[0])
-        cols_emp = st.columns([1, 1, 1, 1, 1, 1, 3])
-        for _i, _emp in enumerate(EMPRESAS):
-            with cols_emp[_i]:
-                _ativo = st.session_state["receita_empresa"] == _emp
-                if st.button(
-                    _emp, key=f"btn_receita_emp_{_emp}",
-                    type="primary" if _ativo else "secondary",
-                    width="stretch",
-                ):
-                    st.session_state["receita_empresa"] = _emp
-                    st.rerun()
+        # Container keyed (receita_emp_btns) escopa o CSS @media que, no
+        # mobile, faz os 6 botões de empresa fluírem 3 por linha em vez de
+        # empilharem 1 por linha (Streamlit colapsa st.columns em telas
+        # estreitas). Desktop não é afetado. Ver <style> global do app.py.
+        with st.container(key="receita_emp_btns"):
+            cols_emp = st.columns([1, 1, 1, 1, 1, 1, 3])
+            for _i, _emp in enumerate(EMPRESAS):
+                with cols_emp[_i]:
+                    _ativo = st.session_state["receita_empresa"] == _emp
+                    if st.button(
+                        _emp, key=f"btn_receita_emp_{_emp}",
+                        type="primary" if _ativo else "secondary",
+                        width="stretch",
+                    ):
+                        st.session_state["receita_empresa"] = _emp
+                        st.rerun()
         empresa = st.session_state["receita_empresa"]
         # Spacer entre a linha de botões (Auren/Axia/etc) e o título do
         # gráfico — sem isso o título cola visualmente nos botões.
