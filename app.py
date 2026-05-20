@@ -446,17 +446,55 @@ st.markdown(
 
     /* Período (MOBILE): em tela estreita o Streamlit empilha os botões de
        preset (1M/3M/…) e os date_inputs 1 por linha — ocupa meia tela.
-       Aqui forçamos a fileira a FLUIR lado a lado (flex-wrap) em vez de
-       empilhar. Escopo: containers periodrow_* do _render_period_controls. */
+       Layout alvo no mobile: LINHA 1 = botões de preset distribuídos
+       igualmente; LINHA 2 = data inicial + data final lado a lado.
+       Escopo: containers periodrow_* do _render_period_controls.
+       Desktop (>768px) não é afetado. */
     @media (max-width: 768px) {{
         [class*="st-key-periodrow"] [data-testid="stHorizontalBlock"] {{
             flex-wrap: wrap !important;
             gap: 0.3rem !important;
         }}
-        [class*="st-key-periodrow"] [data-testid="stColumn"] {{
-            min-width: 3.2rem !important;
+        /* Botões de preset → dividem a 1ª linha por igual. */
+        [class*="st-key-periodrow"]
+            [data-testid="stColumn"]:has(.stButton) {{
+            flex: 1 1 1rem !important;
+            min-width: 0 !important;
             width: auto !important;
-            flex: 1 1 3.2rem !important;
+        }}
+        /* Coluna-spacer vazia (sem botão nem date_input) → vira uma quebra
+           de linha invisível (altura 0, largura 100%): empurra os
+           date_inputs pra 2ª linha. */
+        [class*="st-key-periodrow"] [data-testid="stColumn"]:not(:has(.stButton)):not(:has([data-testid="stDateInput"])) {{
+            flex: 0 0 100% !important;
+            width: 100% !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            padding: 0 !important;
+        }}
+        /* date_inputs → 2 lado a lado na 2ª linha. */
+        [class*="st-key-periodrow"]
+            [data-testid="stColumn"]:has([data-testid="stDateInput"]) {{
+            flex: 1 1 1rem !important;
+            min-width: 0 !important;
+            width: auto !important;
+        }}
+    }}
+
+    /* ENA/Chuva (MOBILE): os 4 KPIs (Últimos 12m / 3m / mês / período
+       úmido) viram uma grade 2×2 em vez de empilharem 1 por linha.
+       Escopo via .ena-kpi-card (classe existe só nesses KPIs).
+       Desktop (>768px) não é afetado. */
+    @media (max-width: 768px) {{
+        [data-testid="stHorizontalBlock"]:has(.ena-kpi-card) {{
+            flex-wrap: wrap !important;
+            gap: 0.3rem !important;
+        }}
+        [data-testid="stHorizontalBlock"]:has(.ena-kpi-card)
+            [data-testid="stColumn"] {{
+            flex: 1 1 42% !important;
+            min-width: 0 !important;
+            width: auto !important;
         }}
     }}
 
