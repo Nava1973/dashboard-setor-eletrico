@@ -573,6 +573,19 @@ st.markdown(
         }}
     }}
 
+    /* PLD horário · single-day (MOBILE): a régua de KPIs (PLD médio /
+       máx / mín / spread) desce pra DEPOIS do gráfico. Régua e gráfico
+       vivem juntos no container isolado `pld1d_zone`, então o `order`
+       só troca esses dois — a régua (order:2) cai logo abaixo do
+       gráfico (order:0). Desktop intacto. */
+    @media (max-width: 768px) {{
+        [class*="st-key-pld1d_zone"]
+            [data-testid="stHorizontalBlock"]:has(
+                [class*="st-key-kpi_submercado_detalhe"]) {{
+            order: 2 !important;
+        }}
+    }}
+
     /* Sidebar (MOBILE): nome do usuário + toggle de idioma na MESMA
        linha (sem isto o Streamlit empilha as 2 colunas em tela estreita). */
     @media (max-width: 768px) {{
@@ -2791,6 +2804,14 @@ if aba == "PLD":
     # vs Média do mês. Submercado escolhido via dropdown auxiliar
     # "Detalhar KPIs:" (default SE).
     # =====================================================================
+    # Zone container (pld1d_zone): agrupa a régua de KPIs do single-day +
+    # o gráfico num único bloco flex ISOLADO. Isso permite que o CSS
+    # @media reordene (KPIs abaixo do gráfico) SÓ no mobile, sem empurrar
+    # os KPIs pro fim da página (efeito colateral do `order` quando os
+    # irmãos não estão isolados). Sempre criado — fora do single-day o
+    # zone contém só o gráfico (sem efeito visual). Ver <style> global.
+    _pld1d_zone = st.container(key="pld1d_zone")
+
     single_day_active = (
         granularidade == "horario" and data_ini == data_fim
     )
@@ -2958,8 +2979,13 @@ if aba == "PLD":
             )
 
         # Régua: dropdown de submercado (col 0) + 4 KPIs (cols 1-4).
+        # Criada DENTRO do _pld1d_zone pra ficar no mesmo bloco flex do
+        # gráfico (reorder mobile). As colunas `kpi_cols` continuam sendo
+        # preenchidas fora do `with` — `with kpi_cols[i]` mira o container
+        # da coluna, independ. do contexto corrente.
         opcoes_sub_kpi = ["SE", "S", "NE", "N"]
-        kpi_cols = st.columns(5)
+        with _pld1d_zone:
+            kpi_cols = st.columns(5)
         with kpi_cols[0]:
             sub_kpis = st.selectbox(
                 "Submercado dos KPIs",
@@ -3305,7 +3331,10 @@ if aba == "PLD":
             "renderização pode levar alguns segundos."
         )
 
-    st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
+    # Gráfico renderizado DENTRO do _pld1d_zone — mesmo bloco flex da
+    # régua de KPIs, pra permitir o reorder no mobile (KPIs abaixo).
+    with _pld1d_zone:
+        st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
 
     # --- KPIs + tabela de estatísticas: só em diário (Fase 4 adapta pras outras) ---
     if granularidade != "diario":

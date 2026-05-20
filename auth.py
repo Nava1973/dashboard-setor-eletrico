@@ -373,6 +373,25 @@ def _inject_login_css():
                 white-space: nowrap !important;
             }}
         }}
+        /* Quebra do título só no MOBILE — vira 2 linhas limpas:
+           "Dashboard" / "Setor Elétrico · Brasil" (a 2ª linha igual à
+           assinatura da sidebar). No desktop o <br> some. A fonte um
+           pouco menor no mobile garante que a 2ª linha caiba sem virar
+           3 linhas; a logo sobe um pouco pra fechar o espaço. */
+        .login-title-br {{
+            display: none;
+        }}
+        @media (max-width: 699px) {{
+            .login-title-br {{
+                display: block;
+            }}
+            .login-title {{
+                font-size: 2rem !important;
+            }}
+            .login-logo {{
+                margin: 1.2rem auto 1rem auto;
+            }}
+        }}
 
         /* Autores — abaixo do título, antes do form.
            Centralizados horizontalmente na tela. */
@@ -442,8 +461,14 @@ def require_login() -> str | None:
                 f'class="login-logo" alt="Bradesco BBI" />',
                 unsafe_allow_html=True,
             )
+        # Separador "·" (mesmo ponto-médio usado nos títulos das abas,
+        # ex.: "Eneva · Despacho Termelétrico"). O <br class="login-title-br">
+        # só quebra no mobile → título em 2 linhas ("Dashboard" /
+        # "Setor Elétrico · Brasil"); no desktop o <br> some (CSS).
         st.markdown(
-            '<h1 class="login-title">Dashboard Setor Elétrico — Brasil</h1>',
+            '<h1 class="login-title">Dashboard'
+            '<br class="login-title-br" />'
+            'Setor Elétrico · Brasil</h1>',
             unsafe_allow_html=True,
         )
         st.markdown(

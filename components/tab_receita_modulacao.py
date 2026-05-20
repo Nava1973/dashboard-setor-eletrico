@@ -1012,7 +1012,9 @@ def _render_impl(user: str) -> None:
     # compensa gap do Streamlit; 1.2rem bottom dá respiro pros controles;
     # 12px left alinha com padding-left do h1 global → gap entre barra
     # vermelha e linha horizontal em vez do "L colado").
-    st.markdown("# RECEITA DE MODULAÇÃO")
+    # Título no padrão "{aba} · {sub-view}" das demais abas
+    # (ex.: "Eneva · Despacho Termelétrico").
+    st.markdown("# MODULAÇÃO · RECEITA")
     st.markdown(
         f'<div style="border-bottom: 2px solid {BAUHAUS_BLACK}; '
         f'margin: -0.2rem 0 1.2rem 12px;"></div>',
