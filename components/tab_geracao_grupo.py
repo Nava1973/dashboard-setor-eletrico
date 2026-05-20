@@ -744,12 +744,13 @@ def _render_aba_geracao_grupo_impl() -> None:
         )
     granularidade = GRANS_UI[granularidade_ui]
 
-    # Spacer: CSS global de app.py:353 aplica margin-top:-1.5rem em
-    # .stDateInput. Sem este spacer, labels dos date_inputs sobrepõem
-    # os selectboxes acima. NÃO REMOVER sem testar visualmente.
-    st.markdown(
-        '<div style="height:1.5rem"></div>', unsafe_allow_html=True,
-    )
+    # NOTA: o spacer de 1.5rem que ficava aqui foi REMOVIDO — criava um
+    # gap título→controles maior que nas outras visões da aba Geração
+    # (sub-view SIN). Os date_inputs ficam na extremidade direita da
+    # fileira, sob a área vazia (spacer) da linha de selectboxes acima,
+    # então o lift -1.5rem global do .stDateInput não sobrepõe os
+    # selectboxes — mesma situação da sub-view SIN, que também não tem
+    # spacer aqui.
 
     # ------------------------------------------------------------------
     # Reset de janela ao trocar granularidade

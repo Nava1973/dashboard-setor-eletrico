@@ -426,6 +426,22 @@ st.markdown(
         line-height: 1.2 !important;
     }}
 
+    /* Controles de período (PLD/Reservatórios/ENA via _render_period_controls
+       + aba Modulação) — alinhamento robusto caixa-data × botão. Os
+       st.columns desses controles usam vertical_alignment="bottom", que
+       encosta a base da caixa de data na base dos botões de preset. Pra
+       isso funcionar, o lift global de -1.5rem do stDateInput precisa ser
+       CANCELADO aqui (senão a caixa sobe demais). O label "Data inicial/
+       final" ganha um respiro do topo da caixa preta. Escopo: containers
+       st.container(key="periodctrl_*"). */
+    [class*="st-key-periodctrl"] [data-testid="stDateInput"],
+    [class*="st-key-periodctrl"] .stDateInput {{
+        margin-top: 0 !important;
+    }}
+    [class*="st-key-periodctrl"] [data-testid="stWidgetLabel"] {{
+        margin-bottom: 6px !important;
+    }}
+
     /* Bloco principal — compacto, sobe o título PLD pro topo */
     .block-container {{
         padding-top: 0 !important;
@@ -902,6 +918,7 @@ def _render_period_controls(
     single_day_preset_label: str | None = None,  # decisão 5.28
     max_help_text_override: str | None = None,   # custom tooltip pro Máx (Frente 3)
     on_max_click_override: Callable[[], None] | None = None,  # custom handler pro Máx
+    align_dates_bottom: bool = True,  # ver nota no bloco de st.columns abaixo
 ):
     """Renderiza atalhos + 2 date_inputs numa linha, com botão "primary"
     amarelo pro preset ativo. Reset de mudança de dataset é responsabilidade
@@ -958,7 +975,27 @@ def _render_period_controls(
     # corte (~131px), então sobe pra 1.8 (~165px). Não afeta as 3 abas
     # com presets antigos — só Geração/Carga após +10A.
     date_ratio = 1.8 if n > 5 else 1.4
-    cols = st.columns([1] * n + [0.3, date_ratio, date_ratio])
+    # Dois estilos de fileira de controles:
+    #
+    # align_dates_bottom=True (PLD/Reservatórios/ENA — default): container
+    #   keyed escopa o CSS que cancela o lift -1.5rem global do stDateInput;
+    #   vertical_alignment="bottom" encosta a base das caixas de data na
+    #   base dos botões. Usado quando os controles ficam logo abaixo da
+    #   linha preta do título.
+    #
+    # align_dates_bottom=False (Geração Mensal/Diária): SEM container e
+    #   SEM bottom-align — os botões ficam no topo da fileira e o lift
+    #   -1.5rem global do date_input mantém a caixa alinhada com eles.
+    #   Espelha o _render_period_controls_horaria pra que as 3
+    #   granularidades da aba Geração tenham o MESMO gap título→controles.
+    if align_dates_bottom:
+        with st.container(key=f"periodctrl_{key_prefix}"):
+            cols = st.columns(
+                [1] * n + [0.3, date_ratio, date_ratio],
+                vertical_alignment="bottom",
+            )
+    else:
+        cols = st.columns([1] * n + [0.3, date_ratio, date_ratio])
 
     for i, (label, delta, is_max) in enumerate(presets):
         with cols[i]:
@@ -3373,19 +3410,21 @@ elif aba == "Reservatórios":
     # cor legível (st.caption pode herdar estilos globais que deixam
     # ela quase invisível em certos contextos do Streamlit 1.56).
     ultima_data_ds = df_res["data"].max().date()
-    # Duas notas em linhas separadas, mesma tipografia (caption cinza italic).
-    # Renderizadas em uma única chamada st.markdown pra ficarem coladas.
+    # As 2 notas numa LINHA só: "Dados atualizados…" à esquerda, "Faixas
+    # azuis…" à direita (flex space-between). Economiza uma linha e
+    # aproxima os gráficos do texto. flex-wrap garante quebra graciosa
+    # em telas estreitas (vira 2 linhas em vez de sobrepor).
     st.markdown(
-        f'<div style="font-family:\'Inter\', sans-serif; '
+        f'<div style="display:flex; justify-content:space-between; '
+        f'align-items:baseline; flex-wrap:wrap; gap:0 1.5rem; '
+        f'font-family:\'Inter\', sans-serif; '
         f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-        f'margin:0.4rem 0 0 0;">'
-        f'Dados atualizados diariamente pelo ONS. '
-        f'Última atualização no dataset: {ultima_data_ds.strftime("%d/%m/%Y")}.'
-        f'</div>'
-        f'<div style="font-family:\'Inter\', sans-serif; '
-        f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-        f'margin:0 0 0.6rem 0;">'
-        f'Faixas azuis: período úmido hidrológico (1º nov – 30 abr).'
+        f'margin:0.4rem 0 0.15rem 0;">'
+        f'<span>Dados atualizados diariamente pelo ONS. '
+        f'Última atualização no dataset: '
+        f'{ultima_data_ds.strftime("%d/%m/%Y")}.</span>'
+        f'<span>Faixas azuis: período úmido hidrológico '
+        f'(1º nov – 30 abr).</span>'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -3634,6 +3673,9 @@ elif aba == "ENA/Chuva":
     )
 
     # Notas explicativas (mesma tipografia da aba Reservatórios).
+    # 2 linhas: a 3ª nota ("valores acima de 250%…") foi removida — o
+    # tooltip do gráfico já mostra o valor real, então era redundante.
+    # Margem de baixo enxuta (0.15rem) aproxima os gráficos do texto.
     ultima_data_ds = df_ena["data"].max().date()
     st.markdown(
         f'<div style="font-family:\'Inter\', sans-serif; '
@@ -3646,14 +3688,8 @@ elif aba == "ENA/Chuva":
         f'</div>'
         f'<div style="font-family:\'Inter\', sans-serif; '
         f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-        f'margin:0 0 0 0;">'
+        f'margin:0 0 0.15rem 0;">'
         f'Faixas azuis: período úmido hidrológico (1º nov – 30 abr).'
-        f'</div>'
-        f'<div style="font-family:\'Inter\', sans-serif; '
-        f'font-size:0.85rem; color:#6B6B6B; font-style:italic; '
-        f'margin:0 0 0.6rem 0;">'
-        f'Valores acima de 250% aparecem cortados no gráfico — '
-        f'passe o mouse para ver o valor real.'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -3925,18 +3961,12 @@ elif aba == "Despacho Térmico":
         _titulo_aba = "SIN · Despacho Termelétrico Total"
     else:
         _titulo_aba = "Eneva · Despacho Termelétrico"
-    # Título + linha preta separadora (padrão final calibrado: -0.2rem top
-    # compensa gap do Streamlit; -1rem bottom puxa controles pra cima
-    # próximo à linha; 12px left alinha com padding-left do h1 global →
-    # gap entre barra vermelha vertical e linha horizontal em vez do
-    # "L colado"). Mesma margem pras duas sub-views (Sistema e Eneva)
-    # agora que o spacer extra do Eneva foi removido.
+    # Título. A LINHA separadora preta NÃO é renderizada aqui — ela é
+    # emitida dentro de cada sub-view (Sistema/Eneva), no MESMO
+    # st.markdown que injeta o CSS da sub-view. Assim o <style> "pega
+    # carona" no elemento da linha em vez de criar um elemento/slot
+    # próprio — eliminando o gap-fantasma entre a linha e os controles.
     st.markdown(f"# {_titulo_aba}")
-    st.markdown(
-        '<div style="border-bottom: 2px solid #313131; '
-        'margin: -0.2rem 0 -1rem 12px;"></div>',
-        unsafe_allow_html=True,
-    )
 
     # === HOISTED (Fase E) — comum às 2 sub-views ===
     # Loader, imports comuns e helper KPI compartilhados pelas sub-views
@@ -4371,7 +4401,13 @@ elif aba == "Despacho Térmico":
         # do selectbox (que não tem o offset) — o ajuste global causa
         # desalinhamento de 1.5rem. CSS scoped por nome de key cancela só
         # nos 2 date_inputs do Sistema, sem afetar outras abas.
+        # Linha separadora preta + CSS da sub-view num ÚNICO st.markdown
+        # (string concatenada): o <style> viaja dentro do elemento da
+        # linha, sem criar slot fantasma. margin-bottom 1.2rem = mesma
+        # distância título→controles das abas PLD/Reservatórios.
         st.markdown(
+            '<div style="border-bottom: 2px solid #313131; '
+            'margin: -0.2rem 0 1.2rem 12px;"></div>'
             """
             <style>
             .st-key-termico_sistema_data_ini,
@@ -4435,6 +4471,13 @@ elif aba == "Despacho Térmico":
                não o gap entre rows de st.columns. Substituída por
                spacer HTML negativo ANTES do cols_anos no bloco Python
                do Trimestral (mais previsível). */
+            /* Checkboxes de trimestre (1T-4T) na row 1 — empurra pra
+               baixo pra centralizar verticalmente com a CAIXA do
+               selectbox Granularidade (que tem o label "Granularidade"
+               em cima ocupando ~1rem). Espelho do Eneva. */
+            [class*="st-key-termico_sistema_chk_t_"] {
+                margin-top: 1.5rem !important;
+            }
             </style>
             """,
             unsafe_allow_html=True,
@@ -4492,15 +4535,26 @@ elif aba == "Despacho Térmico":
                 df_sis["data"].max().date()
             )
 
-        # Linha 1: granularidade (selectbox) + data_inicial + data_final
-        # st.columns(...) cria os 4 containers; selectbox e date_inputs são
-        # instanciados em momentos diferentes:
-        #  - selectbox PRIMEIRO (define gran_atual usado pelo reset block)
-        #  - reset block depois (escreve em state)
-        #  - date_inputs por ÚLTIMO (leem state pós-reset)
+        # Linha 1: granularidade (selectbox) + data_inicial + data_final.
         # Proporção col_g 3.6 = 6 botões × 0.6 (alinha visualmente com a
         # largura dos botões ano colados; Fase H — Item 4b).
-        col_g, _spc_g, col_di, col_df = st.columns([3.6, 3.4, 1.5, 1.5])
+        #
+        # Em TRIMESTRAL a row 1 ganha uma coluna do meio (col_trim) pros
+        # checkboxes 1T-4T — que antes ocupavam uma 3ª linha. Mesmas
+        # proporções da sub-view Eneva pra paridade visual. A granularidade
+        # é lida do session_state ANTES de criar as colunas (a selectbox
+        # abaixo escreve na mesma key; troca dispara rerun, sem lag).
+        _gran_layout_sis = st.session_state.get(
+            "termico_sistema_granularidade", "Mensal"
+        )
+        if _gran_layout_sis == "Trimestral":
+            col_g, col_trim, _spc_g, col_df = st.columns(
+                [3.6, 2.6, 2.3, 1.5]
+            )
+            col_di = col_df  # não usado em Trimestral (date_inputs ocultos)
+        else:
+            col_g, _spc_g, col_di, col_df = st.columns([3.6, 3.4, 1.5, 1.5])
+            col_trim = None
 
         with col_g:
             gran_atual = st.selectbox(
@@ -4693,24 +4747,29 @@ elif aba == "Despacho Térmico":
                 # `value=`. `del` antes de `st.rerun()` força re-render
                 # respeitar value novo.
                 presets_t = [(1, "1T"), (2, "2T"), (3, "3T"), (4, "4T")]
-                cols_p = st.columns([1, 1, 1, 1, 6])
 
                 # Snapshot pré-render
                 trims_anteriores_real = list(trims_marcados)
                 em_ltm_puro_antes = not trims_anteriores_real
 
-                # Render checkboxes + coleta estado pós-render
+                # Render checkboxes na ROW 1 (col_trim, ao lado de
+                # Granularidade) — antes ocupavam uma 3ª linha. cols_chk(4)
+                # deixa os 4 checkboxes juntos. `with col_trim:` redireciona
+                # o render pra row 1 mesmo este bloco estando dentro do
+                # container da row 2. A lógica de estado abaixo é idêntica.
                 estado_visual_pos = []
-                for i, (num, label) in enumerate(presets_t):
-                    ativo_real = num in trims_marcados
-                    ativo_visual = ativo_real or em_ltm_puro_antes
-                    with cols_p[i]:
-                        marcado = st.checkbox(
-                            label,
-                            value=ativo_visual,
-                            key=f"termico_sistema_chk_t_{label}",
-                        )
-                        estado_visual_pos.append(marcado)
+                with col_trim:
+                    cols_chk = st.columns(4)
+                    for i, (num, label) in enumerate(presets_t):
+                        ativo_real = num in trims_marcados
+                        ativo_visual = ativo_real or em_ltm_puro_antes
+                        with cols_chk[i]:
+                            marcado = st.checkbox(
+                                label,
+                                value=ativo_visual,
+                                key=f"termico_sistema_chk_t_{label}",
+                            )
+                            estado_visual_pos.append(marcado)
 
                 # Calcula trims_real_pos baseado no contexto
                 if em_ltm_puro_antes:
@@ -4805,7 +4864,10 @@ elif aba == "Despacho Térmico":
             # Row 2 envolvida em st.container(key=) pra CSS targeting
             # do gap (Fase H.7.B-bis). Classe `st-key-...row2` no DOM.
             with st.container(key="termico_sistema_mensal_row2"):
-                cols_p = st.columns([1, 1, 8])
+                # 12M/Max em colunas 1.155 — mesma largura dos botões
+                # MWM/GWH da sub-view Eneva (paridade estética entre
+                # sub-views). spacer 7.69 fecha o total em 10.
+                cols_p = st.columns([1.155, 1.155, 7.69])
                 presets_sis = [
                     ("12M", 365, False),
                     ("Max", None, True),
@@ -5322,7 +5384,13 @@ elif aba == "Despacho Térmico":
         # da Eneva, que ficam na mesma linha do selectbox de granularidade
         # (não abaixo dos presets como nas outras abas). Scope via key
         # prefix garante zero impacto em outras sub-views/abas.
+        # Linha separadora preta + CSS da sub-view num ÚNICO st.markdown
+        # (string concatenada): o <style> viaja dentro do elemento da
+        # linha, sem criar slot fantasma. margin-bottom 1.2rem = mesma
+        # distância título→controles das abas PLD/Reservatórios.
         st.markdown(
+            '<div style="border-bottom: 2px solid #313131; '
+            'margin: -0.2rem 0 1.2rem 12px;"></div>'
             """
             <style>
             .st-key-termico_eneva_data_ini,
@@ -5386,6 +5454,13 @@ elif aba == "Despacho Térmico":
                `gap` do stVerticalBlock parent. Substituída por spacer
                HTML negativo ANTES do cols_p no bloco Python do Mensal
                (consistência com Sistema, mesma mecânica do Trimestral). */
+            /* Checkboxes de trimestre (1T-4T) na row 1 — empurra pra
+               baixo pra centralizar verticalmente com a CAIXA do
+               selectbox Granularidade (que tem o label "Granularidade"
+               em cima ocupando ~1rem). */
+            [class*="st-key-termico_eneva_chk_t_"] {
+                margin-top: 1.5rem !important;
+            }
             </style>
             """,
             unsafe_allow_html=True,
@@ -5434,13 +5509,27 @@ elif aba == "Despacho Térmico":
         # os controles pra longe da linha preta do título sem necessidade.
 
         # === Layout C linha 1: granularidade + Usina/Toggle + dates ===
-        # selectbox em col_g; Usina + Toggle dentro do col_meio (que era
-        # spacer vazio até a Fase H.1 — Ajuste 1); date_inputs em
-        # col_di/col_df renderizados condicionalmente APÓS os presets.
-        # Proporções alinhadas com Sistema pra paridade visual.
+        # selectbox em col_g; Usina + Toggle dentro do col_meio; date_inputs
+        # em col_di/col_df renderizados condicionalmente APÓS os presets.
         # col_g 3.6 = 6 botões × 0.6 (alinha selectbox com largura dos
         # botões ano colados; Fase H — Item 4b).
-        col_g, col_meio, col_di, col_df = st.columns([3.6, 3.4, 1.5, 1.5])
+        #
+        # Em TRIMESTRAL a row 1 ganha uma coluna do meio (col_trim) pros
+        # checkboxes 1T-4T — que antes ocupavam uma 3ª linha. A granularidade
+        # é lida do session_state ANTES de criar as colunas (a selectbox
+        # abaixo escreve na mesma key; trocar de granularidade dispara
+        # rerun, então a row 1 já nasce com o layout certo).
+        _gran_layout = st.session_state.get(
+            "termico_eneva_granularidade", "Mensal"
+        )
+        if _gran_layout == "Trimestral":
+            col_g, col_trim, col_meio, col_df = st.columns(
+                [3.6, 2.6, 2.3, 1.5]
+            )
+            col_di = col_df  # não usado em Trimestral (date_inputs ocultos)
+        else:
+            col_g, col_meio, col_di, col_df = st.columns([3.6, 3.4, 1.5, 1.5])
+            col_trim = None
 
         with col_g:
             gran_atual = st.selectbox(
@@ -5598,19 +5687,16 @@ elif aba == "Despacho Térmico":
             # Row 2 envolvida em st.container(key=) pra CSS targeting
             # do gap (Fase H.7.B-bis). Classe `st-key-...row2` no DOM.
             with st.container(key="termico_eneva_mensal_row2"):
-                # Proporções [0.6, 0.6, 2.9, 1.155, 1.155, 3.59] alinham
-                # com row 1 do Eneva [3.6, 3.4, 1.5, 1.5] (total 10):
-                # - cols_p[0:2] (0.6+0.6=1.2): 12M/Máx ocupam 0-12%
-                #   (compactos no início do col_g)
-                # - cols_p[2] (2.9): spacer1 cobre 12-41%
-                # - cols_p[3:5] (1.155+1.155=2.31): MWM/GWH ocupam 41-64.1%
-                #   (calibrado iterativamente via medição JS:
-                #    1.2 → diff dir -10px (transbordo)
-                #    1.18 → diff dir -5px
-                #    1.155 → diff dir ≈ 0px (alinhamento exato com
-                #    selectbox Usina acima))
-                # - cols_p[5] (3.59): spacer2 cobre 64.1-100%
-                cols_p = st.columns([0.6, 0.6, 2.9, 1.155, 1.155, 3.59])
+                # Proporções [1.155, 1.155, 1.79, 1.155, 1.155, 3.59]
+                # alinham com row 1 do Eneva [3.6, 3.4, 1.5, 1.5] (total 10):
+                # - cols_p[0:2] (1.155+1.155=2.31): 12M/Máx — MESMA largura
+                #   dos botões MWM/GWH (paridade estética pedida pelo user)
+                # - cols_p[2] (1.79): spacer1 — calibrado pra MWM começar
+                #   em x≈4.10 (idêntico ao layout antigo 0.6+0.6+2.9)
+                # - cols_p[3:5] (1.155+1.155=2.31): MWM/GWH — posição e
+                #   largura inalteradas (alinhadas com o selectbox Usina)
+                # - cols_p[5] (3.59): spacer2 cobre o resto
+                cols_p = st.columns([1.155, 1.155, 1.79, 1.155, 1.155, 3.59])
                 presets_mensal = [
                     ("12M", 365, False),
                     ("Max", None, True),
@@ -5756,24 +5842,29 @@ elif aba == "Despacho Térmico":
                 # `value=`. `del` antes de `st.rerun()` força re-render
                 # respeitar value novo.
                 presets_t = [(1, "1T"), (2, "2T"), (3, "3T"), (4, "4T")]
-                cols_p = st.columns([1, 1, 1, 1, 6])
 
                 # Snapshot pré-render
                 trims_anteriores_real = list(trims_marcados)
                 em_ltm_puro_antes = not trims_anteriores_real
 
-                # Render checkboxes + coleta estado pós-render
+                # Render checkboxes na ROW 1 (col_trim, entre Granularidade
+                # e Usina) — antes ocupavam uma 3ª linha. cols_chk(4) deixa
+                # os 4 checkboxes juntos. `with col_trim:` redireciona o
+                # render pra row 1 mesmo este bloco estando dentro do
+                # container da row 2. A lógica de estado abaixo é idêntica.
                 estado_visual_pos = []
-                for i, (num, label) in enumerate(presets_t):
-                    ativo_real = num in trims_marcados
-                    ativo_visual = ativo_real or em_ltm_puro_antes
-                    with cols_p[i]:
-                        marcado = st.checkbox(
-                            label,
-                            value=ativo_visual,
-                            key=f"termico_eneva_chk_t_{label}",
-                        )
-                        estado_visual_pos.append(marcado)
+                with col_trim:
+                    cols_chk = st.columns(4)
+                    for i, (num, label) in enumerate(presets_t):
+                        ativo_real = num in trims_marcados
+                        ativo_visual = ativo_real or em_ltm_puro_antes
+                        with cols_chk[i]:
+                            marcado = st.checkbox(
+                                label,
+                                value=ativo_visual,
+                                key=f"termico_eneva_chk_t_{label}",
+                            )
+                            estado_visual_pos.append(marcado)
 
                 # Calcula trims_real_pos baseado no contexto
                 if em_ltm_puro_antes:
@@ -6388,27 +6479,33 @@ elif aba == "Despacho Térmico":
                 .replace("á", "a").replace("é", "e")
                 .replace("ã", "a").replace("í", "i").replace("ú", "u")
             )
-            st.download_button(
-                label="Baixar dados filtrados (CSV)",
-                data=_csv_bytes_en,
-                file_name=(
-                    f"despacho_termico_eneva_{_usina_slug}_{_gran_slug_en}_"
-                    f"{data_ini.strftime('%Y%m%d')}_"
-                    f"{data_fim.strftime('%Y%m%d')}.csv"
-                ),
-                mime="text/csv",
-                width="content",
-            )
+            # Download à direita (coluna estreita) — desafoga o visual
+            # do gráfico, padrão exclusivo da sub-view Eneva.
+            _col_dl_sp_en, _col_dl_en = st.columns([3, 1])
+            with _col_dl_en:
+                st.download_button(
+                    label="Baixar CSV",
+                    data=_csv_bytes_en,
+                    file_name=(
+                        f"despacho_termico_eneva_{_usina_slug}_"
+                        f"{_gran_slug_en}_"
+                        f"{data_ini.strftime('%Y%m%d')}_"
+                        f"{data_fim.strftime('%Y%m%d')}.csv"
+                    ),
+                    mime="text/csv",
+                    width="stretch",
+                )
 
         # ====================================================================
         # Receita Estimada — Parnaíba consolidado (Fase Receita Eneva).
-        # Gráfico independente do gráfico principal acima — escopo fixo
-        # 1T23 → trimestre/mês corrente (parcial), valores em R$ milhões,
-        # agregado total das 5 Parnaíba sem breakdown por usina. Toggle
-        # Mensal/Trimestral com state próprio (não compartilha com
-        # `gran_atual` do gráfico de despacho acima). Detalhe ACR/SPOT/
-        # EXPORT vai no tooltip. Pattern de "(parcial até DD/MM)" igual
-        # §5.96 (aba Modulação). Backend: data_loaders/data_loader_receita_eneva.py
+        # Gráfico independente do gráfico principal acima — valores em R$
+        # milhões, agregado total das 5 Parnaíba sem breakdown por usina.
+        # Granularidade Mensal/Trimestral via selectbox; período filtrável
+        # por date_inputs (início/fim) à direita, padrão do dashboard.
+        # No modo Trimestral, sobrepõe a receita REPORTADA pela Eneva
+        # (Tabela B do backtesting) como marcador — o delta vs a estimativa
+        # comunica a margem de erro do modelo. Backend:
+        # data_loaders/data_loader_receita_eneva.py
         # ====================================================================
         from data_loaders.data_loader_receita_eneva import (
             carregar_cvu_parnaibas,
@@ -6417,16 +6514,13 @@ elif aba == "Despacho Térmico":
             calcular_receita_horaria,
             agregar_receita_mensal,
             agregar_receita_trimestral,
+            anexar_receita_reportada,
         )
 
-        # Init state Mensal/Trimestral — independente do toggle do gráfico
-        # principal (gran_atual) pra não acoplar UX.
+        # Init granularidade — selectbox gerencia via key (default Trimestral).
         if "receita_eneva_gran" not in st.session_state:
             st.session_state["receita_eneva_gran"] = "Trimestral"
 
-        # Header da seção — mesmo pattern de _render_termico_chart_caption
-        # (sub_label à esquerda, data range à direita), com sub-caption
-        # "Valor estimado · R$ milhões".
         with st.spinner("Calculando receita estimada Eneva…"):
             try:
                 _df_cvu = carregar_cvu_parnaibas(ano_ini=2023)
@@ -6450,9 +6544,28 @@ elif aba == "Despacho Térmico":
 
             _df_m = agregar_receita_mensal(_df_rec_h, ate_data=_ate_data)
             _df_q = agregar_receita_trimestral(_df_rec_h, ate_data=_ate_data)
+            _df_q = anexar_receita_reportada(_df_q)
 
-            # Header (sub_label) — período fica em branco pra Receita
-            # (escopo é fixo, 1T23 → corrente, não é configurável).
+            # --- Reset block dos date_inputs (mesmo pattern do gráfico
+            # de despacho): recria as keys se ausentes (widget cleanup
+            # cross-tab) ou se a janela de dados mudou. Default = range
+            # completo 01/01/2023 → último dia disponível. ---
+            _rec_min_d = pd.Timestamp(2023, 1, 1).date()
+            _rec_max_d = _ate_data.date()
+            if (
+                "receita_eneva_data_ini" not in st.session_state
+                or "receita_eneva_data_fim" not in st.session_state
+                or st.session_state.get("_receita_eneva_dataset_max")
+                    != _rec_max_d
+            ):
+                st.session_state["receita_eneva_data_ini"] = _rec_min_d
+                st.session_state["receita_eneva_data_fim"] = _rec_max_d
+                st.session_state["_receita_eneva_dataset_max"] = _rec_max_d
+
+            _rec_di = pd.Timestamp(st.session_state["receita_eneva_data_ini"])
+            _rec_df_ts = pd.Timestamp(st.session_state["receita_eneva_data_fim"])
+
+            # Header (sub_label à esquerda, range selecionado à direita).
             st.markdown(
                 f'<div style="display: flex; '
                 f'justify-content: space-between; '
@@ -6465,7 +6578,8 @@ elif aba == "Despacho Térmico":
                 f'padding-bottom: 3px; '
                 f'border-bottom: 2px solid {COR_TEXTO};">'
                 f'<span>RECEITA ESTIMADA · PARNAÍBA CONSOLIDADO</span>'
-                f'<span>1T23 — {_ate_data.strftime("%d/%m/%Y")}</span>'
+                f'<span>{_rec_di.strftime("%d/%m/%Y")} — '
+                f'{_rec_df_ts.strftime("%d/%m/%Y")}</span>'
                 f'</div>'
                 f'<div style="font-family: \'Inter\', sans-serif; '
                 f'font-style: italic; color: #6B6B6B; font-size: 0.85rem; '
@@ -6476,29 +6590,59 @@ elif aba == "Despacho Térmico":
                 unsafe_allow_html=True,
             )
 
-            # Toggle Mensal/Trimestral — 2 botões side-by-side
-            _gran_rec = st.session_state["receita_eneva_gran"]
-            _col_btn_m, _col_btn_q, _col_btn_sp = st.columns([1, 1, 8])
-            with _col_btn_m:
-                if st.button(
-                    "MENSAL",
-                    key="receita_eneva_btn_m",
-                    type="primary" if _gran_rec == "Mensal" else "secondary",
-                    width="stretch",
-                ):
-                    st.session_state["receita_eneva_gran"] = "Mensal"
-                    st.rerun()
-            with _col_btn_q:
-                if st.button(
-                    "TRIMESTRAL",
-                    key="receita_eneva_btn_q",
-                    type="primary" if _gran_rec == "Trimestral" else "secondary",
-                    width="stretch",
-                ):
-                    st.session_state["receita_eneva_gran"] = "Trimestral"
-                    st.rerun()
+            # --- Controles: granularidade (esquerda) + datas (direita) ---
+            # Proporções alinhadas com o gráfico de despacho (col_g 3.6,
+            # spacer 3.4, date_inputs 1.5+1.5) pra paridade visual.
+            _col_g, _col_sp, _col_di, _col_df = st.columns(
+                [3.6, 3.4, 1.5, 1.5]
+            )
+            with _col_g:
+                _gran_rec = st.selectbox(
+                    "Granularidade",
+                    ["Mensal", "Trimestral"],
+                    key="receita_eneva_gran",
+                )
+            with _col_di:
+                st.date_input(
+                    "Data início",
+                    key="receita_eneva_data_ini",
+                    min_value=_rec_min_d,
+                    max_value=_rec_max_d,
+                    format="DD/MM/YYYY",
+                )
+            with _col_df:
+                st.date_input(
+                    "Data fim",
+                    key="receita_eneva_data_fim",
+                    min_value=_rec_min_d,
+                    max_value=_rec_max_d,
+                    format="DD/MM/YYYY",
+                )
 
-            _df_plot = _df_q if _gran_rec == "Trimestral" else _df_m
+            # Re-lê após os widgets (usuário pode ter alterado neste render).
+            _rec_di = pd.Timestamp(st.session_state["receita_eneva_data_ini"])
+            _rec_df_ts = pd.Timestamp(st.session_state["receita_eneva_data_fim"])
+            if _rec_di > _rec_df_ts:
+                st.warning(
+                    "Data início posterior à data fim — invertendo o período."
+                )
+                _rec_di, _rec_df_ts = _rec_df_ts, _rec_di
+
+            _eh_trim = _gran_rec == "Trimestral"
+            _df_plot = _df_q if _eh_trim else _df_m
+
+            # Filtro de período por overlap: mantém o período se ele
+            # interseta a janela [data_ini, data_fim].
+            if not _df_plot.empty:
+                _mask_per = (
+                    (_df_plot["periodo"].dt.end_time >= _rec_di)
+                    & (
+                        _df_plot["periodo"].dt.start_time
+                        <= (_rec_df_ts + pd.Timedelta(days=1))
+                    )
+                )
+                _df_plot = _df_plot[_mask_per].copy()
+
             if _df_plot.empty:
                 st.info("Sem dados para o período selecionado.")
             else:
@@ -6506,75 +6650,144 @@ elif aba == "Despacho Térmico":
                 # parcial (mesma cor com alpha menor, plotly aceita rgba).
                 _cor_principal = BAUHAUS_RED  # #CC092F
                 _cor_parcial = "rgba(204, 9, 47, 0.45)"
-
                 _cores_barras = [
                     _cor_parcial if eh_p else _cor_principal
                     for eh_p in _df_plot["eh_parcial"]
                 ]
-                _labels_x = _df_plot["label"].tolist()
-
-                # Customdata pra tooltip: ACR, SPOT, EXPORT, TOTAL, ate_dia
-                _customdata = list(zip(
-                    _df_plot["receita_acr_mn"].round(2),
-                    _df_plot["receita_spot_mn"].round(2),
-                    _df_plot["receita_export_mn"].round(2),
-                    _df_plot["receita_total_mn"].round(2),
-                    _df_plot["ate_dia"].fillna("").astype(str),
-                    _df_plot["eh_parcial"].astype(int),
-                ))
-
-                # Label do eixo X — adiciona "*" no parcial pra reforço visual
-                _labels_x_anotados = [
+                # Label do eixo X — adiciona "*" no parcial.
+                _labels_x = [
                     f"{lbl} *" if eh_p else lbl
-                    for lbl, eh_p in zip(_labels_x, _df_plot["eh_parcial"])
+                    for lbl, eh_p in zip(
+                        _df_plot["label"], _df_plot["eh_parcial"]
+                    )
                 ]
+
+                # Hover por linha (controle total — conteúdo condicional:
+                # inclui reportado/delta só onde a Cia já reportou).
+                _hover = []
+                for _, _r in _df_plot.iterrows():
+                    _h = (
+                        f"<b>{_r['label']}</b><br>"
+                        f"Estimado: R$ {_r['receita_total_mn']:,.1f} mn<br>"
+                        f"&nbsp;&nbsp;ACR R$ {_r['receita_acr_mn']:,.1f}"
+                        f" · SPOT R$ {_r['receita_spot_mn']:,.1f}"
+                        f" · Export R$ {_r['receita_export_mn']:,.1f}"
+                    )
+                    if _eh_trim and pd.notna(_r.get("reportada_total_mn")):
+                        _h += (
+                            f"<br>Reportado Eneva: R$ "
+                            f"{_r['reportada_total_mn']:,.1f} mn"
+                            f"<br>Δ estimativa: R$ {_r['delta_mn']:+,.1f} mn"
+                            f" ({_r['delta_pct']:+,.1f}%)"
+                        )
+                    if _r["eh_parcial"]:
+                        _h += (
+                            f"<br><i>parcial até {_r['ate_dia']}</i>"
+                        )
+                    _hover.append(_h)
 
                 _fig_rec = go.Figure()
                 _fig_rec.add_trace(go.Bar(
-                    x=_labels_x_anotados,
+                    x=_labels_x,
                     y=_df_plot["receita_total_mn"],
-                    marker=dict(color=_cores_barras, line=dict(
-                        color=BAUHAUS_BLACK, width=1,
-                    )),
-                    text=[f"R$ {v:,.0f}".replace(",", ".") for v in _df_plot["receita_total_mn"]],
-                    textposition="outside",
-                    textfont=dict(family="Inter, sans-serif", size=11, color=BAUHAUS_BLACK),
-                    customdata=_customdata,
-                    hovertemplate=(
-                        "<b>%{x}</b><br>"
-                        "ACR: R$ %{customdata[0]:,.2f} mn<br>"
-                        "SPOT: R$ %{customdata[1]:,.2f} mn<br>"
-                        "Exportação: R$ %{customdata[2]:,.2f} mn<br>"
-                        "<b>Total: R$ %{customdata[3]:,.2f} mn</b>"
-                        "<extra></extra>"
+                    marker=dict(
+                        color=_cores_barras,
+                        line=dict(color=BAUHAUS_BLACK, width=1),
                     ),
-                    name="Receita Total",
+                    text=[
+                        f"R$ {v:,.0f}".replace(",", ".")
+                        for v in _df_plot["receita_total_mn"]
+                    ],
+                    # Valor DENTRO da barra, no topo — evita ser ocultado
+                    # pelo marcador ◆ de receita reportada. Fonte branca
+                    # nas barras cheias; preta na barra parcial (rosa-claro,
+                    # onde branco teria contraste ruim).
+                    textposition="inside",
+                    insidetextanchor="end",
+                    textangle=0,
+                    textfont=dict(
+                        family="Inter, sans-serif", size=11,
+                        color=[
+                            BAUHAUS_BLACK if eh_p else "#FFFFFF"
+                            for eh_p in _df_plot["eh_parcial"]
+                        ],
+                    ),
+                    constraintext="none",
+                    hovertext=_hover,
+                    hovertemplate="%{hovertext}<extra></extra>",
+                    name="Estimado (modelo)",
                 ))
 
-                _altura_grafico = 460
+                # Marcador de receita reportada — só Trimestral, só nos
+                # trimestres que a Eneva já divulgou.
+                _tem_reportado = False
+                if _eh_trim and "reportada_total_mn" in _df_plot.columns:
+                    _mask_rep = _df_plot["reportada_total_mn"].notna()
+                    if _mask_rep.any():
+                        _tem_reportado = True
+                        _dfr = _df_plot[_mask_rep]
+                        _labels_rep = [
+                            f"{lbl} *" if eh_p else lbl
+                            for lbl, eh_p in zip(
+                                _dfr["label"], _dfr["eh_parcial"]
+                            )
+                        ]
+                        _fig_rec.add_trace(go.Scatter(
+                            x=_labels_rep,
+                            y=_dfr["reportada_total_mn"],
+                            mode="markers",
+                            marker=dict(
+                                symbol="diamond", size=12,
+                                color=BAUHAUS_BLUE,
+                                line=dict(color=BAUHAUS_BLACK, width=1.5),
+                            ),
+                            hovertext=[
+                                f"<b>{_rr['label']}</b><br>"
+                                f"Reportado Eneva: R$ "
+                                f"{_rr['reportada_total_mn']:,.1f} mn"
+                                for _, _rr in _dfr.iterrows()
+                            ],
+                            hovertemplate="%{hovertext}<extra></extra>",
+                            name="Reportado pela Eneva",
+                        ))
+
                 _fig_rec.update_layout(
-                    height=_altura_grafico,
-                    margin=dict(l=10, r=10, t=10, b=40),
+                    height=460,
+                    margin=dict(l=10, r=10, t=40, b=40),
                     paper_bgcolor=BAUHAUS_CREAM,
                     plot_bgcolor=BAUHAUS_CREAM,
-                    showlegend=False,
-                    hovermode="x",
+                    showlegend=_tem_reportado,
+                    legend=dict(
+                        orientation="h", yanchor="bottom", y=1.02,
+                        xanchor="left", x=0,
+                        font=dict(family="Inter, sans-serif", size=11),
+                    ),
+                    hovermode="closest",
                     xaxis=dict(
                         showgrid=False,
                         showline=True, linewidth=2, linecolor=BAUHAUS_BLACK,
                         ticks="outside", tickcolor=BAUHAUS_BLACK,
-                        tickfont=dict(family="Inter, sans-serif", size=11, color=BAUHAUS_BLACK),
+                        tickfont=dict(
+                            family="Inter, sans-serif", size=11,
+                            color=BAUHAUS_BLACK,
+                        ),
                         zeroline=False,
                     ),
                     yaxis=dict(
                         title=dict(
                             text="R$ milhões",
-                            font=dict(family="Inter, sans-serif", size=12, color=BAUHAUS_BLACK),
+                            font=dict(
+                                family="Inter, sans-serif", size=12,
+                                color=BAUHAUS_BLACK,
+                            ),
                         ),
                         showgrid=True, gridcolor=BAUHAUS_LIGHT, gridwidth=1,
                         showline=True, linewidth=2, linecolor=BAUHAUS_BLACK,
                         ticks="outside", tickcolor=BAUHAUS_BLACK,
-                        tickfont=dict(family="Inter, sans-serif", size=12, color=BAUHAUS_BLACK),
+                        tickfont=dict(
+                            family="Inter, sans-serif", size=12,
+                            color=BAUHAUS_BLACK,
+                        ),
                         zeroline=False,
                         tickformat=",.0f",
                     ),
@@ -6586,12 +6799,27 @@ elif aba == "Despacho Térmico":
                     config={"displaylogo": False},
                 )
 
-                # Legenda do "*" — só aparece se houver período parcial.
-                if _df_plot["eh_parcial"].any():
-                    _ultimo_parcial = _df_plot[_df_plot["eh_parcial"]].iloc[-1]
-                    _gran_lbl = (
-                        "trimestre" if _gran_rec == "Trimestral" else "mês"
+                # Nota explicativa do marcador reportado (só Trimestral).
+                if _tem_reportado:
+                    st.markdown(
+                        f'<div style="font-family:\'Inter\', sans-serif; '
+                        f'font-size:0.85rem; color:#6B6B6B; '
+                        f'font-style:italic; margin:0.4rem 0 0 0;">'
+                        f'◆ Receita reportada pela Eneva nos resultados '
+                        f'trimestrais. A diferença vs. a estimativa do '
+                        f'modelo indica a margem de erro esperada — o '
+                        f'trimestre corrente ainda não foi reportado pela '
+                        f'companhia.'
+                        f'</div>',
+                        unsafe_allow_html=True,
                     )
+
+                # Legenda do "*" — só se houver período parcial visível.
+                if _df_plot["eh_parcial"].any():
+                    _ultimo_parcial = (
+                        _df_plot[_df_plot["eh_parcial"]].iloc[-1]
+                    )
+                    _gran_lbl = "trimestre" if _eh_trim else "mês"
                     st.markdown(
                         f'<div style="font-family:\'Inter\', sans-serif; '
                         f'font-size:0.85rem; color:#6B6B6B; '
@@ -6604,38 +6832,57 @@ elif aba == "Despacho Térmico":
                         unsafe_allow_html=True,
                     )
 
-                # ---- Botão CSV da Receita ----
+                # ---- Download (lado direito, coluna estreita) ----
                 try:
-                    _df_csv_rec = _df_plot[[
+                    _cols_csv = [
                         "label", "receita_acr_mn", "receita_spot_mn",
                         "receita_export_mn", "receita_total_mn",
-                        "eh_parcial", "ate_dia",
-                    ]].rename(columns={
+                    ]
+                    _rename_csv = {
                         "label": "Período",
                         "receita_acr_mn": "Receita ACR (R$ mn)",
                         "receita_spot_mn": "Receita SPOT (R$ mn)",
                         "receita_export_mn": "Receita Exportação (R$ mn)",
-                        "receita_total_mn": "Receita Total (R$ mn)",
+                        "receita_total_mn": "Receita Total estimada (R$ mn)",
+                    }
+                    # Trimestral: inclui reportado + delta no CSV.
+                    if _eh_trim and "reportada_total_mn" in _df_plot.columns:
+                        _cols_csv += [
+                            "reportada_total_mn", "delta_mn", "delta_pct",
+                        ]
+                        _rename_csv.update({
+                            "reportada_total_mn":
+                                "Receita Total reportada Eneva (R$ mn)",
+                            "delta_mn": "Delta estimado-reportado (R$ mn)",
+                            "delta_pct": "Delta (%)",
+                        })
+                    _cols_csv += ["eh_parcial", "ate_dia"]
+                    _rename_csv.update({
                         "eh_parcial": "Período Parcial",
                         "ate_dia": "Cobertura até",
                     })
+                    _df_csv_rec = _df_plot[_cols_csv].rename(
+                        columns=_rename_csv
+                    )
                     _csv_rec_bytes = _df_csv_rec.to_csv(
                         index=False, sep=";", decimal=",",
                     ).encode("utf-8-sig")
                     _gran_slug_rec = (
-                        "trimestral" if _gran_rec == "Trimestral" else "mensal"
+                        "trimestral" if _eh_trim else "mensal"
                     )
-                    st.download_button(
-                        label="Baixar receita estimada (CSV)",
-                        data=_csv_rec_bytes,
-                        file_name=(
-                            f"receita_eneva_parnaiba_{_gran_slug_rec}_"
-                            f"{_ate_data.strftime('%Y%m%d')}.csv"
-                        ),
-                        mime="text/csv",
-                        width="content",
-                        key="receita_eneva_download",
-                    )
+                    _col_dl_sp, _col_dl = st.columns([3, 1])
+                    with _col_dl:
+                        st.download_button(
+                            label="Baixar CSV",
+                            data=_csv_rec_bytes,
+                            file_name=(
+                                f"receita_eneva_parnaiba_{_gran_slug_rec}_"
+                                f"{_ate_data.strftime('%Y%m%d')}.csv"
+                            ),
+                            mime="text/csv",
+                            width="stretch",
+                            key="receita_eneva_download",
+                        )
                 except Exception as _e_csv:
                     st.warning(f"Falha ao gerar CSV de receita: {_e_csv}")
 
@@ -6979,6 +7226,10 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
             key_prefix="btn_gen_",
             min_d=min_d_gen,
             max_d=max_d_gen,
+            # Estilo "botões no topo" — mesmo gap título→controles do
+            # modo Horária (_render_period_controls_horaria), pra as 3
+            # granularidades da aba Geração ficarem consistentes.
+            align_dates_bottom=False,
         )
         data_ini_gen = st.session_state["gen_data_ini"]
         data_fim_gen = st.session_state["gen_data_fim"]

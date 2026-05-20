@@ -4646,6 +4646,30 @@ Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regress
 
 **Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
 
+### 5.97 Receita Eneva (polish + Tabela B) + alinhamento de controles de período em 6 abas
+
+**Parte A — Receita Eneva (continuação do feature WIP, commit `614347e`).** O gráfico de receita estimada Parnaíba (sub-view Eneva da aba Despacho Térmico) ganhou:
+  - Selectbox de granularidade Mensal/Trimestral (substituiu botões que quebravam em 2 linhas em viewport reduzido).
+  - `date_input` início/fim à direita (padrão do dashboard); filtro por *overlap* de período.
+  - Marcador ◆ azul da receita **reportada** pela Eneva (Tabela B do backtesting) sobreposto às barras de estimativa no modo Trimestral. Constante `RECEITA_CIA_REPORTADA` em `data_loader_receita_eneva.py` (13 trimestres; **atualizar a cada divulgação de resultados da Eneva**). Helper `anexar_receita_reportada()` anexa reportado + Δ (R$ e %) ao DataFrame trimestral; Δ vai no tooltip.
+  - Valor da barra movido pra DENTRO da barra (topo, fonte branca; preta na barra parcial rosa-clara) — evita ser ocultado pelo marcador ◆.
+  - Downloads CSV da sub-view Eneva (despacho + receita) movidos pra coluna estreita à direita.
+  - **Decisão de produto:** em vez de perseguir match exato do modelo, o dashboard mostra estimativa + reportado + delta — o afastamento histórico comunica a margem de erro esperada (trimestre corrente ainda não reportado pela companhia).
+  - **Pendência de precisão (adiada):** o backtesting Excel exclui Parnaíba V de 2023 (sheet começa em 2024) e usa PLD por submercado real (NORDESTE p/ Parnaíba I-IV, NORTE p/ V) — o pipeline hoje inclui Parnaíba V desde 2023 e usa PLD Norte p/ todas. O delta vs Tabela B já expõe isso; refinar quando/se o usuário pedir.
+
+**Parte B — alinhamento date_inputs × botões de período.** O hack global `.stDateInput { margin-top: -1.5rem }` subia o widget de data inteiro pra alinhar a caixa com os botões — colava o label na linha/elemento acima. Substituído por solução nativa:
+  - `_render_period_controls` (PLD/Reservatórios/ENA): `st.columns(vertical_alignment="bottom")` + `st.container(key="periodctrl_*")` que escopa o CSS cancelando o lift -1.5rem; label ganha `margin-bottom: 6px`.
+  - Aba Modulação: mesmo tratamento (container `periodctrl_mod`).
+  - `_render_period_controls` ganhou parâmetro `align_dates_bottom` (default `True`). Geração Mensal/Diária passam `False` → botões no topo + lift -1.5rem ativo (igual ao `_render_period_controls_horaria`) → as 3 granularidades do Geração SIN ficam com o MESMO gap título→controles.
+  - Geração por Grupo: removido `<div height:1.5rem>` spacer que criava gap maior que as outras visões.
+
+**Parte C — Despacho Térmico (layout).**
+  - O CSS de cada sub-view (Sistema/Eneva) era injetado num `st.markdown(<style>)` próprio — elemento invisível que ocupava um SLOT no layout vertical (gap-fantasma linha→controles; `display:none` no container não colapsava o slot do wrapper externo). Fix definitivo: o `<style>` agora "pega carona" no MESMO `st.markdown` da linha separadora preta (strings concatenadas) — zero elemento extra. Separador padronizado em `margin-bottom: 1.2rem` (= PLD/Reservatórios).
+  - Botões 12M/Máx redimensionados pra largura dos MWM/GWH (`1.155`) — paridade estética.
+  - Checkboxes de trimestre (1T-4T) movidos da 3ª linha pra row 1: em Trimestral a row 1 ganha uma coluna `col_trim` (entre Granularidade e Usina) — economiza uma linha. `margin-top: 1.5rem` nos checkboxes centraliza com a caixa do selectbox. Aplicado em SIN e Eneva.
+
+**Parte D — captions Reservatórios/ENA.** Reservatórios: as 2 notas (Dados atualizados / Faixas azuis) viraram 1 linha (`flex space-between`). ENA: removida a 3ª nota ("valores acima de 250%…") — redundante com o tooltip; margem inferior reduzida pra aproximar os gráficos.
+
 ### 5.96 Modulação · período corrente parcial + sub-view fantasma com legibilidade
 
 **Modulação — label "(até XX)" no período corrente parcial:** pattern análogo ao PLD §5.90. O `_calcular_spread()` já preservava o último período mesmo se parcial (não dropa como os intermediários), mas a UI mostrava só `mai/26` ou `2T26` sem indicar até quando vai o cálculo — confundia com período fechado.

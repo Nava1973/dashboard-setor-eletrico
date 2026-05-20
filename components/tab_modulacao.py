@@ -799,7 +799,16 @@ def _render_aba_modulacao_impl() -> None:
     st.session_state.setdefault("mod_granularidade", "mensal")
     st.session_state.setdefault("mod_datas_custom", False)
     gran_opts = ["mensal", "trimestral", "semanal"]
-    cols = st.columns([2, 1, 1, 1, 5.2, 1.5, 1.5])
+    # Container keyed ("periodctrl_*") escopa o CSS que cancela o lift
+    # -1.5rem global do stDateInput; vertical_alignment="bottom" encosta
+    # a base das caixas de data na base dos botões/selectbox — mesmo
+    # alinhamento robusto aplicado em PLD/Reservatórios/ENA. Ver bloco
+    # "Controles de período" no <style> global do app.py.
+    with st.container(key="periodctrl_mod"):
+        cols = st.columns(
+            [2, 1, 1, 1, 5.2, 1.5, 1.5],
+            vertical_alignment="bottom",
+        )
 
     with cols[0]:
         granularidade = st.selectbox(

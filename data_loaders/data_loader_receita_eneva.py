@@ -790,6 +790,83 @@ def agregar_receita_trimestral(
 
 
 # ---------------------------------------------------------------------------
+# Receita reportada pela Eneva (Tabela B do Excel de backtesting)
+# ---------------------------------------------------------------------------
+#
+# Valores TRIMESTRAIS em R$ milhões efetivamente reportados pela Eneva nos
+# resultados trimestrais. Servem de referência ("número real") contra a
+# receita ESTIMADA pelo modelo — o delta entre os dois comunica a margem de
+# erro esperada, sobretudo no trimestre corrente (ainda não reportado pela
+# companhia).
+#
+# >>> MANUTENÇÃO: a Eneva divulga resultados ~1x por trimestre. A cada nova
+#     divulgação, adicionar a chave (ano, trimestre) com os valores do
+#     release. Trimestres ausentes do dict = "ainda não reportado" → o
+#     dashboard mostra só a estimativa, sem o marcador de reportado.
+#
+# Fonte: Tabela B da sheet "Consolidado" do backtesting
+# (geracao_eneva_2023_2026_completo_v4.xlsx). Em 2023 a fonte só trazia o
+# TOTAL trimestral (sem quebra ACR/SPOT/Export) — breakdown fica None.
+RECEITA_CIA_REPORTADA: dict[tuple[int, int], dict] = {
+    (2023, 1): {"acr": None,  "spot": None,  "export": None,  "total": 111.8},
+    (2023, 2): {"acr": None,  "spot": None,  "export": None,  "total": 333.9},
+    (2023, 3): {"acr": None,  "spot": None,  "export": None,  "total": 138.1},
+    (2023, 4): {"acr": None,  "spot": None,  "export": None,  "total": 203.4},
+    (2024, 1): {"acr": 31.3,  "spot": 61.1,  "export": 56.7,  "total": 149.0},
+    (2024, 2): {"acr": 1.8,   "spot": -15.9, "export": 77.6,  "total": 63.5},
+    (2024, 3): {"acr": 158.2, "spot": 113.9, "export": 319.1, "total": 591.2},
+    (2024, 4): {"acr": 158.8, "spot": 133.8, "export": 24.1,  "total": 316.7},
+    (2025, 1): {"acr": 0.3,   "spot": 9.5,   "export": 43.1,  "total": 52.9},
+    (2025, 2): {"acr": 126.3, "spot": 79.4,  "export": 18.7,  "total": 224.3},
+    (2025, 3): {"acr": 348.6, "spot": 133.1, "export": 42.7,  "total": 524.5},
+    (2025, 4): {"acr": 305.0, "spot": 128.8, "export": -0.1,  "total": 433.7},
+    (2026, 1): {"acr": 332.5, "spot": 55.2,  "export": 0.0,   "total": 387.7},
+}
+
+
+def anexar_receita_reportada(df_q: pd.DataFrame) -> pd.DataFrame:
+    """Anexa receita reportada pela Eneva + delta ao DataFrame TRIMESTRAL.
+
+    Args:
+        df_q: saída de agregar_receita_trimestral (precisa da coluna
+            'periodo' como Period[Q] e 'receita_total_mn').
+
+    Returns:
+        Cópia de df_q com 3 colunas extras:
+            reportada_total_mn (float): total reportado pela Cia (R$ mn);
+                NaN se o trimestre ainda não foi reportado.
+            delta_mn (float): estimado − reportado (R$ mn); NaN se sem reporte.
+            delta_pct (float): delta_mn / reportado × 100; NaN se sem reporte.
+    """
+    df = df_q.copy()
+    if df.empty or "periodo" not in df.columns:
+        df["reportada_total_mn"] = float("nan")
+        df["delta_mn"] = float("nan")
+        df["delta_pct"] = float("nan")
+        return df
+
+    rep, dmn, dpc = [], [], []
+    for _, row in df.iterrows():
+        p = row["periodo"]
+        info = RECEITA_CIA_REPORTADA.get((p.year, p.quarter))
+        if info is None or info.get("total") is None:
+            rep.append(float("nan"))
+            dmn.append(float("nan"))
+            dpc.append(float("nan"))
+            continue
+        r = float(info["total"])
+        e = float(row["receita_total_mn"])
+        rep.append(r)
+        dmn.append(e - r)
+        dpc.append((e - r) / r * 100.0 if abs(r) > 1e-9 else float("nan"))
+
+    df["reportada_total_mn"] = rep
+    df["delta_mn"] = dmn
+    df["delta_pct"] = dpc
+    return df
+
+
+# ---------------------------------------------------------------------------
 # API pública — Cache management
 # ---------------------------------------------------------------------------
 
