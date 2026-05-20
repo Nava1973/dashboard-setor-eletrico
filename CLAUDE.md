@@ -4646,6 +4646,44 @@ Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regress
 
 **Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
 
+### 5.98 i18n PT/EN — Fase 1 (casca: sidebar, menu, toggle)
+
+Internacionalização do dashboard em fases. **Fase 1 = a "casca"** (sidebar):
+o resto das abas vem em fases seguintes.
+
+**Mecânica (`utils/i18n.py`):**
+  - Idioma corrente em `st.session_state["idioma"]` ("pt" | "en"), default "pt".
+  - `t(texto_pt)` → em "pt" devolve o argumento; em "en" busca em
+    `TRADUCOES_EN` (dict PT→EN) com **fallback pro texto PT**. O fallback é
+    proposital: durante a migração incremental, strings ainda não
+    traduzidas só aparecem em português — nada quebra.
+  - A CHAVE do dict é a própria string PT → não precisa inventar nomes de
+    chave; basta envolver `"texto"` → `t("texto")`.
+  - Acrônimos do setor (PLD, ENA, MLT, GSF, CVU, SIN, MWmed…) NÃO entram
+    no dict — o fallback devolve o próprio acrônimo (decisão: manter).
+
+**Toggle de idioma:** botão ÚNICO no topo da sidebar, ao lado do primeiro
+nome do usuário. Exibe o idioma ATUAL ("BR"/"EN") e cada clique alterna.
+Estilizado como texto puro (fundo transparente, cinza, sem borda).
+  - Iterações de UX: começou como 2 botões → selectbox (caret do campo de
+    busca interno virava uma "linha branca" + truncava "P…") → de volta a
+    botão único, decisão final.
+  - Lições de CSS no botão: (a) o fundo branco default do botão secundário
+    do Streamlit no estado SEM foco exigiu subir a especificidade do
+    seletor (`[class*="st-key-..."] .stButton button`) — a regra `:focus`
+    sozinha tinha especificidade maior e mascarava o problema; (b)
+    alinhamento com o nome resolvido por construção: nome e botão com a
+    MESMA `height: 2.2rem` + `margin-top: 0.6rem`.
+
+**Cuidados técnicos:**
+  - Keys dos botões de menu continuam em PT (`nav_aba_PLD` etc.) → o CSS
+    do menu e o `if aba == "..."` downstream seguem intactos; só o LABEL
+    é traduzido via `t()`.
+  - O JS `marcarBotoesSidebar` (marca Sair/Atualizar por texto) foi
+    atualizado pra reconhecer também "Sign out"/"Refresh".
+  - `auth.py` `logout_button` ganhou parâmetro `label` (o caller passa
+    `t("Sair")`).
+
 ### 5.97 Receita Eneva (polish + Tabela B) + alinhamento de controles de período em 6 abas
 
 **Parte A — Receita Eneva (continuação do feature WIP, commit `614347e`).** O gráfico de receita estimada Parnaíba (sub-view Eneva da aba Despacho Térmico) ganhou:

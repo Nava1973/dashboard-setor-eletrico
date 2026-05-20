@@ -495,16 +495,21 @@ def require_login() -> str | None:
     return name or username
 
 
-def logout_button(location: str = "main", key: str = "logout_main") -> None:
+def logout_button(
+    location: str = "main",
+    key: str = "logout_main",
+    label: str = "Sair",
+) -> None:
     """
     Renderiza o botão de logout. Pode ser chamado de qualquer lugar do app.
     location: "main" (topo do app) ou "sidebar"
+    label: texto do botão (o caller passa t("Sair") pra i18n PT/EN).
     """
     auth = st.session_state.get("_authenticator")
     if auth is None:
         return
     try:
-        auth.logout("Sair", location, key=key)
+        auth.logout(label, location, key=key)
     except TypeError:
         # Versões antigas não aceitam 'key'
-        auth.logout("Sair", location)
+        auth.logout(label, location)

@@ -53,6 +53,8 @@ from utils.cores_fontes import (
     COR_FONTE_HIDRO,
     COR_FONTE_TERMICA,
 )
+# i18n PT/EN (Fase 1 — casca). t() devolve PT como está ou a tradução EN.
+from utils.i18n import t
 
 # Mapa de granularidade → loader. Usado por get_pld_df().
 # Fase 1: só "diario" é ativado (session_state hardcoded).
@@ -881,9 +883,12 @@ components.html(
             const botoes = sidebar.querySelectorAll('.stButton button');
             botoes.forEach(btn => {
                 const texto = btn.textContent.trim();
-                if (texto === 'Sair' || texto === 'Logout') {
+                // Reconhece rótulos PT e EN (i18n): o toggle de idioma
+                // troca o texto do botão em runtime.
+                if (texto === 'Sair' || texto === 'Logout'
+                        || texto === 'Sign out') {
                     btn.setAttribute('data-sair', 'true');
-                } else if (texto === 'Atualizar') {
+                } else if (texto === 'Atualizar' || texto === 'Refresh') {
                     btn.setAttribute('data-atualizar', 'true');
                 }
             });
@@ -1580,17 +1585,40 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
     st.markdown(
-        '<div class="sidebar-title">Setor Elétrico · Brasil</div>',
+        f'<div class="sidebar-title">{t("Setor Elétrico · Brasil")}</div>',
         unsafe_allow_html=True,
     )
-    st.markdown(
-        f'<div class="sidebar-username">'
-        f'<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" '
-        f'aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 '
-        f'1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>'
-        f'</svg><span>{user}</span></div>',
-        unsafe_allow_html=True,
-    )
+    # Primeiro nome do usuário + dropdown de idioma PT/EN na MESMA linha
+    # (i18n Fase 1). Só o primeiro nome (sem sobrenome) — mais limpo.
+    # O idioma vive em st.session_state["idioma"] (default "pt").
+    if "idioma" not in st.session_state:
+        st.session_state["idioma"] = "pt"
+    _primeiro_nome = user.split()[0] if (user and user.split()) else user
+    # Nome + toggle de idioma na mesma linha. O toggle é UM ÚNICO botão
+    # que alterna BR↔EN a cada clique e exibe o idioma ATUAL (BR = dash
+    # em português, EN = inglês). Estilizado como texto puro (fundo da
+    # sidebar, sem borda) — discreto. Altura travada em 2.2rem via CSS,
+    # igual a .sidebar-username → alinhado com o nome por construção.
+    _col_user, _col_idi = st.columns([3, 1])
+    with _col_user:
+        st.markdown(
+            f'<div class="sidebar-username">'
+            f'<svg width="16" height="16" viewBox="0 0 24 24" '
+            f'fill="currentColor" aria-hidden="true"><path d="M12 12c2.21 0 '
+            f'4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 '
+            f'1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'
+            f'<span>{_primeiro_nome}</span></div>',
+            unsafe_allow_html=True,
+        )
+    with _col_idi:
+        _label_idioma = "BR" if st.session_state["idioma"] == "pt" else "EN"
+        if st.button(
+            _label_idioma, key="nav_idioma_toggle", width="stretch",
+        ):
+            st.session_state["idioma"] = (
+                "en" if st.session_state["idioma"] == "pt" else "pt"
+            )
+            st.rerun()
 
     # Botões Sair e Atualizar — mesmo estilo: borda vermelha fina, fundo transparente,
     # texto vermelho. JS marca cada um com data-sair/data-atualizar pra CSS atingir.
@@ -1694,12 +1722,56 @@ with st.sidebar:
             font-size: 1rem !important;
             font-weight: 600 !important;
             color: #A0A0A0 !important;
-            margin: 0.8rem 0 0 0 !important;
+            /* O nome vive numa st.columns ao lado do botão de idioma.
+               margin-top 0.6rem + height 2.2rem IGUAIS aos do botão →
+               os dois descem juntos e ficam alinhados por construção. */
+            margin: 0.6rem 0 0 0 !important;
+            height: 2.2rem !important;
             /* flex: ícone de usuário (SVG, herda a cor via currentColor)
                + nome alinhados verticalmente, com um gap pequeno. */
             display: flex !important;
             align-items: center !important;
             gap: 0.4rem !important;
+        }
+
+        /* Toggle de idioma (i18n) — botão BR↔EN "invisível". A cadeia
+           [class*="st-key-..."] .stButton button dá especificidade alta
+           o bastante pra vencer o fundo BRANCO default do botão também
+           no estado SEM foco (o bug anterior: só ganhava com :focus).
+           Transparente em todos os estados; sem borda/sombra/contorno.
+           Altura 2.2rem + margin-top 0.6rem = .sidebar-username →
+           alinhado com o nome. Letra cinza; hover clareia. */
+        [data-testid="stSidebar"] [class*="st-key-nav_idioma_toggle"]
+            .stButton button,
+        [data-testid="stSidebar"] [class*="st-key-nav_idioma_toggle"]
+            .stButton button:hover,
+        [data-testid="stSidebar"] [class*="st-key-nav_idioma_toggle"]
+            .stButton button:focus,
+        [data-testid="stSidebar"] [class*="st-key-nav_idioma_toggle"]
+            .stButton button:active,
+        [data-testid="stSidebar"] [class*="st-key-nav_idioma_toggle"]
+            .stButton button:focus-visible {
+            background: transparent !important;
+            background-color: transparent !important;
+            border: none !important;
+            border-color: transparent !important;
+            box-shadow: none !important;
+            outline: none !important;
+            min-height: 2.2rem !important;
+            height: 2.2rem !important;
+            margin-top: 0.6rem !important;
+            padding: 0 !important;
+            justify-content: flex-end !important;
+        }
+        [data-testid="stSidebar"] [class*="st-key-nav_idioma_toggle"]
+            .stButton button * {
+            color: #999999 !important;
+            font-size: 0.8rem !important;
+            font-weight: 600 !important;
+        }
+        [data-testid="stSidebar"] [class*="st-key-nav_idioma_toggle"]
+            .stButton button:hover * {
+            color: #FFFFFF !important;
         }
 
         /* Cabeçalho da seção de autores — Bebas Neue vermelho Bradesco.
@@ -1933,8 +2005,8 @@ with st.sidebar:
         """,
         unsafe_allow_html=True,
     )
-    # Botão Sair
-    logout_button(location="sidebar", key="logout_sidebar")
+    # Botão Sair (rótulo traduzido via i18n)
+    logout_button(location="sidebar", key="logout_sidebar", label=t("Sair"))
 
     st.divider()
 
@@ -1969,7 +2041,7 @@ with st.sidebar:
     for _aba_opcao in abas_principais:
         _is_active = (st.session_state["aba_selecionada"] == _aba_opcao)
         if st.button(
-            _aba_opcao,
+            t(_aba_opcao),
             key=f"nav_aba_{_aba_opcao}",
             type="primary" if _is_active else "secondary",
             width="stretch",
@@ -1987,7 +2059,9 @@ with st.sidebar:
                     _is_active
                     and st.session_state["termico_subview"] == _valor
                 )
-                _label_display = f"│ {_label}" if _is_sub_active else _label
+                _label_display = (
+                    f"│ {t(_label)}" if _is_sub_active else t(_label)
+                )
                 if st.button(
                     _label_display,
                     key=f"nav_sub_term_{_valor}",
@@ -2013,7 +2087,7 @@ with st.sidebar:
                     and st.session_state["geracao_subview"] == _valor
                 )
                 _label_display = (
-                    f"│ {_label}" if _is_sub_active else _label
+                    f"│ {t(_label)}" if _is_sub_active else t(_label)
                 )
                 if st.button(
                     _label_display,
@@ -2039,7 +2113,7 @@ with st.sidebar:
                     and st.session_state["modulacao_subview"] == _valor
                 )
                 _label_display = (
-                    f"│ {_label}" if _is_sub_active else _label
+                    f"│ {t(_label)}" if _is_sub_active else t(_label)
                 )
                 if st.button(
                     _label_display,
@@ -2065,7 +2139,7 @@ with st.sidebar:
                     and st.session_state["carga_subview"] == _valor
                 )
                 _label_display = (
-                    f"│ {_label}" if _is_sub_active else _label
+                    f"│ {t(_label)}" if _is_sub_active else t(_label)
                 )
                 if st.button(
                     _label_display,
@@ -2080,13 +2154,13 @@ with st.sidebar:
     aba = st.session_state["aba_selecionada"]
 
     st.divider()
-    if st.button("Atualizar", width="stretch"):
+    if st.button(t("Atualizar"), width="stretch"):
         clear_cache()
         clear_modulacao_disk_cache()
         st.rerun()
 
     st.caption(
-        "Dados atualizados automaticamente 1x ao dia."
+        t("Dados atualizados automaticamente 1x ao dia.")
     )
 
     # Autores — rodapé da sidebar (1 nome por linha, alinhados à esquerda).
