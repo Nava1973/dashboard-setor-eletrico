@@ -444,6 +444,22 @@ st.markdown(
         margin-bottom: 6px !important;
     }}
 
+    /* Período (MOBILE): em tela estreita o Streamlit empilha os botões de
+       preset (1M/3M/…) e os date_inputs 1 por linha — ocupa meia tela.
+       Aqui forçamos a fileira a FLUIR lado a lado (flex-wrap) em vez de
+       empilhar. Escopo: containers periodrow_* do _render_period_controls. */
+    @media (max-width: 768px) {{
+        [class*="st-key-periodrow"] [data-testid="stHorizontalBlock"] {{
+            flex-wrap: wrap !important;
+            gap: 0.3rem !important;
+        }}
+        [class*="st-key-periodrow"] [data-testid="stColumn"] {{
+            min-width: 3.2rem !important;
+            width: auto !important;
+            flex: 1 1 3.2rem !important;
+        }}
+    }}
+
     /* Bloco principal — compacto, sobe o título PLD pro topo */
     .block-container {{
         padding-top: 0 !important;
@@ -993,14 +1009,20 @@ def _render_period_controls(
     #   -1.5rem global do date_input mantém a caixa alinhada com eles.
     #   Espelha o _render_period_controls_horaria pra que as 3
     #   granularidades da aba Geração tenham o MESMO gap título→controles.
-    if align_dates_bottom:
-        with st.container(key=f"periodctrl_{key_prefix}"):
-            cols = st.columns(
-                [1] * n + [0.3, date_ratio, date_ratio],
-                vertical_alignment="bottom",
-            )
-    else:
-        cols = st.columns([1] * n + [0.3, date_ratio, date_ratio])
+    # Container externo `periodrow_` marca a fileira inteira pro CSS
+    # responsivo (bloco "Período (MOBILE)" no <style>) — sem ele o
+    # Streamlit empilha os 5+ botões 1 por linha em tela estreita.
+    with st.container(key=f"periodrow_{key_prefix}"):
+        if align_dates_bottom:
+            # Container interno `periodctrl_` escopa o CSS de alinhamento
+            # das caixas de data (cancela o lift -1.5rem global).
+            with st.container(key=f"periodctrl_{key_prefix}"):
+                cols = st.columns(
+                    [1] * n + [0.3, date_ratio, date_ratio],
+                    vertical_alignment="bottom",
+                )
+        else:
+            cols = st.columns([1] * n + [0.3, date_ratio, date_ratio])
 
     for i, (label, delta, is_max) in enumerate(presets):
         with cols[i]:
