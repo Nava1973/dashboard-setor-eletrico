@@ -63,6 +63,7 @@ TRADUCOES_EN: dict[str, str] = {
 
     # --- Sidebar — controles e rodapé ---
     "Idioma": "Language",
+    "Navegação": "Navigation",
     "Atualizar": "Refresh",
     "Sair": "Sign out",
     "Dados atualizados automaticamente 1x ao dia.":

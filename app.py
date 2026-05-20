@@ -1984,6 +1984,23 @@ with st.sidebar:
             margin-bottom: -1rem !important;
         }
 
+        /* --- Navegação responsiva (opção 3) ---
+           Mobile (<=768px): esconde o menu de BOTÕES (abas + sub-views) e
+           o dropdown aparece no lugar. Desktop (>=769px): esconde o
+           dropdown e os botões aparecem. Os dois widgets coexistem no DOM
+           — o CSS só decide qual fica visível em cada largura de tela. */
+        @media (max-width: 768px) {
+            [data-testid="stSidebar"] [class*="st-key-nav_aba_"],
+            [data-testid="stSidebar"] [class*="st-key-nav_sub_"] {
+                display: none !important;
+            }
+        }
+        @media (min-width: 769px) {
+            [data-testid="stSidebar"] [class*="st-key-nav_mobile_dropdown"] {
+                display: none !important;
+            }
+        }
+
         /* DESKTOP only: hover na aba pai OU na propria sub expande fantasma.
            A regra `[sub]:hover` mantem expandido quando mouse desce da aba
            pra clicar na sub (sem ela, menu colapsa antes do click chegar). */
@@ -2005,8 +2022,16 @@ with st.sidebar:
         """,
         unsafe_allow_html=True,
     )
-    # Botão Sair (rótulo traduzido via i18n)
-    logout_button(location="sidebar", key="logout_sidebar", label=t("Sair"))
+    # Botão Sair — rótulo traduzido via i18n. Chamada DEFENSIVA: se o
+    # auth.py em execução ainda não tiver o parâmetro `label` (deploy
+    # parcial / cache de módulo Python no Streamlit Cloud), cai no
+    # fallback sem `label` em vez de derrubar o app inteiro com TypeError.
+    try:
+        logout_button(
+            location="sidebar", key="logout_sidebar", label=t("Sair"),
+        )
+    except TypeError:
+        logout_button(location="sidebar", key="logout_sidebar")
 
     st.divider()
 
@@ -2150,6 +2175,72 @@ with st.sidebar:
                     st.session_state["aba_selecionada"] = "Carga"
                     st.session_state["carga_subview"] = _valor
                     st.rerun()
+
+    # --- Navegação MOBILE: dropdown (opção 3) ----------------------------
+    # Aditivo ao menu de botões acima. O CSS @media (bloco "Navegação
+    # responsiva" no <style>) mostra ESTE dropdown só no mobile e esconde
+    # o menu de botões; no desktop é o inverso. Os dois escrevem em
+    # aba_selecionada / *_subview — são só duas vistas da mesma navegação.
+    #
+    # _NAV_DESTINOS: lista achatada (aba + sub-view) pro dropdown.
+    # >>> MANTER EM SYNC com as sub-views do loop de botões acima. <<<
+    _NAV_DESTINOS = [
+        # (aba, subview_label_pt, subview_key, subview_value)
+        ("PLD",              None,                     None,                None),
+        ("Modulação",        "Por Submercado/Fonte",   "modulacao_subview", "Submercado"),
+        ("Modulação",        "Receita por Empresa",    "modulacao_subview", "Receita"),
+        ("Reservatórios",    None,                     None,                None),
+        ("ENA/Chuva",        None,                     None,                None),
+        ("Despacho Térmico", "Eneva",                  "termico_subview",   "Eneva"),
+        ("Despacho Térmico", "SIN",                    "termico_subview",   "Sistema"),
+        ("Geração",          "SIN",                    "geracao_subview",   "SIN"),
+        ("Geração",          "Eólica/Solar por Grupo", "geracao_subview",   "Grupo"),
+        ("Geração",          "GSF",                    "geracao_subview",   "GSF"),
+        ("Carga",            "Visão Geral",            "carga_subview",     "Geral"),
+        ("Carga",            "Crescimento",            "carga_subview",     "Crescimento"),
+        ("Curtailment",      None,                     None,                None),
+        ("Capacidade",       None,                     None,                None),
+    ]
+    if _eh_admin_aux(user):
+        _NAV_DESTINOS.append(("Admin", None, None, None))
+
+    def _nav_destino_label(_i: int) -> str:
+        _aba, _sub_pt, _, _ = _NAV_DESTINOS[_i]
+        return t(_aba) if _sub_pt is None else f"{t(_aba)} · {t(_sub_pt)}"
+
+    def _nav_destino_atual_idx() -> int:
+        _aba_sel = st.session_state["aba_selecionada"]
+        for _i, (_a, _sp, _sk, _sv) in enumerate(_NAV_DESTINOS):
+            if _a == _aba_sel and (
+                _sk is None or st.session_state.get(_sk) == _sv
+            ):
+                return _i
+        # fallback — 1º destino da aba selecionada (ou 0)
+        for _i, (_a, *_r) in enumerate(_NAV_DESTINOS):
+            if _a == _aba_sel:
+                return _i
+        return 0
+
+    def _on_nav_dropdown():
+        _i = st.session_state.get("nav_dropdown_select", 0)
+        _a, _sp, _sk, _sv = _NAV_DESTINOS[_i]
+        st.session_state["aba_selecionada"] = _a
+        if _sk is not None:
+            st.session_state[_sk] = _sv
+
+    # Pré-sincroniza o dropdown com o estado atual ANTES de instanciá-lo
+    # (cobre navegação feita pelos botões no desktop). Setar a key antes
+    # do widget é permitido pelo Streamlit.
+    st.session_state["nav_dropdown_select"] = _nav_destino_atual_idx()
+    with st.container(key="nav_mobile_dropdown"):
+        st.selectbox(
+            t("Navegação"),
+            options=list(range(len(_NAV_DESTINOS))),
+            format_func=_nav_destino_label,
+            key="nav_dropdown_select",
+            on_change=_on_nav_dropdown,
+            label_visibility="collapsed",
+        )
 
     aba = st.session_state["aba_selecionada"]
 
