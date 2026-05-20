@@ -173,6 +173,13 @@ st.markdown(
         margin-top: 0 !important;
         margin-bottom: 0 !important;
     }}
+    /* Título das abas (h1) — fonte reduzida no MOBILE pra não ocupar
+       largura demais / quebrar feio em tela estreita. Desktop intacto. */
+    @media (max-width: 768px) {{
+        h1 {{
+            font-size: 1.5rem !important;
+        }}
+    }}
     h3 {{
         font-size: 1rem !important;
         letter-spacing: 0.05em !important;
@@ -478,6 +485,65 @@ st.markdown(
             flex: 1 1 1rem !important;
             min-width: 0 !important;
             width: auto !important;
+        }}
+    }}
+
+    /* Geração · SIN (MOBILE) — 3 ajustes:
+       (1) granularidade + submercado lado a lado (container gen_ctrl);
+       (2) botões de preset com fonte menor — a Diária tem 7 botões e o
+           texto (10A / Máx…) encavalava em 2 linhas;
+       (3) modo Horária: botões de preset + caixa "Data base" todos numa
+           fileira única (container periodhora_*). Desktop intacto. */
+    @media (max-width: 768px) {{
+        /* (1) granularidade + submercado na MESMA linha */
+        [class*="st-key-gen_ctrl"] [data-testid="stHorizontalBlock"] {{
+            flex-wrap: nowrap !important;
+            gap: 0.4rem !important;
+        }}
+        [class*="st-key-gen_ctrl"]
+            [data-testid="stColumn"]:nth-child(1),
+        [class*="st-key-gen_ctrl"]
+            [data-testid="stColumn"]:nth-child(2) {{
+            flex: 1 1 0 !important;
+            min-width: 0 !important;
+        }}
+        [class*="st-key-gen_ctrl"]
+            [data-testid="stColumn"]:nth-child(3) {{
+            display: none !important;
+        }}
+
+        /* (2) botões de preset da Geração (Diária/Mensal/Dia Típico) —
+           fonte e padding menores pra caber em 1 linha mesmo com 7. */
+        [class*="st-key-periodrow_btn_gen_"] .stButton button {{
+            padding-left: 0.15rem !important;
+            padding-right: 0.15rem !important;
+        }}
+        [class*="st-key-periodrow_btn_gen_"] .stButton button,
+        [class*="st-key-periodrow_btn_gen_"] .stButton button * {{
+            font-size: 0.72rem !important;
+            white-space: nowrap !important;
+        }}
+
+        /* (3) modo Horária — presets + Data base numa fileira só */
+        [class*="st-key-periodhora"] [data-testid="stHorizontalBlock"] {{
+            flex-wrap: nowrap !important;
+            gap: 0.3rem !important;
+        }}
+        [class*="st-key-periodhora"] [data-testid="stColumn"] {{
+            min-width: 0 !important;
+        }}
+        [class*="st-key-periodhora"]
+            [data-testid="stColumn"]:has(.stButton) {{
+            flex: 1 1 0 !important;
+        }}
+        [class*="st-key-periodhora"]
+            [data-testid="stColumn"]:has([data-testid="stDateInput"]) {{
+            flex: 2.4 1 0 !important;
+        }}
+        /* spacer + coluna vazia final → somem no mobile */
+        [class*="st-key-periodhora"]
+            [data-testid="stColumn"]:not(:has(.stButton)):not(:has([data-testid="stDateInput"])) {{
+            display: none !important;
         }}
     }}
 
@@ -1282,7 +1348,12 @@ def _render_period_controls_horaria(
             break
 
     n = len(presets)
-    cols = st.columns([1] * n + [0.3, 1.4, 1.4])
+    # Container keyed `periodhora_*` (NÃO usa o prefixo "periodrow" de
+    # propósito — não queremos a regra que joga o date_input pra 2ª linha).
+    # Escopa o CSS @media que no MOBILE põe os botões de preset + a caixa
+    # "Data base" todos numa ÚNICA fileira. Desktop intacto.
+    with st.container(key=f"periodhora_{key_prefix}"):
+        cols = st.columns([1] * n + [0.3, 1.4, 1.4])
 
     for i, (label, window, _) in enumerate(presets):
         with cols[i]:
@@ -4231,7 +4302,7 @@ elif aba == "Despacho Térmico":
     # Lag de 1 render no click do pill — no render do click, título mostra
     # valor antigo até o st.rerun() completar (sem flicker perceptível).
     if _subview == "Sistema":
-        _titulo_aba = "SIN · Despacho Termelétrico Total"
+        _titulo_aba = "SIN · Despacho Termelétrico"
     else:
         _titulo_aba = "Eneva · Despacho Termelétrico"
     # Título. A LINHA separadora preta NÃO é renderizada aqui — ela é
@@ -4665,7 +4736,7 @@ elif aba == "Despacho Térmico":
     if st.session_state["termico_subview"] == "Sistema":
         # === Sub-view Sistema — Fase E ===
         # Caption interno removido na Fase E.11 — título dinâmico no topo
-        # do bloco da aba já mostra "SIN - Despacho Termelétrico Total (MWm)".
+        # do bloco da aba já mostra "SIN · Despacho Termelétrico".
 
         # Fix de alinhamento (Fase E.2 / Item 1):
         # CSS global em app.py:359-362 aplica margin-top:-1.5rem em todo
@@ -7299,7 +7370,12 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
         st.session_state["gen_granularidade"] = "Horária"
 
     # --- Controles: granularidade + submercado ---
-    ctrl_cols = st.columns([1.2, 1.8, 3.2])
+    # Wrapped no container keyed `gen_ctrl` — escopa o CSS @media que no
+    # MOBILE mantém os 2 selectboxes lado a lado (sem isso o Streamlit
+    # empilha 1 por linha). Ratios iguais (1.8/1.8) → os dois selects têm
+    # a MESMA largura no desktop; a 3ª coluna é só spacer (some no mobile).
+    with st.container(key="gen_ctrl"):
+        ctrl_cols = st.columns([1.8, 1.8, 2.6])
     with ctrl_cols[0]:
         granularidade_gen = st.selectbox(
             "Granularidade",
@@ -7401,7 +7477,7 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
         # dataset). Inits SEPARADOS por key: gen_data_base pode virar None
         # (st.date_input retorna None se o campo for limpado), e
         # reinicializar gen_data_base nesse caso NÃO deve ressetar window,
-        # senão apagaria o preset 7D/30D/90D recém-clicado.
+        # senão apagaria o preset 7D/30D recém-clicado.
         #
         # - gen_data_base: trata ausente E None (`not get()`). Fallback de
         #   gen_data_fim também protegido com `or` pra tratar None.
@@ -7419,7 +7495,6 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
             ("1D",  1,  False),
             ("7D",  7,  False),
             ("30D", 30, False),
-            ("90D", 90, False),
         ]
         _render_period_controls_horaria(
             presets=presets_hora,
