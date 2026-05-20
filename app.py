@@ -535,10 +535,20 @@ st.markdown(
         [class*="st-key-periodhora"]
             [data-testid="stColumn"]:has(.stButton) {{
             flex: 1 1 0 !important;
+            /* alinha os botões pela BASE da fileira → encostam na caixa
+               do date_input (que tem o label "Data base" em cima). */
+            align-self: flex-end !important;
         }}
         [class*="st-key-periodhora"]
             [data-testid="stColumn"]:has([data-testid="stDateInput"]) {{
             flex: 2.4 1 0 !important;
+        }}
+        /* Cancela o lift global -1.5rem do date_input dentro do
+           periodhora: sem isso, no mobile o label "Data base" sobe e
+           encavala na linha de cima (granularidade/submercado). */
+        [class*="st-key-periodhora"] [data-testid="stDateInput"],
+        [class*="st-key-periodhora"] .stDateInput {{
+            margin-top: 0 !important;
         }}
         /* spacer + coluna vazia final → somem no mobile */
         [class*="st-key-periodhora"]
@@ -1832,7 +1842,7 @@ with st.sidebar:
     # em português, EN = inglês). Estilizado como texto puro (fundo da
     # sidebar, sem borda) — discreto. Altura travada em 2.2rem via CSS,
     # igual a .sidebar-username → alinhado com o nome por construção.
-    _col_user, _col_idi = st.columns([3, 1])
+    _col_user, _col_logout, _col_idi = st.columns([2.4, 0.7, 1])
     with _col_user:
         st.markdown(
             f'<div class="sidebar-username">'
@@ -1843,6 +1853,18 @@ with st.sidebar:
             f'<span>{_primeiro_nome}</span></div>',
             unsafe_allow_html=True,
         )
+    with _col_logout:
+        # Logout minimalista — ícone "pessoa caminhando" (Material Symbol
+        # directions_walk), cinza igual ao toggle BR/EN, logo ao lado do
+        # nome. Substitui o antigo botão "Sair" grande. Chamada defensiva
+        # (TypeError) preservada pro caso de cache de módulo no Cloud.
+        try:
+            logout_button(
+                location="sidebar", key="logout_sidebar",
+                label=":material/directions_walk:",
+            )
+        except TypeError:
+            logout_button(location="sidebar", key="logout_sidebar")
     with _col_idi:
         _label_idioma = "BR" if st.session_state["idioma"] == "pt" else "EN"
         if st.button(
@@ -2003,6 +2025,43 @@ with st.sidebar:
             font-weight: 600 !important;
         }
         [data-testid="stSidebar"] [class*="st-key-nav_idioma_toggle"]
+            .stButton button:hover * {
+            color: #FFFFFF !important;
+        }
+
+        /* Logout — ícone minimalista (pessoa caminhando, Material Symbol)
+           ao lado do nome. Sem fundo/borda; glifo cinza #999999 igual ao
+           toggle BR/EN; encosta à esquerda da coluna (flex-start) pra
+           ficar logo após o nome. Altura/margin = .sidebar-username pra
+           alinhar na mesma linha. Hover clareia (igual ao BR/EN). */
+        [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
+            .stButton button,
+        [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
+            .stButton button:hover,
+        [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
+            .stButton button:focus,
+        [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
+            .stButton button:active,
+        [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
+            .stButton button:focus-visible {
+            background: transparent !important;
+            background-color: transparent !important;
+            border: none !important;
+            border-color: transparent !important;
+            box-shadow: none !important;
+            outline: none !important;
+            min-height: 2.2rem !important;
+            height: 2.2rem !important;
+            margin-top: 0.6rem !important;
+            padding: 0 !important;
+            justify-content: flex-start !important;
+        }
+        [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
+            .stButton button * {
+            color: #999999 !important;
+            font-size: 1.35rem !important;
+        }
+        [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
             .stButton button:hover * {
             color: #FFFFFF !important;
         }
@@ -2238,16 +2297,8 @@ with st.sidebar:
         """,
         unsafe_allow_html=True,
     )
-    # Botão Sair — rótulo traduzido via i18n. Chamada DEFENSIVA: se o
-    # auth.py em execução ainda não tiver o parâmetro `label` (deploy
-    # parcial / cache de módulo Python no Streamlit Cloud), cai no
-    # fallback sem `label` em vez de derrubar o app inteiro com TypeError.
-    try:
-        logout_button(
-            location="sidebar", key="logout_sidebar", label=t("Sair"),
-        )
-    except TypeError:
-        logout_button(location="sidebar", key="logout_sidebar")
+    # (O logout agora é o ícone minimalista renderizado lá em cima, ao
+    # lado do nome do usuário — ver bloco `_col_logout`.)
 
     st.divider()
 
@@ -7372,10 +7423,13 @@ elif aba == "Geração" and st.session_state.get("geracao_subview", "SIN") == "S
     # --- Controles: granularidade + submercado ---
     # Wrapped no container keyed `gen_ctrl` — escopa o CSS @media que no
     # MOBILE mantém os 2 selectboxes lado a lado (sem isso o Streamlit
-    # empilha 1 por linha). Ratios iguais (1.8/1.8) → os dois selects têm
+    # empilha 1 por linha). Ratios iguais (1.4/1.4) → os dois selects têm
     # a MESMA largura no desktop; a 3ª coluna é só spacer (some no mobile).
+    # Larguras enxutas (1.4) de propósito: no modo Horária a caixa de
+    # submercado mais larga invadia o label "Data base" da fileira de
+    # baixo — encolher os selects abre folga e elimina o encavalamento.
     with st.container(key="gen_ctrl"):
-        ctrl_cols = st.columns([1.8, 1.8, 2.6])
+        ctrl_cols = st.columns([1.4, 1.4, 3.4])
     with ctrl_cols[0]:
         granularidade_gen = st.selectbox(
             "Granularidade",
