@@ -1368,12 +1368,18 @@ def _render_period_controls_horaria(
             break
 
     n = len(presets)
+    # Larguras das colunas — espelham a fileira da Mensal (6 botões + 0.3
+    # spacer + 1.8 + 1.8 = total 9.9) pra que os botões 1D/7D/30D fiquem
+    # do MESMO tamanho que os botões da Mensal/Diária no DESKTOP. Como
+    # aqui só há n=3 botões, o spacer cresce (6.3 - n) pra manter o total
+    # em 9.9 → 1/total = largura idêntica à dos presets da Mensal.
+    _spacer_hora = 6.3 - n
     # Container keyed `periodhora_*` (NÃO usa o prefixo "periodrow" de
     # propósito — não queremos a regra que joga o date_input pra 2ª linha).
     # Escopa o CSS @media que no MOBILE põe os botões de preset + a caixa
     # "Data base" todos numa ÚNICA fileira. Desktop intacto.
     with st.container(key=f"periodhora_{key_prefix}"):
-        cols = st.columns([1] * n + [0.3, 1.4, 1.4])
+        cols = st.columns([1] * n + [_spacer_hora, 1.8, 1.8])
 
     for i, (label, window, _) in enumerate(presets):
         with cols[i]:
@@ -1852,7 +1858,7 @@ with st.sidebar:
     # em português, EN = inglês). Estilizado como texto puro (fundo da
     # sidebar, sem borda) — discreto. Altura travada em 2.2rem via CSS,
     # igual a .sidebar-username → alinhado com o nome por construção.
-    _col_user, _col_logout, _col_idi = st.columns([2.4, 0.7, 1])
+    _col_user, _col_logout, _col_idi = st.columns([1.4, 0.6, 1])
     with _col_user:
         st.markdown(
             f'<div class="sidebar-username">'
@@ -2070,19 +2076,35 @@ with st.sidebar:
             min-width: 0 !important;
             width: auto !important;
             margin-top: 0.6rem !important;
+            /* margin-left negativo aproxima o ícone do fim do nome
+               (compensa o gap entre as colunas do st.columns). */
+            margin-left: -0.6rem !important;
             padding: 0 !important;
             font-size: 0 !important;
             display: flex !important;
             align-items: center !important;
             justify-content: flex-start !important;
         }
+        /* Texto do label "Sair" — escondido visualmente (clip) mas
+           mantido no DOM pra leitores de tela continuarem anunciando. */
+        [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
+            .stButton button [data-testid="stMarkdownContainer"] {
+            position: absolute !important;
+            width: 1px !important;
+            height: 1px !important;
+            padding: 0 !important;
+            margin: -1px !important;
+            overflow: hidden !important;
+            clip: rect(0, 0, 0, 0) !important;
+            white-space: nowrap !important;
+        }
         /* Ícone — SVG via mask-image; cor controlada por background-color. */
         [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
             .stButton button::before {
             content: "";
             display: inline-block;
-            width: 22px;
-            height: 22px;
+            width: 26px;
+            height: 26px;
             background-color: #999999;
             -webkit-mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7'/></svg>") no-repeat center;
             mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7'/></svg>") no-repeat center;
