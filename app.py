@@ -212,8 +212,8 @@ st.markdown(
     }}
     [data-testid="stSidebar"] hr {{
         border-top: 1px solid rgba(204, 9, 47, 0.3) !important;
-        margin-top: 0.4rem !important;
-        margin-bottom: 0.6rem !important;
+        margin-top: 1.4rem !important;
+        margin-bottom: 0.8rem !important;
     }}
     /* Sidebar — esconde os element-containers que só têm <style> (markdown
        de CSS puro). Ficam vazios mas ocupavam um "slot" no layout
@@ -2005,13 +2005,12 @@ with st.sidebar:
             font-size: 1rem !important;
             font-weight: 600 !important;
             color: #A0A0A0 !important;
-            /* O nome vive numa st.columns ao lado do botão de idioma.
-               margin-top 0.6rem + height 2.2rem IGUAIS aos do botão →
-               os dois descem juntos e ficam alinhados por construção. */
-            margin: 0.6rem 0 0 0 !important;
+            /* Sem margem própria — a fileira (flex-row da coluna do
+               usuário) já posiciona tudo; uma margin-top aqui empurrava
+               o nome pra baixo, desalinhando-o do ícone e do BR/EN. */
+            margin: 0 !important;
             height: 2.2rem !important;
-            /* flex: ícone de usuário (SVG, herda a cor via currentColor)
-               + nome alinhados verticalmente, com um gap pequeno. */
+            /* flex centra o nome verticalmente na caixa de 2.2rem. */
             display: flex !important;
             align-items: center !important;
             gap: 0.4rem !important;
