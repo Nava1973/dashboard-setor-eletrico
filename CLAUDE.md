@@ -4704,26 +4704,47 @@ ponto-médio dos títulos das abas). No mobile o título quebra em 2 linhas
 ("Dashboard" / "Setor Elétrico · Brasil") via um `<br>` que só aparece
 abaixo de 700px.
 
-**Logout minimalista na sidebar (⚠ alinhamento EM ABERTO):** o botão
-"Sair" grande virou um ícone de "power" (símbolo universal de sair), ao
-lado do nome do usuário. Armadilhas descobertas:
+**Logout minimalista na sidebar — ícone de "power" (RESOLVIDO):** o botão
+"Sair" grande virou um ícone de power (símbolo universal de sair) colado
+antes do nome do usuário. Foram muitas iterações até a abordagem certa;
+armadilhas registradas pra não repetir:
   - `auth.logout(location="sidebar")` usa `st.sidebar.button` — IGNORA o
-    contexto de coluna e joga o botão pro rodapé da sidebar. Usar
-    `location="main"` (→ `st.button`, respeita a coluna) ou
-    `location="unrendered"` (faz o logout SEM renderizar botão — útil
-    pra acionar logout de dentro de um callback/clique próprio).
+    contexto de coluna e joga o botão pro rodapé da sidebar. (`"main"` →
+    `st.button`, respeita a coluna; `"unrendered"` → faz o logout SEM
+    renderizar botão, mas exige `authentication_status` truthy.)
   - Ícone Material NÃO renderiza neste app: tanto `:material/nome:` no
     label quanto o parâmetro `icon=":material/nome:"` saem como TEXTO
     literal ("power_settings_new") — o CSS pesado do app quebra a fonte
-    de ícones do Streamlit. **Solução: desenhar o ícone por SVG via
-    `mask-image` no `::before`** (independe de fonte; a cor vem do
-    `background-color`, então hover só troca a cor).
-  - Logout final: `st.button` próprio + `help="Sair"` (tooltip) +
-    `auth.logout(location="unrendered")` no clique; a coluna do usuário
-    vira `flex-direction: row` pra o ícone ficar colado antes do nome.
-  - **PENDENTE:** o alinhamento vertical do ícone com o nome/BR ainda não
-    fechou após várias iterações às cegas. Próximo passo: inspecionar o
-    DOM renderizado (F12) antes de mexer mais no CSS.
+    de ícones do Streamlit. Desenhar o ícone por SVG (mask-image ou
+    inline) é o único caminho confiável.
+  - Alinhar um `st.button` separado com o nome (markdown) via flex/CSS
+    NÃO fechou após várias tentativas — cada wrapper aninhado do
+    Streamlit (element-container, stMarkdown, stButton) traz margens
+    próprias imprevisíveis.
+
+  **Solução final que funcionou:** o ícone é um **SVG inline DENTRO do
+  markdown de `.sidebar-username`** — fica na MESMA flex-line do nome, do
+  mesmo jeito que o antigo ícone de pessoa (que nunca desalinhou) →
+  alinhamento por construção. O SVG é embrulhado num
+  `<a class="logout-link" href="?logout=1" title="Sair">` (o `title` dá
+  o tooltip nativo; `fill="currentColor"` + `color` no `<a>` → branco,
+  cinza no hover). O clique faz o navegador navegar pra `?logout=1` →
+  reload completo; o `app.py`, ANTES de `require_login()`, detecta o
+  query param e chama `auth.do_logout()`.
+  - **`auth.do_logout()` (novo):** logout programático sem botão — marca
+    `st.session_state["logout"] = True` (faz o `get_cookie()` do
+    streamlit-authenticator devolver False → sem re-login via cookie),
+    apaga o cookie (`cookie_controller.delete_cookie()`) e zera o estado
+    de auth. `get_cookie()` lê `st.context.cookies` mas curto-circuita em
+    `if st.session_state['logout']` — por isso marcar o flag basta pra
+    impedir o auto-login no mesmo carregamento.
+  - **Import resiliente:** `do_logout` é importado TARDIAMENTE (dentro do
+    handler), com `try/except` → fallback. Motivo: módulo `auth.py` em
+    cache antigo (Streamlit local rodando há dias sem restart, ou deploy
+    parcial) causava `ImportError` no topo do `app.py` e derrubava o app
+    inteiro. Ver §4.7 (Streamlit não recarrega módulos importados de
+    forma confiável — só o `app.py`; mudança em `auth.py` exige restart
+    do servidor).
 
 **Sidebar — espaço em branco:** `st.markdown` que só carrega `<style>`
 gera um element-container vazio que mesmo assim ocupa um "slot" no layout
