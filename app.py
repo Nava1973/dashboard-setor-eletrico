@@ -524,6 +524,16 @@ st.markdown(
             white-space: nowrap !important;
         }}
 
+        /* (2b) cancela o lift global -1.5rem do date_input na Geração
+           Diária/Mensal. No mobile a fileira de período quebra em várias
+           linhas e o label "Data inicial/final", puxado pra cima pelo
+           lift, encavalava nos botões de preset (3M/5A). Sem o lift, as
+           caixas de data descem pro lugar certo. */
+        [class*="st-key-periodrow_btn_gen_"] [data-testid="stDateInput"],
+        [class*="st-key-periodrow_btn_gen_"] .stDateInput {{
+            margin-top: 0 !important;
+        }}
+
         /* (3) modo Horária — presets + Data base numa fileira só */
         [class*="st-key-periodhora"] [data-testid="stHorizontalBlock"] {{
             flex-wrap: nowrap !important;
@@ -1854,17 +1864,21 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
     with _col_logout:
-        # Logout minimalista — ícone "pessoa caminhando" (Material Symbol
-        # directions_walk), cinza igual ao toggle BR/EN, logo ao lado do
-        # nome. Substitui o antigo botão "Sair" grande. Chamada defensiva
-        # (TypeError) preservada pro caso de cache de módulo no Cloud.
+        # Logout minimalista — ícone "pessoa caminhando" ao lado do nome.
+        # location="main" (e NÃO "sidebar"): assim o auth.logout usa
+        # st.button (respeita o contexto desta coluna) em vez de
+        # st.sidebar.button (que ignoraria a coluna e jogaria o botão pro
+        # rodapé da sidebar). O texto do label fica invisível via CSS
+        # (font-size:0 — preservado pra leitores de tela) e o ícone é um
+        # SVG aplicado por mask-image. Passar ":material/..." no label
+        # NÃO funciona aqui (renderiza como texto literal). Chamada
+        # defensiva (TypeError) preservada pro cache de módulo no Cloud.
         try:
             logout_button(
-                location="sidebar", key="logout_sidebar",
-                label=":material/directions_walk:",
+                location="main", key="logout_sidebar", label=t("Sair"),
             )
         except TypeError:
-            logout_button(location="sidebar", key="logout_sidebar")
+            logout_button(location="main", key="logout_sidebar")
     with _col_idi:
         _label_idioma = "BR" if st.session_state["idioma"] == "pt" else "EN"
         if st.button(
@@ -2029,11 +2043,12 @@ with st.sidebar:
             color: #FFFFFF !important;
         }
 
-        /* Logout — ícone minimalista (pessoa caminhando, Material Symbol)
-           ao lado do nome. Sem fundo/borda; glifo cinza #999999 igual ao
-           toggle BR/EN; encosta à esquerda da coluna (flex-start) pra
-           ficar logo após o nome. Altura/margin = .sidebar-username pra
-           alinhar na mesma linha. Hover clareia (igual ao BR/EN). */
+        /* Logout — ícone minimalista (pessoa caminhando) ao lado do nome.
+           Sem fundo/borda. O texto do label fica invisível (font-size:0)
+           e o ícone é um SVG "directions_walk" aplicado via mask-image —
+           a cor (cinza #999999, igual ao BR/EN) vem do background-color;
+           hover clareia pra branco. Altura/margin = .sidebar-username pra
+           alinhar na mesma linha do nome. */
         [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
             .stButton button,
         [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
@@ -2052,18 +2067,31 @@ with st.sidebar:
             outline: none !important;
             min-height: 2.2rem !important;
             height: 2.2rem !important;
+            min-width: 0 !important;
+            width: auto !important;
             margin-top: 0.6rem !important;
             padding: 0 !important;
+            font-size: 0 !important;
+            display: flex !important;
+            align-items: center !important;
             justify-content: flex-start !important;
         }
+        /* Ícone — SVG via mask-image; cor controlada por background-color. */
         [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
-            .stButton button * {
-            color: #999999 !important;
-            font-size: 1.35rem !important;
+            .stButton button::before {
+            content: "";
+            display: inline-block;
+            width: 22px;
+            height: 22px;
+            background-color: #999999;
+            -webkit-mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7'/></svg>") no-repeat center;
+            mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7'/></svg>") no-repeat center;
+            -webkit-mask-size: contain;
+            mask-size: contain;
         }
         [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
-            .stButton button:hover * {
-            color: #FFFFFF !important;
+            .stButton button:hover::before {
+            background-color: #FFFFFF !important;
         }
 
         /* Cabeçalho da seção de autores — Bebas Neue vermelho Bradesco.
