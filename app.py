@@ -1853,27 +1853,30 @@ with st.sidebar:
     if "idioma" not in st.session_state:
         st.session_state["idioma"] = "pt"
     _primeiro_nome = user.split()[0] if (user and user.split()) else user
-    # Linha: [ícone logout] [nome] [toggle BR/EN]. O ícone de logout
-    # (símbolo universal de power/desligar) vem ANTES do nome — substitui
-    # o antigo ícone decorativo de pessoa, que era só enfeite. O toggle
-    # BR↔EN é um único botão que alterna idioma e mostra o atual.
-    _col_logout, _col_user, _col_idi = st.columns([0.5, 1.5, 1])
-    with _col_logout:
-        # Logout minimalista — ícone "power" (SVG via mask-image no CSS).
-        # location="main" (e NÃO "sidebar"): assim o auth.logout usa
-        # st.button (respeita o contexto desta coluna) em vez de
-        # st.sidebar.button (que ignoraria a coluna e jogaria o botão pro
-        # rodapé da sidebar). O texto do label fica invisível via CSS
-        # (clip — preservado pra leitores de tela). Passar ":material/..."
-        # no label NÃO funciona aqui (renderiza como texto literal).
-        # Chamada defensiva (TypeError) preservada pro cache de módulo.
-        try:
-            logout_button(
-                location="main", key="logout_sidebar", label=t("Sair"),
-            )
-        except TypeError:
-            logout_button(location="main", key="logout_sidebar")
+    # Linha: [ícone logout · nome] [toggle BR/EN]. O ícone de logout
+    # (símbolo universal de power) fica colado ANTES do nome — o CSS
+    # transforma a coluna do usuário numa flex-row, então o botão e o
+    # nome ficam lado a lado, juntos (como era o antigo ícone de pessoa,
+    # que removemos). O toggle BR↔EN alterna idioma e mostra o atual.
+    _col_user, _col_idi = st.columns([3, 1])
     with _col_user:
+        # Logout minimalista — st.button próprio (NÃO o auth.logout, que
+        # renderiza um botão com label de texto). `icon=` desenha o ícone
+        # Material de verdade (passar ":material/..." no label NÃO
+        # funciona); `help=` dá o tooltip "Sair" no hover. No clique,
+        # auth.logout(location="unrendered") executa o logout de fato,
+        # sem renderizar botão — o usuário está logado, então funciona.
+        if st.button(
+            " ", key="logout_sidebar", help=t("Sair"),
+            icon=":material/power_settings_new:",
+        ):
+            _auth = st.session_state.get("_authenticator")
+            if _auth is not None:
+                try:
+                    _auth.logout(location="unrendered")
+                except Exception:
+                    pass
+            st.rerun()
         st.markdown(
             f'<div class="sidebar-username">'
             f'<span>{_primeiro_nome}</span></div>',
@@ -2043,12 +2046,33 @@ with st.sidebar:
             color: #FFFFFF !important;
         }
 
-        /* Logout — ícone minimalista de "power" (símbolo universal de
-           ligar/desligar) ANTES do nome. Sem fundo/borda. O texto do
-           label fica invisível (clip) e o ícone é um SVG aplicado via
-           mask-image — a cor (cinza #999999, igual ao BR/EN) vem do
-           background-color; hover clareia pra branco. Altura/margin =
-           .sidebar-username pra alinhar na mesma linha do nome. */
+        /* Logout — botão minimalista de "power" (símbolo universal de
+           sair). A coluna do usuário vira flex-row (regra abaixo), então
+           o ícone fica COLADO antes do nome — gap 0.4rem, como era o
+           antigo ícone de pessoa. Botão sem fundo/borda e estático (sem
+           transform no hover/clique). Ícone branco; vira cinza no hover.
+           O label (um espaço) fica escondido via clip. */
+        [data-testid="stSidebar"]
+            [data-testid="stColumn"]:has(.sidebar-username)
+            > [data-testid="stVerticalBlock"] {
+            flex-direction: row !important;
+            align-items: center !important;
+            gap: 0.4rem !important;
+            margin-top: 0.6rem !important;
+        }
+        /* Os 2 filhos (botão + nome) encolhem pro próprio conteúdo, lado
+           a lado — sem isso o 1º ocuparia a largura toda da fileira. */
+        [data-testid="stSidebar"]
+            [data-testid="stColumn"]:has(.sidebar-username)
+            > [data-testid="stVerticalBlock"] > * {
+            width: auto !important;
+            flex: 0 0 auto !important;
+        }
+        [data-testid="stSidebar"]
+            [data-testid="stColumn"]:has(.sidebar-username)
+            .sidebar-username {
+            margin-top: 0 !important;
+        }
         [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
             .stButton button,
         [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
@@ -2065,29 +2089,21 @@ with st.sidebar:
             border-color: transparent !important;
             box-shadow: none !important;
             outline: none !important;
-            min-height: 2.2rem !important;
-            height: 2.2rem !important;
+            padding: 0 !important;
+            min-height: 0 !important;
             min-width: 0 !important;
             width: auto !important;
-            margin-top: 0.6rem !important;
-            /* margin-right negativo aproxima o ícone do começo do nome
-               (compensa o gap entre as colunas do st.columns). */
-            margin-right: -0.8rem !important;
-            padding: 0 !important;
-            font-size: 0 !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: flex-start !important;
+            height: auto !important;
+            /* estático — nenhum deslocamento no hover/clique. */
+            transform: none !important;
+            color: #FFFFFF !important;
         }
-        /* O logout está ANTES do nome → alinha o botão à direita da sua
-           coluna, encostando na coluna do nome (logo à direita). */
         [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
-            .stButton {
-            display: flex !important;
-            justify-content: flex-end !important;
+            .stButton button:hover {
+            color: #999999 !important;
         }
-        /* Texto do label "Sair" — escondido visualmente (clip) mas
-           mantido no DOM pra leitores de tela continuarem anunciando. */
+        /* Texto do label (um espaço) — escondido via clip, mantido no
+           DOM pra leitores de tela. */
         [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
             .stButton button [data-testid="stMarkdownContainer"] {
             position: absolute !important;
@@ -2099,22 +2115,17 @@ with st.sidebar:
             clip: rect(0, 0, 0, 0) !important;
             white-space: nowrap !important;
         }
-        /* Ícone — SVG "power" via mask-image; cor por background-color. */
+        /* Ícone "power" (Material) — branco, maior; cinza no hover. */
         [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
-            .stButton button::before {
-            content: "";
-            display: inline-block;
-            width: 22px;
-            height: 22px;
-            background-color: #999999;
-            -webkit-mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z'/></svg>") no-repeat center;
-            mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z'/></svg>") no-repeat center;
-            -webkit-mask-size: contain;
-            mask-size: contain;
+            .stButton button [data-testid="stIconMaterial"] {
+            color: #FFFFFF !important;
+            font-size: 26px !important;
+            width: 26px !important;
+            height: 26px !important;
         }
         [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
-            .stButton button:hover::before {
-            background-color: #FFFFFF !important;
+            .stButton button:hover [data-testid="stIconMaterial"] {
+            color: #999999 !important;
         }
 
         /* Cabeçalho da seção de autores — Bebas Neue vermelho Bradesco.
