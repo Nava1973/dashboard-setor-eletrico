@@ -1860,15 +1860,14 @@ with st.sidebar:
     # que removemos). O toggle BR↔EN alterna idioma e mostra o atual.
     _col_user, _col_idi = st.columns([3, 1])
     with _col_user:
-        # Logout minimalista — st.button próprio (NÃO o auth.logout, que
-        # renderiza um botão com label de texto). `icon=` desenha o ícone
-        # Material de verdade (passar ":material/..." no label NÃO
-        # funciona); `help=` dá o tooltip "Sair" no hover. No clique,
-        # auth.logout(location="unrendered") executa o logout de fato,
-        # sem renderizar botão — o usuário está logado, então funciona.
+        # Logout minimalista — st.button próprio. O ícone "power" é
+        # desenhado via CSS (::before com SVG em mask-image): tanto
+        # `icon=":material/..."` quanto ":material/..." no label
+        # renderizam como TEXTO neste app (o CSS pesado quebra a fonte
+        # de ícones do Streamlit). `help=` dá o tooltip "Sair". No
+        # clique, auth.logout(location="unrendered") faz o logout real.
         if st.button(
             " ", key="logout_sidebar", help=t("Sair"),
-            icon=":material/power_settings_new:",
         ):
             _auth = st.session_state.get("_authenticator")
             if _auth is not None:
@@ -2096,11 +2095,9 @@ with st.sidebar:
             height: auto !important;
             /* estático — nenhum deslocamento no hover/clique. */
             transform: none !important;
-            color: #FFFFFF !important;
-        }
-        [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
-            .stButton button:hover {
-            color: #999999 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
         }
         /* Texto do label (um espaço) — escondido via clip, mantido no
            DOM pra leitores de tela. */
@@ -2115,17 +2112,25 @@ with st.sidebar:
             clip: rect(0, 0, 0, 0) !important;
             white-space: nowrap !important;
         }
-        /* Ícone "power" (Material) — branco, maior; cinza no hover. */
+        /* Ícone "power" — desenhado por SVG via mask-image (independe de
+           fonte: a fonte de ícones do Streamlit não renderiza de forma
+           confiável sob o CSS pesado deste app). Branco; cinza no hover. */
         [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
-            .stButton button [data-testid="stIconMaterial"] {
-            color: #FFFFFF !important;
-            font-size: 26px !important;
-            width: 26px !important;
-            height: 26px !important;
+            .stButton button::before {
+            content: "";
+            display: inline-block;
+            width: 26px;
+            height: 26px;
+            flex: 0 0 26px;
+            background-color: #FFFFFF;
+            -webkit-mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z'/></svg>") no-repeat center;
+            mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z'/></svg>") no-repeat center;
+            -webkit-mask-size: contain;
+            mask-size: contain;
         }
         [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
-            .stButton button:hover [data-testid="stIconMaterial"] {
-            color: #999999 !important;
+            .stButton button:hover::before {
+            background-color: #999999;
         }
 
         /* Cabeçalho da seção de autores — Bebas Neue vermelho Bradesco.
