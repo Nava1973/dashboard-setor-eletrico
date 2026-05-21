@@ -538,3 +538,28 @@ def logout_button(
     except TypeError:
         # Versões antigas não aceitam 'key'
         auth.logout(label, location)
+
+
+def do_logout() -> None:
+    """
+    Logout programático — executa o logout SEM renderizar botão.
+
+    Usado pelo ícone de logout da sidebar, que é um link
+    ``<a href="?logout=1">``: o app.py detecta o query param e chama
+    esta função ANTES de ``require_login()``.
+
+    Faz o trio que o botão nativo do streamlit-authenticator faria:
+      1. ``st.session_state["logout"] = True`` — assim o ``get_cookie()``
+         do streamlit-authenticator devolve False e o ``login()`` NÃO
+         re-loga via cookie no mesmo carregamento;
+      2. apaga o cookie de re-autenticação do navegador;
+      3. zera o estado de autenticação.
+    """
+    st.session_state["logout"] = True
+    try:
+        auth = _get_authenticator()
+        auth.cookie_controller.delete_cookie()
+    except Exception:
+        pass
+    for _k in ("authentication_status", "name", "username"):
+        st.session_state[_k] = None

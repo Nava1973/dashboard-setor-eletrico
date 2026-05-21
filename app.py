@@ -20,7 +20,7 @@ import plotly.graph_objects as go
 from streamlit_plotly_events import plotly_events
 from datetime import timedelta
 
-from auth import require_login, logout_button
+from auth import require_login, do_logout
 
 # Logo BBI horizontal branco — lido 1x no nível do módulo, usado na sidebar
 _LOGO_WHITE_PATH = Path(__file__).parent / "assets" / "logos" / "bbi_horizontal_white.png"
@@ -1059,6 +1059,14 @@ setInterval(fixPlotlyEventsBg, 500);
 # =============================================================================
 # AUTENTICAÇÃO
 # =============================================================================
+# Logout via ícone da sidebar — o ícone é um link <a href="?logout=1">.
+# Detecta o query param, executa o logout (limpa estado + apaga cookie)
+# e remove o param (senão um refresh repetiria o logout). Roda ANTES de
+# require_login(): o login() já abre direto na tela de senha.
+if "logout" in st.query_params:
+    del st.query_params["logout"]
+    do_logout()
+
 user = require_login()
 if user is None:
     st.stop()
@@ -1866,30 +1874,23 @@ with st.sidebar:
         st.session_state["idioma"] = "pt"
     _primeiro_nome = user.split()[0] if (user and user.split()) else user
     # Linha: [ícone logout · nome] [toggle BR/EN]. O ícone de logout
-    # (símbolo universal de power) fica colado ANTES do nome — o CSS
-    # transforma a coluna do usuário numa flex-row, então o botão e o
-    # nome ficam lado a lado, juntos (como era o antigo ícone de pessoa,
-    # que removemos). O toggle BR↔EN alterna idioma e mostra o atual.
+    # (símbolo de power) é um SVG inline DENTRO do markdown do nome —
+    # fica na MESMA flex-line de `.sidebar-username`, então alinha com o
+    # nome por construção (era assim o antigo ícone de pessoa). É um
+    # link <a href="?logout=1">: o app.py detecta o query param e
+    # executa o logout. O toggle BR↔EN alterna idioma e mostra o atual.
     _col_user, _col_idi = st.columns([3, 1])
     with _col_user:
-        # Logout minimalista — st.button próprio. O ícone "power" é
-        # desenhado via CSS (::before com SVG em mask-image): tanto
-        # `icon=":material/..."` quanto ":material/..." no label
-        # renderizam como TEXTO neste app (o CSS pesado quebra a fonte
-        # de ícones do Streamlit). `help=` dá o tooltip "Sair". No
-        # clique, auth.logout(location="unrendered") faz o logout real.
-        if st.button(
-            " ", key="logout_sidebar", help=t("Sair"),
-        ):
-            _auth = st.session_state.get("_authenticator")
-            if _auth is not None:
-                try:
-                    _auth.logout(location="unrendered")
-                except Exception:
-                    pass
-            st.rerun()
         st.markdown(
             f'<div class="sidebar-username">'
+            f'<a class="logout-link" href="?logout=1" target="_self" '
+            f'title="{t("Sair")}" aria-label="{t("Sair")}">'
+            f'<svg viewBox="0 0 24 24" fill="currentColor" '
+            f'aria-hidden="true"><path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 '
+            f'1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0'
+            f'-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 '
+            f'4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z"/>'
+            f'</svg></a>'
             f'<span>{_primeiro_nome}</span></div>',
             unsafe_allow_html=True,
         )
@@ -2005,12 +2006,13 @@ with st.sidebar:
             font-size: 1rem !important;
             font-weight: 600 !important;
             color: #A0A0A0 !important;
-            /* Sem margem própria — a fileira (flex-row da coluna do
-               usuário) já posiciona tudo; uma margin-top aqui empurrava
-               o nome pra baixo, desalinhando-o do ícone e do BR/EN. */
-            margin: 0 !important;
+            /* margin-top 0.6rem + height 2.2rem IGUAIS aos do toggle
+               BR/EN → o nome e o toggle descem juntos e ficam alinhados
+               por construção (layout original, pré-experimentos). */
+            margin: 0.6rem 0 0 0 !important;
             height: 2.2rem !important;
-            /* flex centra o nome verticalmente na caixa de 2.2rem. */
+            /* flex: ícone de logout (SVG inline) + nome lado a lado,
+               centrados na vertical, com gap pequeno. */
             display: flex !important;
             align-items: center !important;
             gap: 0.4rem !important;
@@ -2056,99 +2058,26 @@ with st.sidebar:
             color: #FFFFFF !important;
         }
 
-        /* Logout — botão minimalista de "power" (símbolo universal de
-           sair). A coluna do usuário vira flex-row (regra abaixo), então
-           o ícone fica COLADO antes do nome — gap 0.4rem, como era o
-           antigo ícone de pessoa. Botão sem fundo/borda e estático (sem
-           transform no hover/clique). Ícone branco; vira cinza no hover.
-           O label (um espaço) fica escondido via clip. */
-        [data-testid="stSidebar"]
-            [data-testid="stColumn"]:has(.sidebar-username)
-            > [data-testid="stVerticalBlock"] {
-            flex-direction: row !important;
-            align-items: center !important;
-            gap: 0.4rem !important;
-            margin-top: 0.6rem !important;
+        /* Ícone de logout — SVG inline DENTRO de .sidebar-username, na
+           MESMA flex-line do nome (alinhado por construção — era assim o
+           antigo ícone de pessoa). É um link <a href="?logout=1">; o
+           app.py detecta o query param e desloga. Branco; cinza no
+           hover. O title="Sair" do <a> dá o tooltip nativo do navegador. */
+        [data-testid="stSidebar"] .sidebar-username .logout-link {
+            display: inline-flex;
+            align-items: center;
+            color: #FFFFFF !important;
+            text-decoration: none !important;
+            cursor: pointer;
+            line-height: 0;
         }
-        /* Os 2 filhos (botão + nome): cada um vira uma caixa de 2.2rem
-           que encolhe pra largura do conteúdo e centra o próprio
-           conteúdo na vertical (display:flex + align-center). Com as
-           duas caixas na mesma altura e sem margens, o ícone e o nome
-           ficam lado a lado e alinhados na vertical. */
-        [data-testid="stSidebar"]
-            [data-testid="stColumn"]:has(.sidebar-username)
-            > [data-testid="stVerticalBlock"] > * {
-            width: auto !important;
-            flex: 0 0 auto !important;
-            height: 2.2rem !important;
-            margin: 0 !important;
-            display: flex !important;
-            align-items: center !important;
+        [data-testid="stSidebar"] .sidebar-username .logout-link:hover {
+            color: #999999 !important;
         }
-        [data-testid="stSidebar"]
-            [data-testid="stColumn"]:has(.sidebar-username)
-            .sidebar-username {
-            margin-top: 0 !important;
-        }
-        [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
-            .stButton button,
-        [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
-            .stButton button:hover,
-        [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
-            .stButton button:focus,
-        [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
-            .stButton button:active,
-        [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
-            .stButton button:focus-visible {
-            background: transparent !important;
-            background-color: transparent !important;
-            border: none !important;
-            border-color: transparent !important;
-            box-shadow: none !important;
-            outline: none !important;
-            padding: 0 !important;
-            min-height: 0 !important;
-            min-width: 0 !important;
-            width: auto !important;
-            height: auto !important;
-            /* estático — nenhum deslocamento no hover/clique. */
-            transform: none !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-        }
-        /* Texto do label (um espaço) — escondido via clip, mantido no
-           DOM pra leitores de tela. */
-        [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
-            .stButton button [data-testid="stMarkdownContainer"] {
-            position: absolute !important;
-            width: 1px !important;
-            height: 1px !important;
-            padding: 0 !important;
-            margin: -1px !important;
-            overflow: hidden !important;
-            clip: rect(0, 0, 0, 0) !important;
-            white-space: nowrap !important;
-        }
-        /* Ícone "power" — desenhado por SVG via mask-image (independe de
-           fonte: a fonte de ícones do Streamlit não renderiza de forma
-           confiável sob o CSS pesado deste app). Branco; cinza no hover. */
-        [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
-            .stButton button::before {
-            content: "";
-            display: inline-block;
-            width: 26px;
-            height: 26px;
-            flex: 0 0 26px;
-            background-color: #FFFFFF;
-            -webkit-mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z'/></svg>") no-repeat center;
-            mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z'/></svg>") no-repeat center;
-            -webkit-mask-size: contain;
-            mask-size: contain;
-        }
-        [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
-            .stButton button:hover::before {
-            background-color: #999999;
+        [data-testid="stSidebar"] .sidebar-username .logout-link svg {
+            width: 22px;
+            height: 22px;
+            display: block;
         }
 
         /* Cabeçalho da seção de autores — Bebas Neue vermelho Bradesco.
