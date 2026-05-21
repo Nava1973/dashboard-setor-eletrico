@@ -1853,38 +1853,32 @@ with st.sidebar:
     if "idioma" not in st.session_state:
         st.session_state["idioma"] = "pt"
     _primeiro_nome = user.split()[0] if (user and user.split()) else user
-    # Nome + toggle de idioma na mesma linha. O toggle é UM ÚNICO botão
-    # que alterna BR↔EN a cada clique e exibe o idioma ATUAL (BR = dash
-    # em português, EN = inglês). Estilizado como texto puro (fundo da
-    # sidebar, sem borda) — discreto. Altura travada em 2.2rem via CSS,
-    # igual a .sidebar-username → alinhado com o nome por construção.
-    _col_user, _col_logout, _col_idi = st.columns([1.4, 0.6, 1])
-    with _col_user:
-        st.markdown(
-            f'<div class="sidebar-username">'
-            f'<svg width="16" height="16" viewBox="0 0 24 24" '
-            f'fill="currentColor" aria-hidden="true"><path d="M12 12c2.21 0 '
-            f'4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 '
-            f'1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'
-            f'<span>{_primeiro_nome}</span></div>',
-            unsafe_allow_html=True,
-        )
+    # Linha: [ícone logout] [nome] [toggle BR/EN]. O ícone de logout
+    # (símbolo universal de power/desligar) vem ANTES do nome — substitui
+    # o antigo ícone decorativo de pessoa, que era só enfeite. O toggle
+    # BR↔EN é um único botão que alterna idioma e mostra o atual.
+    _col_logout, _col_user, _col_idi = st.columns([0.5, 1.5, 1])
     with _col_logout:
-        # Logout minimalista — ícone "pessoa caminhando" ao lado do nome.
+        # Logout minimalista — ícone "power" (SVG via mask-image no CSS).
         # location="main" (e NÃO "sidebar"): assim o auth.logout usa
         # st.button (respeita o contexto desta coluna) em vez de
         # st.sidebar.button (que ignoraria a coluna e jogaria o botão pro
         # rodapé da sidebar). O texto do label fica invisível via CSS
-        # (font-size:0 — preservado pra leitores de tela) e o ícone é um
-        # SVG aplicado por mask-image. Passar ":material/..." no label
-        # NÃO funciona aqui (renderiza como texto literal). Chamada
-        # defensiva (TypeError) preservada pro cache de módulo no Cloud.
+        # (clip — preservado pra leitores de tela). Passar ":material/..."
+        # no label NÃO funciona aqui (renderiza como texto literal).
+        # Chamada defensiva (TypeError) preservada pro cache de módulo.
         try:
             logout_button(
                 location="main", key="logout_sidebar", label=t("Sair"),
             )
         except TypeError:
             logout_button(location="main", key="logout_sidebar")
+    with _col_user:
+        st.markdown(
+            f'<div class="sidebar-username">'
+            f'<span>{_primeiro_nome}</span></div>',
+            unsafe_allow_html=True,
+        )
     with _col_idi:
         _label_idioma = "BR" if st.session_state["idioma"] == "pt" else "EN"
         if st.button(
@@ -2049,12 +2043,12 @@ with st.sidebar:
             color: #FFFFFF !important;
         }
 
-        /* Logout — ícone minimalista (pessoa caminhando) ao lado do nome.
-           Sem fundo/borda. O texto do label fica invisível (font-size:0)
-           e o ícone é um SVG "directions_walk" aplicado via mask-image —
-           a cor (cinza #999999, igual ao BR/EN) vem do background-color;
-           hover clareia pra branco. Altura/margin = .sidebar-username pra
-           alinhar na mesma linha do nome. */
+        /* Logout — ícone minimalista de "power" (símbolo universal de
+           ligar/desligar) ANTES do nome. Sem fundo/borda. O texto do
+           label fica invisível (clip) e o ícone é um SVG aplicado via
+           mask-image — a cor (cinza #999999, igual ao BR/EN) vem do
+           background-color; hover clareia pra branco. Altura/margin =
+           .sidebar-username pra alinhar na mesma linha do nome. */
         [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
             .stButton button,
         [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
@@ -2076,14 +2070,21 @@ with st.sidebar:
             min-width: 0 !important;
             width: auto !important;
             margin-top: 0.6rem !important;
-            /* margin-left negativo aproxima o ícone do fim do nome
+            /* margin-right negativo aproxima o ícone do começo do nome
                (compensa o gap entre as colunas do st.columns). */
-            margin-left: -0.6rem !important;
+            margin-right: -0.8rem !important;
             padding: 0 !important;
             font-size: 0 !important;
             display: flex !important;
             align-items: center !important;
             justify-content: flex-start !important;
+        }
+        /* O logout está ANTES do nome → alinha o botão à direita da sua
+           coluna, encostando na coluna do nome (logo à direita). */
+        [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
+            .stButton {
+            display: flex !important;
+            justify-content: flex-end !important;
         }
         /* Texto do label "Sair" — escondido visualmente (clip) mas
            mantido no DOM pra leitores de tela continuarem anunciando. */
@@ -2098,16 +2099,16 @@ with st.sidebar:
             clip: rect(0, 0, 0, 0) !important;
             white-space: nowrap !important;
         }
-        /* Ícone — SVG via mask-image; cor controlada por background-color. */
+        /* Ícone — SVG "power" via mask-image; cor por background-color. */
         [data-testid="stSidebar"] [class*="st-key-logout_sidebar"]
             .stButton button::before {
             content: "";
             display: inline-block;
-            width: 26px;
-            height: 26px;
+            width: 22px;
+            height: 22px;
             background-color: #999999;
-            -webkit-mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7'/></svg>") no-repeat center;
-            mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M13.5 5.5c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM9.8 8.9L7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3C14.8 12 16.8 13 19 13v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1L6 8.3V13h2V9.6l1.8-.7'/></svg>") no-repeat center;
+            -webkit-mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z'/></svg>") no-repeat center;
+            mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z'/></svg>") no-repeat center;
             -webkit-mask-size: contain;
             mask-size: contain;
         }
