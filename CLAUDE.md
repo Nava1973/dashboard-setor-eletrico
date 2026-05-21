@@ -4646,6 +4646,98 @@ Quando NÃO tem estimativa, usa caminho legacy (1 trace única) — zero regress
 
 **Validação:** compile-check OK em `tab_gsf.py` + `data_loader.py`; smoke-test do round-trip (admin grava estimativa → mês aparece como tracejado no chart → linha azul no detalhamento → CSV exporta com flag "Estimativa CCEE"). Iterações longas com usuário pra acertar a legenda em 1 linha (única solução robusta: legenda HTML custom, não Plotly).
 
+### 5.99 Sprint responsividade mobile + polish da sidebar (20/05/2026)
+
+Sprint longo de ajustes mobile-first (testados direto no Streamlit Cloud,
+já que mobile = Cloud — só commits PUSHED aparecem no celular) +
+reorganização da sidebar. Quase tudo escopado em `@media (max-width:
+768px)` — desktop intacto, salvo onde anotado.
+
+**Período no mobile (abas com `_render_period_controls`):** em tela
+estreita o Streamlit empilhava os botões de preset (1M/3M/…) e os
+date_inputs 1 por linha. CSS `flex-wrap` escopado nos containers
+`periodrow_*`: linha 1 = botões distribuídos; linha 2 = data inicial +
+final. A coluna-spacer vazia vira quebra de linha invisível
+(`flex: 0 0 100%`, altura 0).
+
+**ENA mobile:** (a) os 4 KPIs (12m/3m/mês/úmido) viram grade 2×2
+(`flex-wrap` + `flex: 1 1 42%`) com `row-gap` folgado pra não encavalar;
+(b) a nota "ENA em % da MLT…" vai pro FIM da página no mobile via
+**render-twice**: a nota é renderizada 2× (containers `ena_nota_top` e
+`ena_nota_bottom`) e o CSS esconde uma ou outra por viewport. A tentativa
+anterior com CSS `order` falhou — `order` só reordena IRMÃOS no MESMO
+flex container, e a classe `st-key-` cai num elemento aninhado.
+
+**Modulação:** rótulos curtos no selectbox de granularidade
+(`LABELS_GRANULARIDADE_CURTO` = Mês/Trim./Semana — só pro selectbox; o
+subtítulo do gráfico segue com a forma longa). Receita por Empresa: os 6
+botões de empresa fluem 3 por linha no mobile (container
+`receita_emp_btns`). Título da sub-view → "MODULAÇÃO · RECEITA" (padrão
+"{aba} · {sub-view}").
+
+**Geração:** granularidade e submercado com a MESMA largura no desktop
+(ratios `[1.4, 1.4, 3.4]`) — encolhidos de propósito pra a caixa de
+submercado não invadir o label "Data base" no modo Horária. No mobile os
+2 selects ficam lado a lado (container `gen_ctrl`, flex-nowrap). Botões
+de preset com fonte menor no mobile (Diária tem 7 → texto encavalava em
+2 linhas). Preset "90D" removido da Horária (desktop+mobile). Botões
+1D/7D/30D da Horária agora têm a MESMA largura dos da Mensal — as colunas
+espelham a fileira da Mensal (total 9.9; `_spacer_hora = 6.3 - n`). No
+mobile a fileira da Horária (presets + Data base) vira 1 linha só
+(container `periodhora_*` — prefixo PROPOSITALMENTE ≠ "periodrow" pra
+não herdar a regra que joga o date pra 2ª linha); cancela-se o lift
+-1.5rem do date_input pra "Data base" não subir em cima dos selects.
+
+**PLD horário — KPIs abaixo do gráfico (mobile):** a régua de KPIs do
+single-day (PLD médio/máx/mín/spread) desce pra DEPOIS do gráfico no
+mobile. Régua + gráfico foram embrulhados juntos num container ISOLADO
+`pld1d_zone` — assim o CSS `order` troca só esses 2 elementos (a régua
+cai logo abaixo do gráfico, não no fim da página). Lição: `order` só
+funciona de forma previsível quando os elementos a reordenar estão
+sozinhos num flex container próprio.
+
+**Títulos:** fonte do `h1` reduzida no mobile (2rem → 1.5rem). Despacho
+Térmico · SIN perde o "Total" → "SIN · Despacho Termelétrico".
+
+**Tela de login:** separador do título troca de "—" pra "·" (o
+ponto-médio dos títulos das abas). No mobile o título quebra em 2 linhas
+("Dashboard" / "Setor Elétrico · Brasil") via um `<br>` que só aparece
+abaixo de 700px.
+
+**Logout minimalista na sidebar (⚠ alinhamento EM ABERTO):** o botão
+"Sair" grande virou um ícone de "power" (símbolo universal de sair), ao
+lado do nome do usuário. Armadilhas descobertas:
+  - `auth.logout(location="sidebar")` usa `st.sidebar.button` — IGNORA o
+    contexto de coluna e joga o botão pro rodapé da sidebar. Usar
+    `location="main"` (→ `st.button`, respeita a coluna) ou
+    `location="unrendered"` (faz o logout SEM renderizar botão — útil
+    pra acionar logout de dentro de um callback/clique próprio).
+  - Ícone Material NÃO renderiza neste app: tanto `:material/nome:` no
+    label quanto o parâmetro `icon=":material/nome:"` saem como TEXTO
+    literal ("power_settings_new") — o CSS pesado do app quebra a fonte
+    de ícones do Streamlit. **Solução: desenhar o ícone por SVG via
+    `mask-image` no `::before`** (independe de fonte; a cor vem do
+    `background-color`, então hover só troca a cor).
+  - Logout final: `st.button` próprio + `help="Sair"` (tooltip) +
+    `auth.logout(location="unrendered")` no clique; a coluna do usuário
+    vira `flex-direction: row` pra o ícone ficar colado antes do nome.
+  - **PENDENTE:** o alinhamento vertical do ícone com o nome/BR ainda não
+    fechou após várias iterações às cegas. Próximo passo: inspecionar o
+    DOM renderizado (F12) antes de mexer mais no CSS.
+
+**Sidebar — espaço em branco:** `st.markdown` que só carrega `<style>`
+gera um element-container vazio que mesmo assim ocupa um "slot" no layout
+vertical (espaço morto, ex.: entre o nome e a 1ª linha vermelha). Fix:
+esconder esses containers com
+`[data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] style) { display: none }`
+— o `<style>` continua valendo mesmo com o container `display:none`.
+
+**Lição transversal:** pra reordenar/reposicionar elementos do Streamlit
+via CSS, embrulhe-os num `st.container(key=...)` próprio — `order` e
+`flex-wrap` precisam de um flex container previsível, e o `st-key-`
+escopa o seletor. Material icon font é não-confiável sob CSS pesado —
+prefira SVG em `mask-image`.
+
 ### 5.98 i18n PT/EN — Fase 1 (casca: sidebar, menu, toggle)
 
 Internacionalização do dashboard em fases. **Fase 1 = a "casca"** (sidebar):
