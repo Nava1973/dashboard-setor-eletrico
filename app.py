@@ -20,7 +20,7 @@ import plotly.graph_objects as go
 from streamlit_plotly_events import plotly_events
 from datetime import timedelta
 
-from auth import require_login, do_logout
+from auth import require_login
 
 # Logo BBI horizontal branco — lido 1x no nível do módulo, usado na sidebar
 _LOGO_WHITE_PATH = Path(__file__).parent / "assets" / "logos" / "bbi_horizontal_white.png"
@@ -1063,9 +1063,24 @@ setInterval(fixPlotlyEventsBg, 500);
 # Detecta o query param, executa o logout (limpa estado + apaga cookie)
 # e remove o param (senão um refresh repetiria o logout). Roda ANTES de
 # require_login(): o login() já abre direto na tela de senha.
+#
+# Import TARDIO de do_logout: se o auth.py estiver num cache de módulo
+# antigo (deploy parcial no Cloud, ou Streamlit local rodando há muito
+# sem restart), o import falha — mas aí cai no fallback em vez de
+# derrubar o app inteiro com ImportError no topo do módulo.
 if "logout" in st.query_params:
     del st.query_params["logout"]
-    do_logout()
+    try:
+        from auth import do_logout
+        do_logout()
+    except Exception:
+        # Fallback mínimo: marca o logout no state (o get_cookie() do
+        # streamlit-authenticator passa a devolver False). O cookie pode
+        # sobreviver até o próximo carregamento limpo — aceitável só
+        # neste caminho degradado.
+        st.session_state["logout"] = True
+        for _k in ("authentication_status", "name", "username"):
+            st.session_state[_k] = None
 
 user = require_login()
 if user is None:
