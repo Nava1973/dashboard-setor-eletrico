@@ -212,6 +212,18 @@ st.markdown(
     }}
     [data-testid="stSidebar"] hr {{
         border-top: 1px solid rgba(204, 9, 47, 0.3) !important;
+        margin-top: 0.4rem !important;
+        margin-bottom: 0.6rem !important;
+    }}
+    /* Sidebar — esconde os element-containers que só têm <style> (markdown
+       de CSS puro). Ficam vazios mas ocupavam um "slot" no layout
+       vertical, criando espaço em branco (ex.: entre o nome e a 1ª linha
+       vermelha). O <style> continua valendo mesmo com o container
+       display:none — então isto sobe os blocos de baixo sem efeito
+       colateral. */
+    [data-testid="stSidebar"]
+        [data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] style) {{
+        display: none !important;
     }}
     /* Botão na sidebar: vermelho Bradesco com texto branco (contraste garantido) */
     [data-testid="stSidebar"] .stButton > button {{
@@ -2059,13 +2071,20 @@ with st.sidebar:
             gap: 0.4rem !important;
             margin-top: 0.6rem !important;
         }
-        /* Os 2 filhos (botão + nome) encolhem pro próprio conteúdo, lado
-           a lado — sem isso o 1º ocuparia a largura toda da fileira. */
+        /* Os 2 filhos (botão + nome): cada um vira uma caixa de 2.2rem
+           que encolhe pra largura do conteúdo e centra o próprio
+           conteúdo na vertical (display:flex + align-center). Com as
+           duas caixas na mesma altura e sem margens, o ícone e o nome
+           ficam lado a lado e alinhados na vertical. */
         [data-testid="stSidebar"]
             [data-testid="stColumn"]:has(.sidebar-username)
             > [data-testid="stVerticalBlock"] > * {
             width: auto !important;
             flex: 0 0 auto !important;
+            height: 2.2rem !important;
+            margin: 0 !important;
+            display: flex !important;
+            align-items: center !important;
         }
         [data-testid="stSidebar"]
             [data-testid="stColumn"]:has(.sidebar-username)
